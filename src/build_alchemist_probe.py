@@ -19,6 +19,8 @@ ENTRY_HEADER_SIZE = 28
 MOD_ID = "{42ba4603-2b13-446d-a2a4-6cf3a55ddac3}"
 DIALOG_ID = b"CGAL"
 SOURCE_DIALOG_ID = b"AP10"
+BREWING_DIALOG_ID = b"CGBR"
+SOURCE_BREWING_DIALOG_ID = b"AP69"
 AP10_SPELL_BUTTON_RECT_OFFSET = 0x0D34
 AP10_SPELL_BUTTON_RECT = (103, 162, 93, 26)
 BUILDING_IDS = ("ALB1", "ALB2", "ALB3")
@@ -62,8 +64,10 @@ def build_siege_test_fixture(stock_quests: Path) -> str:
 
 
 def build_gpl_project(include_siege_test_fixture: bool) -> str:
-    source = '\nsource="Alchemist_Siege_Test.gpl"' if include_siege_test_fixture else ""
-    return f'data="Alchemist_Building_Data.dat"{source}\n'
+    sources = ['source="Alchemist_Brewing.gpl"']
+    if include_siege_test_fixture:
+        sources.append('source="Alchemist_Siege_Test.gpl"')
+    return 'data="Alchemist_Building_Data.dat"\n' + "\n".join(sources) + "\n"
 
 
 @dataclass(frozen=True)
@@ -237,6 +241,27 @@ def build_units_xml(stock_buildings_xml: Path) -> bytes:
     return ET.tostring(output, encoding="utf-8", xml_declaration=False) + b"\n"
 
 
+def build_brewing_overlays_xml(stock_overlays_xml: Path) -> bytes:
+    stock_root = ET.parse(stock_overlays_xml).getroot()
+    source = stock_root.find('.//Description[@Name="Speed_Tonic_Icon"]')
+    if source is None:
+        raise ValueError("Stock Speed_Tonic_Icon overlay is missing")
+    overlay = ET.fromstring(ET.tostring(source, encoding="utf-8"))
+    overlay.set("ID", "AXE1")
+    overlay.set("Name", "alchemist_invigorating_elixer_icon")
+    overlay.set("Description", "Invigorating Elixer")
+    image = overlay.find("./Engine/ImageIDBase")
+    script = overlay.find("./Engine/Script")
+    if image is None or script is None:
+        raise ValueError("Stock Speed_Tonic_Icon overlay contract changed")
+    image.set("value", "XR01")
+    script.set("GPLFunction", "Alchemist_Invigorating_Elixer_End")
+    output = ET.Element("Majesty")
+    output.append(overlay)
+    ET.indent(output, space="\t")
+    return ET.tostring(output, encoding="utf-8", xml_declaration=False) + b"\n"
+
+
 def disable_ap10_secondary_control(data: bytes) -> bytes:
     output = bytearray(data)
     actual = struct.unpack_from("<4I", output, AP10_SPELL_BUTTON_RECT_OFFSET)
@@ -258,6 +283,12 @@ def build_text_cam(
     if not enable_unsafe_brewing_control:
         menu = disable_ap10_secondary_control(menu)
     strings = read_cam_entry(stock_text_cam, b"STRT", SOURCE_DIALOG_ID).data
+    brewing_menu = read_cam_entry(
+        stock_text_cam, b"SMNU", SOURCE_BREWING_DIALOG_ID
+    ).data
+    brewing_strings = read_cam_entry(
+        stock_text_cam, b"STRT", SOURCE_BREWING_DIALOG_ID
+    ).data
     unit_names = read_cam_entry(stock_text_cam, b"STRT", b"UNTN").data
     patched_units = patch_strt_by_id(
         unit_names,
@@ -278,15 +309,38 @@ def build_text_cam(
             30: "Open this Laboratory's experimental Brewing window.",
         },
     )
+    patched_brewing_strings = patch_strt_by_index(
+        brewing_strings,
+        {
+            0: "ALCHEMIST'S LABORATORY",
+            1: "Invigorating Elixer",
+            2: "Increase the speed of every unit in your realm for 30 seconds.",
+            3: "30",
+            4: "Future Brew",
+            5: "This brewing slot is not yet available.",
+            6: "",
+            7: "Future Brew",
+            8: "This brewing slot is not yet available.",
+            9: "",
+            13: "BREWING",
+        },
+    )
     write_cam(
         output_path,
         (
-            CamSection(b"SMNU", (CamEntry(pad_name(DIALOG_ID), menu),)),
+            CamSection(
+                b"SMNU",
+                (
+                    CamEntry(pad_name(DIALOG_ID), menu),
+                    CamEntry(pad_name(BREWING_DIALOG_ID), brewing_menu),
+                ),
+            ),
             CamSection(
                 b"STRT",
                 (
                     CamEntry(pad_name(b"UNTN"), patched_units),
                     CamEntry(pad_name(DIALOG_ID), patched_strings),
+                    CamEntry(pad_name(BREWING_DIALOG_ID), patched_brewing_strings),
                 ),
             ),
         ),
@@ -333,6 +387,7 @@ def build_manifest(use_ap10_title_alias: bool = False) -> str:
 \t\t\t\t\t<CAM>Data\\alchemist_probe_textdata.cam</CAM>
 \t\t\t\t\t<CAM>Data\\alchemist_probe_miscdata.cam</CAM>
 \t\t\t\t\t<Descriptions>Data\\alchemist_probe_units.xml</Descriptions>
+\t\t\t\t\t<Descriptions>Data\\alchemist_brewing_overlays.xml</Descriptions>
 \t\t\t\t\t<GPL>
 \t\t\t\t\t\t<Target>Data\\Alchemist.bcd</Target>
 \t\t\t\t\t\t<Source>GPL\\Alchemist_Building_Data.dat</Source>
@@ -355,11 +410,13 @@ def validate_output(
     expected = {
         output_root / "CustomGuildAlchemistProbe.mmxml",
         output_root / "Data" / "alchemist_probe_units.xml",
+        output_root / "Data" / "alchemist_brewing_overlays.xml",
         output_root / "Data" / "alchemist_probe_textdata.cam",
         output_root / "Data" / "alchemist_probe_miscdata.cam",
         output_root / "Data" / "Alchemist.bcd",
         output_root / "GPL" / "Alchemist.gplproj",
         output_root / "GPL" / "Alchemist_Building_Data.dat",
+        output_root / "GPL" / "Alchemist_Brewing.gpl",
     }
     if include_siege_test_fixture:
         expected.add(output_root / "GPL" / "Alchemist_Siege_Test.gpl")
@@ -376,6 +433,12 @@ def validate_output(
     menu = read_cam_entry(text_cam, b"SMNU", DIALOG_ID).data
     if menu == b"":
         raise ValueError("CGAL menu is empty")
+    brewing_menu = read_cam_entry(text_cam, b"SMNU", BREWING_DIALOG_ID).data
+    if brewing_menu == b"":
+        raise ValueError("CGBR menu is empty")
+    brewing_strings = read_cam_entry(text_cam, b"STRT", BREWING_DIALOG_ID).data
+    if b"Invigorating Elixer\x00" not in brewing_strings:
+        raise ValueError("CGBR Invigorating Elixer label is missing")
     rect = struct.unpack_from("<4I", menu, AP10_SPELL_BUTTON_RECT_OFFSET)
     expected_rect = AP10_SPELL_BUTTON_RECT if enable_unsafe_brewing_control else (103, 162, 0, 0)
     if rect != expected_rect:
@@ -428,6 +491,9 @@ def build(
     (data_dir / "alchemist_probe_units.xml").write_bytes(
         build_units_xml(sdk_data / "M_Buildings.xml")
     )
+    (data_dir / "alchemist_brewing_overlays.xml").write_bytes(
+        build_brewing_overlays_xml(sdk_data.parent / "DataMX" / "MX_Overlays.xml")
+    )
     build_text_cam(
         game_data / "textdata.cam",
         data_dir / "alchemist_probe_textdata.cam",
@@ -449,6 +515,7 @@ def build(
             "(title AlchemistsLaboratory)", "(title Temple_Fervus)"
         )
     (gpl_dir / "Alchemist_Building_Data.dat").write_bytes(building_data.encode("utf-8"))
+    shutil.copy2(GPL_SOURCE_ROOT / "Alchemist_Brewing.gpl", gpl_dir)
     if include_siege_test_fixture:
         siege_source = build_siege_test_fixture(
             sdk_data.parent / "GPLMx" / "Rules" / "Quests_3.gpl"

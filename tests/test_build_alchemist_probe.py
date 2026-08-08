@@ -99,10 +99,35 @@ end
     def test_siege_fixture_is_an_explicit_project_source(self) -> None:
         self.assertEqual(
             builder.build_gpl_project(False),
-            'data="Alchemist_Building_Data.dat"\n',
+            'data="Alchemist_Building_Data.dat"\nsource="Alchemist_Brewing.gpl"\n',
         )
         self.assertIn(
             'source="Alchemist_Siege_Test.gpl"', builder.build_gpl_project(True)
+        )
+
+    def test_brewing_source_uses_a_guarded_realm_wide_speed_tier(self) -> None:
+        source = (builder.GPL_SOURCE_ROOT / "Alchemist_Brewing.gpl").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn('ThisAgent\'s "Title" == "AlchemistsLaboratory"', source)
+        self.assertIn('"hero"', source)
+        self.assertIn('"monster"', source)
+        self.assertIn("#ATTRIB_MovementRateModifier, -200", source)
+        self.assertIn("#ATTRIB_MovementRateModifier, 200", source)
+        self.assertIn("30000", source)
+
+    def test_brewing_overlay_has_a_private_callback(self) -> None:
+        stock = """<Majesty><Description type="Unit" subType="Overlay" ID="XR01" Name="Speed_Tonic_Icon" Description="Speed Tonic"><Engine><ImageIDBase value="XR01"/><Script type="0" cProc="0" GPLFunction="Speed_Tonic_End"/></Engine><Game/></Description></Majesty>"""
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "MX_Overlays.xml"
+            path.write_text(stock, encoding="utf-8")
+            output = ET.fromstring(builder.build_brewing_overlays_xml(path))
+        overlay = output.find("Description")
+        self.assertEqual(overlay.get("ID"), "AXE1")
+        self.assertEqual(overlay.get("Name"), "alchemist_invigorating_elixer_icon")
+        self.assertEqual(
+            overlay.find("./Engine/Script").get("GPLFunction"),
+            "Alchemist_Invigorating_Elixer_End",
         )
 
 

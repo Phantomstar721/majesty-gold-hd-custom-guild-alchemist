@@ -1,0 +1,56 @@
+// Invigorating Elixer is dispatched through Majesty's deterministic Market Day
+// command. The runtime sends that command only for the custom CGBR control.
+// Stock Marketplaces continue through the original behavior reproduced below.
+
+function Alchemist_Apply_Invigorating_Elixer(agent ThisAgent, string Family)
+declare
+	list Units;
+	agent Unit;
+begin
+	$ListObjects(ThisAgent, Family, -1, Units, #MyPlayer, #InsideOtherUnits);
+	foreach Unit in Units do
+		begin
+			if ($IsValidGamePiece(Unit))
+				begin
+					if ($CheckEffector(Unit, "alchemist_invigorating_elixer_icon") == False)
+						begin
+							$AdjustAttribute(Unit, #ATTRIB_MovementRateModifier, -200);
+							$CreateEffector(Unit, "alchemist_invigorating_elixer_icon", 30000);
+						end
+				end
+		end
+end
+
+function Alchemist_Invigorating_Elixer_End(agent ThisAgent)
+declare
+	integer Restored;
+begin
+	if ($IsValidGamePiece(ThisAgent))
+		begin
+			$AdjustAttribute(ThisAgent, #ATTRIB_MovementRateModifier, 200);
+			Restored = True;
+		end
+end
+
+function DoMarketDay(agent ThisAgent)
+declare
+	integer Gold;
+begin
+	if (ThisAgent's "Title" == "AlchemistsLaboratory")
+		begin
+			$PlaySound(ThisAgent, "Temple_Fervus", "Select");
+			$CreateEffector(ThisAgent, "got_gold", 0);
+			$Alchemist_Apply_Invigorating_Elixer(ThisAgent, "hero");
+			$Alchemist_Apply_Invigorating_Elixer(ThisAgent, "monster");
+		end
+	else
+		begin
+			Gold = (#Market_Day_Duration / ThisAgent's "Revenue_Time") * ThisAgent's "Revenue_Amount";
+			Gold = $Random_To_Percent(Gold, 4) + ($RandomNumber(#Market_Day_Bonus) * ThisAgent's "Level");
+			$Give_Gold(ThisAgent, Gold);
+			$SuspendThread(ThisAgent's "RevenueScript");
+			ThisAgent's "Title" = "Closed";
+			ThisAgent's "SubType" = "Closed";
+			$Release_Occupants(ThisAgent);
+		end
+end

@@ -1,0 +1,344 @@
+from __future__ import annotations
+
+import argparse
+from dataclasses import dataclass
+from pathlib import Path
+import shutil
+import struct
+import xml.etree.ElementTree as ET
+
+
+MAGIC = b"CYLBPC  \x01\x00\x01\x00"
+HEADER_SIZE = 20
+DIR_ENTRY_SIZE = 8
+SECTION_HEADER_SIZE = 8
+ENTRY_HEADER_SIZE = 28
+
+MOD_ID = "{42ba4603-2b13-446d-a2a4-6cf3a55ddac3}"
+DIALOG_ID = b"CGAL"
+SOURCE_DIALOG_ID = b"AP10"
+BUILDING_IDS = ("ALB1", "ALB2", "ALB3")
+BUILDING_NAMES = (
+    "AlchemistsLaboratory1",
+    "AlchemistsLaboratory2",
+    "AlchemistsLaboratory3",
+)
+SOURCE_BUILDING_NAMES = ("Temple_Fervus1", "Temple_Fervus2", "Temple_Fervus3")
+ALCHEMIST_BDEP_RULE = b"ALB1 : ABJ2 ABJ3 NOT NOT ||"
+PHANTOM_BDEP_RULE = b"PHG1 : ABJ2 ABJ3 NOT NOT ||"
+
+
+@dataclass(frozen=True)
+class CamEntry:
+    name: bytes
+    data: bytes
+
+
+@dataclass(frozen=True)
+class CamSection:
+    extension: bytes
+    entries: tuple[CamEntry, ...]
+    padding: bytes = b"\x00\x00\x00\x00"
+
+
+def u32(data: bytes, offset: int) -> int:
+    return struct.unpack_from("<I", data, offset)[0]
+
+
+def pad_name(name: bytes) -> bytes:
+    if len(name) > 20:
+        raise ValueError(f"CAM entry name is too long: {name!r}")
+    return name.ljust(20, b"\x00")
+
+
+def fourcc_id(value: str) -> int:
+    raw = value.encode("ascii")
+    if len(raw) != 4:
+        raise ValueError(f"Expected a FourCC, got {value!r}")
+    return struct.unpack("<I", raw)[0]
+
+
+def read_cam_entry(path: Path, extension: bytes, name: bytes) -> CamEntry:
+    data = path.read_bytes()
+    if data[: len(MAGIC)] != MAGIC:
+        raise ValueError(f"Not a CYLBPC CAM archive: {path}")
+    section_count = u32(data, 12)
+    cursor = HEADER_SIZE
+    directory: list[tuple[bytes, int]] = []
+    for _ in range(section_count):
+        directory.append((data[cursor : cursor + 4], u32(data, cursor + 4)))
+        cursor += DIR_ENTRY_SIZE
+    for section_extension, section_offset in directory:
+        if section_extension != extension:
+            continue
+        count = u32(data, section_offset)
+        cursor = section_offset + SECTION_HEADER_SIZE
+        for _ in range(count):
+            raw_name = data[cursor : cursor + 20]
+            payload_offset = u32(data, cursor + 20)
+            payload_size = u32(data, cursor + 24)
+            cursor += ENTRY_HEADER_SIZE
+            if raw_name.rstrip(b"\x00") == name:
+                return CamEntry(raw_name, data[payload_offset : payload_offset + payload_size])
+        break
+    raise ValueError(f"Could not find {extension.decode()}/{name.decode()} in {path}")
+
+
+def write_cam(path: Path, sections: tuple[CamSection, ...]) -> None:
+    section_count = len(sections)
+    file_header_size = HEADER_SIZE + section_count * DIR_ENTRY_SIZE
+    content_header_size = sum(
+        SECTION_HEADER_SIZE + len(section.entries) * ENTRY_HEADER_SIZE
+        for section in sections
+    )
+    cursor = file_header_size + content_header_size
+    payload_offsets: list[list[int]] = []
+    for section in sections:
+        offsets: list[int] = []
+        for entry in section.entries:
+            offsets.append(cursor)
+            cursor += len(entry.data)
+        payload_offsets.append(offsets)
+
+    output = bytearray(MAGIC)
+    output += struct.pack("<II", section_count, content_header_size)
+    section_offset = file_header_size
+    for section in sections:
+        output += section.extension + struct.pack("<I", section_offset)
+        section_offset += SECTION_HEADER_SIZE + len(section.entries) * ENTRY_HEADER_SIZE
+    for section_index, section in enumerate(sections):
+        output += struct.pack("<I", len(section.entries)) + section.padding
+        for entry_index, entry in enumerate(section.entries):
+            output += entry.name
+            output += struct.pack(
+                "<II", payload_offsets[section_index][entry_index], len(entry.data)
+            )
+    for section in sections:
+        for entry in section.entries:
+            output += entry.data
+    path.write_bytes(output)
+
+
+def patch_strt_by_id(data: bytes, replacements: dict[int, str]) -> bytes:
+    count = struct.unpack_from("<H", data, 0)[0]
+    version = data[2:4]
+    offsets = struct.unpack_from(f"<{count}I", data, 4)
+    records: list[tuple[int, bytes]] = []
+    seen: set[int] = set()
+    for offset in offsets:
+        string_id = u32(data, offset)
+        end = data.index(b"\x00", offset + 4)
+        text = data[offset + 4 : end]
+        if string_id in replacements:
+            text = replacements[string_id].encode("cp1252")
+            seen.add(string_id)
+        records.append((string_id, text))
+    for string_id, text in replacements.items():
+        if string_id not in seen:
+            records.append((string_id, text.encode("cp1252")))
+    return encode_strt(version, records)
+
+
+def patch_strt_by_index(data: bytes, replacements: dict[int, str]) -> bytes:
+    count = struct.unpack_from("<H", data, 0)[0]
+    version = data[2:4]
+    offsets = struct.unpack_from(f"<{count}I", data, 4)
+    records: list[tuple[int, bytes]] = []
+    for index, offset in enumerate(offsets):
+        string_id = u32(data, offset)
+        end = data.index(b"\x00", offset + 4)
+        text = replacements.get(index, data[offset + 4 : end].decode("cp1252"))
+        records.append((string_id, text.encode("cp1252")))
+    return encode_strt(version, records)
+
+
+def encode_strt(version: bytes, records: list[tuple[int, bytes]]) -> bytes:
+    output = bytearray(struct.pack("<H", len(records)) + version)
+    output += b"\x00\x00\x00\x00" * len(records)
+    offsets: list[int] = []
+    for string_id, text in records:
+        offsets.append(len(output))
+        output += struct.pack("<I", string_id) + text + b"\x00"
+    for index, offset in enumerate(offsets):
+        struct.pack_into("<I", output, 4 + index * 4, offset)
+    return bytes(output)
+
+
+def build_units_xml(stock_buildings_xml: Path) -> bytes:
+    stock_root = ET.parse(stock_buildings_xml).getroot()
+    output = ET.Element("Majesty")
+    for level, source_name in enumerate(SOURCE_BUILDING_NAMES):
+        source = stock_root.find(f'.//Description[@Name="{source_name}"]')
+        if source is None:
+            raise ValueError(f"Stock building description is missing: {source_name}")
+        description = ET.fromstring(ET.tostring(source, encoding="utf-8"))
+        description.set("ID", BUILDING_IDS[level])
+        description.set("Name", BUILDING_NAMES[level])
+        description.set(
+            "Description",
+            "Alchemist's Laboratory" if level == 0 else f"Alchemist's Laboratory Level {level + 1}",
+        )
+        dialog = description.find("./Game/DialogID")
+        if dialog is None:
+            raise ValueError(f"{source_name} has no DialogID")
+        dialog.set("value", DIALOG_ID.decode("ascii"))
+        upgrade_to = description.find("./Game/UpgradeTo")
+        upgrade_from = description.find("./Game/UpgradeFrom")
+        if upgrade_to is not None:
+            upgrade_to.set("value", BUILDING_NAMES[level + 1])
+        if upgrade_from is not None:
+            upgrade_from.set("value", BUILDING_NAMES[level - 1])
+        # The first panel/constructor probe intentionally recruits the stock
+        # Cultist. A custom ALC1 description needs its own GPL decision wiring.
+        produced = description.find("./Game/Produces/Unit")
+        if produced is None:
+            raise ValueError(f"{source_name} has no recruitable unit")
+        produced.set("ID", "Cultist")
+        output.append(description)
+    ET.indent(output, space="\t")
+    return ET.tostring(output, encoding="utf-8", xml_declaration=False) + b"\n"
+
+
+def build_text_cam(stock_text_cam: Path, output_path: Path) -> None:
+    menu = read_cam_entry(stock_text_cam, b"SMNU", SOURCE_DIALOG_ID).data
+    strings = read_cam_entry(stock_text_cam, b"STRT", SOURCE_DIALOG_ID).data
+    unit_names = read_cam_entry(stock_text_cam, b"STRT", b"UNTN").data
+    patched_units = patch_strt_by_id(
+        unit_names,
+        {
+            fourcc_id("ALB1"): "Alchemist's Laboratory",
+            fourcc_id("ALB2"): "Alchemist's Laboratory",
+            fourcc_id("ALB3"): "Alchemist's Laboratory",
+        },
+    )
+    patched_strings = patch_strt_by_index(
+        strings,
+        {
+            0: "ALCHEMIST'S LABORATORY",
+            1: "RECRUIT Test Alchemist",
+            2: "Recruit a stock Cultist as the temporary Alchemist.",
+            3: "Destroy this Alchemist's Laboratory.",
+            29: "BREWING",
+            30: "Open this Laboratory's experimental Brewing window.",
+        },
+    )
+    write_cam(
+        output_path,
+        (
+            CamSection(b"SMNU", (CamEntry(pad_name(DIALOG_ID), menu),)),
+            CamSection(
+                b"STRT",
+                (
+                    CamEntry(pad_name(b"UNTN"), patched_units),
+                    CamEntry(pad_name(DIALOG_ID), patched_strings),
+                ),
+            ),
+        ),
+    )
+
+
+def append_bdep_rule(data: bytes, rule: bytes, comment: bytes) -> bytes:
+    if rule in data:
+        return data
+    if not data.endswith(b"\r\n"):
+        raise ValueError("Stock BDEP no longer ends in CRLF")
+    return data + b"\r\n# " + comment + b"\r\n" + rule + b"\r\n"
+
+
+def build_misc_cam(stock_misc_cam: Path, output_path: Path, include_phantoms: bool) -> None:
+    bdep = read_cam_entry(stock_misc_cam, b"DATA", b"BDEP").data
+    if include_phantoms:
+        bdep = append_bdep_rule(bdep, PHANTOM_BDEP_RULE, b"Two-mod probe: Phantoms Haunt")
+    bdep = append_bdep_rule(bdep, ALCHEMIST_BDEP_RULE, b"Alchemist probe requires Palace level 2")
+    write_cam(
+        output_path,
+        (CamSection(b"DATA", (CamEntry(pad_name(b"BDEP"), bdep),)),),
+    )
+
+
+def build_manifest() -> str:
+    return f'''<Majesty>
+\t<Mod id="{MOD_ID}">
+\t\t<Name>CustomGuildAlchemistProbe</Name>
+\t\t<DisplayName lang="en_US">Custom Guild: Alchemist (CGAL Probe)</DisplayName>
+\t\t<Description lang="en_US">
+\t\t\t<Short>Tests a custom AP10-derived Alchemist guild and Brewing panel.</Short>
+\t\t\t<Long>Temporary fixture using stock Fervus and Cultist resources.</Long>
+\t\t</Description>
+\t\t<DataConfiguration>
+\t\t\t<Dataset base="Any">
+\t\t\t\t<Load>
+\t\t\t\t\t<CAM>Data\\alchemist_probe_textdata.cam</CAM>
+\t\t\t\t\t<CAM>Data\\alchemist_probe_miscdata.cam</CAM>
+\t\t\t\t\t<Descriptions>Data\\alchemist_probe_units.xml</Descriptions>
+\t\t\t\t</Load>
+\t\t\t</Dataset>
+\t\t</DataConfiguration>
+\t</Mod>
+</Majesty>
+'''
+
+
+def validate_output(output_root: Path, include_phantoms: bool) -> None:
+    expected = {
+        output_root / "CustomGuildAlchemistProbe.mmxml",
+        output_root / "Data" / "alchemist_probe_units.xml",
+        output_root / "Data" / "alchemist_probe_textdata.cam",
+        output_root / "Data" / "alchemist_probe_miscdata.cam",
+    }
+    actual = {path for path in output_root.rglob("*") if path.is_file()}
+    if actual != expected:
+        raise ValueError(f"Unexpected package files: {sorted(str(p) for p in actual ^ expected)}")
+    root = ET.parse(output_root / "Data" / "alchemist_probe_units.xml").getroot()
+    descriptions = root.findall("Description")
+    if [item.get("ID") for item in descriptions] != list(BUILDING_IDS):
+        raise ValueError("Building ID sequence is invalid")
+    if any(item.find("./Game/DialogID").get("value") != "CGAL" for item in descriptions):
+        raise ValueError("Every Laboratory level must use CGAL")
+    text_cam = output_root / "Data" / "alchemist_probe_textdata.cam"
+    if read_cam_entry(text_cam, b"SMNU", DIALOG_ID).data == b"":
+        raise ValueError("CGAL menu is empty")
+    bdep = read_cam_entry(
+        output_root / "Data" / "alchemist_probe_miscdata.cam", b"DATA", b"BDEP"
+    ).data
+    if bdep.count(ALCHEMIST_BDEP_RULE) != 1:
+        raise ValueError("Alchemist BDEP rule is missing or duplicated")
+    if include_phantoms and bdep.count(PHANTOM_BDEP_RULE) != 1:
+        raise ValueError("Phantom coexistence BDEP rule is missing or duplicated")
+
+
+def build(game_path: Path, output_root: Path, include_phantoms: bool) -> None:
+    data_dir = output_root / "Data"
+    if output_root.exists():
+        shutil.rmtree(output_root)
+    data_dir.mkdir(parents=True)
+    sdk_data = game_path / "SDK" / "OriginalQuests" / "Data"
+    game_data = game_path / "Data"
+    (data_dir / "alchemist_probe_units.xml").write_bytes(
+        build_units_xml(sdk_data / "M_Buildings.xml")
+    )
+    build_text_cam(game_data / "textdata.cam", data_dir / "alchemist_probe_textdata.cam")
+    build_misc_cam(
+        game_data / "miscdata.cam",
+        data_dir / "alchemist_probe_miscdata.cam",
+        include_phantoms,
+    )
+    (output_root / "CustomGuildAlchemistProbe.mmxml").write_bytes(
+        build_manifest().encode("utf-8")
+    )
+    validate_output(output_root, include_phantoms)
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description="Build the runnable CGAL panel probe")
+    parser.add_argument("--game-path", type=Path, required=True)
+    parser.add_argument("--output-root", type=Path, required=True)
+    parser.add_argument("--include-phantoms-haunt-probe", action="store_true")
+    args = parser.parse_args()
+    build(args.game_path, args.output_root, args.include_phantoms_haunt_probe)
+    print(f"Built and validated Alchemist probe: {args.output_root}")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

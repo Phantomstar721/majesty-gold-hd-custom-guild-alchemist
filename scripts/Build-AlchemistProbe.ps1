@@ -3,7 +3,10 @@ param(
     [string]$OutputRoot = ".\dist\CustomGuildAlchemistProbe",
     [switch]$IncludePhantomsHauntProbe,
     [switch]$UseAP10TitleAliasProbe,
-    [switch]$EnableUnsafeBrewingControl,
+    # The runtime now owns the formerly unsafe AP10 secondary route. Keep the
+    # real Brewing control enabled in every normal build; false is retained
+    # only for reproducing the pre-runtime diagnostic fixture.
+    [switch]$EnableUnsafeBrewingControl = $true,
     [switch]$IncludeSiegeTestFixture
 )
 

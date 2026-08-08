@@ -86,3 +86,18 @@ and now zeroes the unsupported control's hitbox, using the same proven safeguard
 as Phantoms Haunt. `-EnableUnsafeBrewingControl` exists only to reproduce this
 crash during runtime-hook development. A functional Brewing window now belongs
 to the DLL/controller-registry milestone, not the data-only CAM fixture.
+
+## Result: AP69 factory mapping
+
+Factory tracing identified the stock Fervus route as `AP10 -> AP69` and the
+custom route as `CGAL -> 0x00000000`. Translating the armed CGAL zero request to
+AP69 creates a stable controller in the correct sidebar layer, but its geometry,
+labels, lists, and button actions are uninitialized. Activating a blank action
+produces another zero child request.
+
+This establishes that AP69 is the correct controller class but its remaining
+context is not carried by the final FourCC alone. The next combined diagnostic
+uses the AP69 DLL mapping with the temporary `Temple_Fervus` GPL title alias to
+test whether the controller obtains its layout and spell-provider context from
+the building title. The production design remains `CGAL` plus an independent
+`CGBR` resource/action namespace; a global Fervus title alias is not acceptable.

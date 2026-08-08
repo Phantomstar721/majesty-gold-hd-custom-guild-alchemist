@@ -15,7 +15,7 @@ begin
 					if ($CheckEffector(Unit, "alchemist_invigorating_elixer_icon") == False)
 						begin
 							$AdjustAttribute(Unit, #ATTRIB_MovementRateModifier, -200);
-							$CreateEffector(Unit, "alchemist_invigorating_elixer_icon", 30000);
+							$CreateEffector(Unit, "alchemist_invigorating_elixer_icon", 5000);
 						end
 				end
 		end
@@ -34,14 +34,20 @@ end
 
 function DoMarketDay(agent ThisAgent)
 declare
+	agent Palace;
 	integer Gold;
 begin
 	if (ThisAgent's "Title" == "AlchemistsLaboratory")
 		begin
-			$PlaySound(ThisAgent, "Temple_Fervus", "Select");
-			$CreateEffector(ThisAgent, "got_gold", 0);
-			$Alchemist_Apply_Invigorating_Elixer(ThisAgent, "hero");
-			$Alchemist_Apply_Invigorating_Elixer(ThisAgent, "monster");
+			Palace = $GetTruePalace(ThisAgent);
+			if ($GetPlayerData(Palace, "Gold") >= 1)
+				begin
+					$AdjustPlayerData(Palace, "Gold", -1);
+					$PlaySound(ThisAgent, "Temple_Fervus", "Select");
+					$CreateEffector(ThisAgent, "got_gold", 0);
+					$Alchemist_Apply_Invigorating_Elixer(ThisAgent, "hero");
+					$Alchemist_Apply_Invigorating_Elixer(ThisAgent, "monster");
+				end
 		end
 	else
 		begin

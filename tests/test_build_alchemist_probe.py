@@ -114,7 +114,8 @@ end
         self.assertIn('"monster"', source)
         self.assertIn("#ATTRIB_MovementRateModifier, -200", source)
         self.assertIn("#ATTRIB_MovementRateModifier, 200", source)
-        self.assertIn("30000", source)
+        self.assertIn("5000", source)
+        self.assertIn('$AdjustPlayerData(Palace, "Gold", -1)', source)
 
     def test_brewing_overlay_has_a_private_callback(self) -> None:
         stock = """<Majesty><Description type="Unit" subType="Overlay" ID="XR01" Name="Speed_Tonic_Icon" Description="Speed Tonic"><Engine><ImageIDBase value="XR01"/><Script type="0" cProc="0" GPLFunction="Speed_Tonic_End"/></Engine><Game/></Description></Majesty>"""

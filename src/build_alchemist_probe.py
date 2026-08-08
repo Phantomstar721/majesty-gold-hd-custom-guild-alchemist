@@ -314,8 +314,8 @@ def build_text_cam(
         {
             0: "ALCHEMIST'S LABORATORY",
             1: "Invigorating Elixer",
-            2: "Increase the speed of every unit in your realm for 30 seconds.",
-            3: "30",
+            2: "Increase the speed of every unit in your realm for 5 seconds.",
+            3: "1",
             4: "Future Brew",
             5: "This brewing slot is not yet available.",
             6: "",

@@ -34,7 +34,9 @@ building/controller declaration.
 The current package intentionally borrows the three stock Temple to Fervus
 building images, the Cultist recruit, and their sounds. It adds independent
 `ALB1`-`ALB3` Laboratory descriptions and clones AP10's panel as `CGAL`, with
-the final `SPELLS` label changed to `BREWING`.
+the final `SPELLS` label changed to `BREWING`. Matching GPL building-data
+records use ordinary guild construction and upgrade callbacks; Fervus-specific
+temple and animal-spawning callbacks are not inherited.
 
 ```powershell
 .\scripts\Build-AlchemistProbe.ps1 -IncludePhantomsHauntProbe

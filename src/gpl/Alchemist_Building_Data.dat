@@ -1,0 +1,50 @@
+[AlchemistsLaboratory1]
+	{Guild
+		(type building)
+		(subtype Guild)
+		(title AlchemistsLaboratory)
+		(Level 1)
+		(member_title cultist)
+		(member_basicscript cultist_tree)
+		(max_members 4)
+		(Lived_In_Script Lived_In)
+		(Sleep_for 30000)
+		(birthscript basic_birth)
+		(birthScript2 Guild_Birth)
+		(IGdeathscript guild_destroyed_a)
+		(upgradescript basic_upgrade)
+	}
+[end]
+
+[AlchemistsLaboratory2]
+	{Guild
+		(type building)
+		(subtype Guild)
+		(title AlchemistsLaboratory)
+		(Level 2)
+		(member_title cultist)
+		(member_basicscript cultist_tree)
+		(max_members 4)
+		(Lived_In_Script Lived_In)
+		(Sleep_for 30000)
+		(birthScript Guild_Birth)
+		(IGdeathscript guild_destroyed_a)
+		(upgradescript basic_upgrade)
+	}
+[end]
+
+[AlchemistsLaboratory3]
+	{Guild
+		(type building)
+		(subtype Guild)
+		(title AlchemistsLaboratory)
+		(Level 3)
+		(member_title cultist)
+		(member_basicscript cultist_tree)
+		(max_members 4)
+		(Lived_In_Script Lived_In)
+		(Sleep_for 30000)
+		(birthScript Guild_Birth)
+		(IGdeathscript guild_destroyed_a)
+	}
+[end]

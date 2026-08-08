@@ -3,6 +3,14 @@
 This fixture isolates the AP10-derived custom-panel path before custom hero GPL,
 art, inventory, or Brewing effects are introduced.
 
+The first placement build exposed a prerequisite already solved by Phantoms
+Haunt: an XML building `Name` also needs a matching GPL building-data record.
+Without it, peasants can receive the construction job but cannot initialize the
+site. The probe now registers all three Laboratory levels as ordinary guilds,
+using `basic_birth`, `Guild_Birth`, `basic_upgrade`, and the stock
+`cultist_tree`. It intentionally does not inherit Fervus birth/death scripts,
+which would add temple allegiance and animal-spawning side effects.
+
 ## Active-mod order
 
 Enable both entries and place the Alchemist probe after Phantoms Haunt:

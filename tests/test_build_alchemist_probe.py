@@ -30,6 +30,17 @@ class AlchemistProbeTests(unittest.TestCase):
         self.assertEqual(once, twice)
         self.assertEqual(once.count(builder.ALCHEMIST_BDEP_RULE), 1)
 
+    def test_building_data_registers_every_xml_name(self) -> None:
+        data = (builder.GPL_SOURCE_ROOT / "Alchemist_Building_Data.dat").read_text(
+            encoding="utf-8"
+        )
+        for name in builder.BUILDING_NAMES:
+            self.assertIn(f"[{name}]", data)
+        self.assertIn("(birthscript basic_birth)", data)
+        self.assertIn("(birthScript2 Guild_Birth)", data)
+        self.assertIn("(member_basicscript cultist_tree)", data)
+        self.assertNotIn("fervus_Birth", data)
+
 
 if __name__ == "__main__":
     unittest.main()

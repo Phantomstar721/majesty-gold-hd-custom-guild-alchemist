@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from pathlib import Path
 import shutil
 import struct
+import subprocess
 import xml.etree.ElementTree as ET
 
 
@@ -26,6 +27,8 @@ BUILDING_NAMES = (
 SOURCE_BUILDING_NAMES = ("Temple_Fervus1", "Temple_Fervus2", "Temple_Fervus3")
 ALCHEMIST_BDEP_RULE = b"ALB1 : ABJ2 ABJ3 NOT NOT ||"
 PHANTOM_BDEP_RULE = b"PHG1 : ABJ2 ABJ3 NOT NOT ||"
+SOURCE_ROOT = Path(__file__).resolve().parent
+GPL_SOURCE_ROOT = SOURCE_ROOT / "gpl"
 
 
 @dataclass(frozen=True)
@@ -271,6 +274,10 @@ def build_manifest() -> str:
 \t\t\t\t\t<CAM>Data\\alchemist_probe_textdata.cam</CAM>
 \t\t\t\t\t<CAM>Data\\alchemist_probe_miscdata.cam</CAM>
 \t\t\t\t\t<Descriptions>Data\\alchemist_probe_units.xml</Descriptions>
+\t\t\t\t\t<GPL>
+\t\t\t\t\t\t<Target>Data\\Alchemist.bcd</Target>
+\t\t\t\t\t\t<Source>GPL\\Alchemist_Building_Data.dat</Source>
+\t\t\t\t\t</GPL>
 \t\t\t\t</Load>
 \t\t\t</Dataset>
 \t\t</DataConfiguration>
@@ -285,6 +292,9 @@ def validate_output(output_root: Path, include_phantoms: bool) -> None:
         output_root / "Data" / "alchemist_probe_units.xml",
         output_root / "Data" / "alchemist_probe_textdata.cam",
         output_root / "Data" / "alchemist_probe_miscdata.cam",
+        output_root / "Data" / "Alchemist.bcd",
+        output_root / "GPL" / "Alchemist.gplproj",
+        output_root / "GPL" / "Alchemist_Building_Data.dat",
     }
     actual = {path for path in output_root.rglob("*") if path.is_file()}
     if actual != expected:
@@ -305,13 +315,32 @@ def validate_output(output_root: Path, include_phantoms: bool) -> None:
         raise ValueError("Alchemist BDEP rule is missing or duplicated")
     if include_phantoms and bdep.count(PHANTOM_BDEP_RULE) != 1:
         raise ValueError("Phantom coexistence BDEP rule is missing or duplicated")
+    building_data = (output_root / "GPL" / "Alchemist_Building_Data.dat").read_text(
+        encoding="utf-8"
+    )
+    for name in BUILDING_NAMES:
+        if f"[{name}]" not in building_data:
+            raise ValueError(f"GPL building record is missing: {name}")
+    for contract in (
+        "(birthscript basic_birth)",
+        "(birthScript2 Guild_Birth)",
+        "(member_basicscript cultist_tree)",
+        "(upgradescript basic_upgrade)",
+    ):
+        if contract not in building_data:
+            raise ValueError(f"GPL construction contract is missing: {contract}")
+    compiled = output_root / "Data" / "Alchemist.bcd"
+    if compiled.stat().st_size == 0:
+        raise ValueError("Compiled Alchemist bytecode is empty")
 
 
 def build(game_path: Path, output_root: Path, include_phantoms: bool) -> None:
     data_dir = output_root / "Data"
+    gpl_dir = output_root / "GPL"
     if output_root.exists():
         shutil.rmtree(output_root)
     data_dir.mkdir(parents=True)
+    gpl_dir.mkdir(parents=True)
     sdk_data = game_path / "SDK" / "OriginalQuests" / "Data"
     game_data = game_path / "Data"
     (data_dir / "alchemist_probe_units.xml").write_bytes(
@@ -323,6 +352,26 @@ def build(game_path: Path, output_root: Path, include_phantoms: bool) -> None:
         data_dir / "alchemist_probe_miscdata.cam",
         include_phantoms,
     )
+    shutil.copy2(GPL_SOURCE_ROOT / "Alchemist.gplproj", gpl_dir / "Alchemist.gplproj")
+    shutil.copy2(
+        GPL_SOURCE_ROOT / "Alchemist_Building_Data.dat",
+        gpl_dir / "Alchemist_Building_Data.dat",
+    )
+    compiler = game_path / "SDK" / "Gplbcc.exe"
+    if not compiler.is_file():
+        raise FileNotFoundError(f"Majesty GPL compiler was not found: {compiler}")
+    result = subprocess.run(
+        (str(compiler), "-in", "Alchemist.gplproj", "-out", "Alchemist.bcd", "-stdout"),
+        cwd=gpl_dir,
+        check=False,
+    )
+    if result.returncode != 0:
+        raise RuntimeError(f"GPL compiler failed with exit code {result.returncode}")
+    compiled = gpl_dir / "Alchemist.bcd"
+    if not compiled.is_file():
+        raise FileNotFoundError(f"GPL compiler did not produce: {compiled}")
+    shutil.copy2(compiled, data_dir / "Alchemist.bcd")
+    compiled.unlink()
     (output_root / "CustomGuildAlchemistProbe.mmxml").write_bytes(
         build_manifest().encode("utf-8")
     )

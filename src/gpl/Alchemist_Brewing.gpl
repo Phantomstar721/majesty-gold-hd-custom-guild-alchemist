@@ -87,13 +87,14 @@ function DoRageOfKrolm(agent ThisAgent)
 declare
 	agent Palace;
 begin
-	if (ThisAgent's "Title" == "AlchemistsLaboratory")
+	if (($HasAttribute("Alchemist_Brewing", ThisAgent)) &&
+		(ThisAgent's "Alchemist_Brewing" == True))
 		begin
 			Palace = $GetTruePalace(ThisAgent);
 			if ($GetPlayerData(Palace, "Gold") >= 1)
 				begin
 					$AdjustPlayerData(Palace, "Gold", -1);
-					$PlaySound(ThisAgent, "Temple_Fervus", "Select");
+					$PlaySound(ThisAgent, "alchemist_invigorating_elixer_sound", "Effector Begin");
 					$Alchemist_Apply_Invigorating_Elixer(ThisAgent, "hero");
 					$Alchemist_Apply_Invigorating_Elixer(ThisAgent, "monster");
 				end

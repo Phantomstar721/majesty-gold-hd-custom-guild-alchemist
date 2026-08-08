@@ -21,6 +21,10 @@ DIALOG_ID = b"CGAL"
 SOURCE_DIALOG_ID = b"AP10"
 BREWING_DIALOG_ID = b"CGBR"
 SOURCE_BREWING_DIALOG_ID = b"AP69"
+SOURCE_RAGE_DIALOG_ID = b"AP24"
+RAGE_PROGRESS_RECORD_OFFSET = 0x0C40
+RAGE_PROGRESS_CONTROL_ID = 0x2009
+BREWING_PROGRESS_RECT = (29, 223, 127, 15)
 AP10_SPELL_BUTTON_RECT_OFFSET = 0x0D34
 AP10_SPELL_BUTTON_RECT = (103, 162, 93, 26)
 BUILDING_IDS = ("ALB1", "ALB2", "ALB3")
@@ -262,6 +266,44 @@ def build_brewing_overlays_xml(stock_overlays_xml: Path) -> bytes:
     return ET.tostring(output, encoding="utf-8", xml_declaration=False) + b"\n"
 
 
+def build_brewing_sounds_xml(stock_sounds_xml: Path) -> bytes:
+    stock_root = ET.parse(stock_sounds_xml).getroot()
+    source = stock_root.find('.//Description[@Name="Drink_Potion"]')
+    if source is None:
+        raise ValueError("Stock Drink_Potion sound is missing")
+    sound = ET.fromstring(ET.tostring(source, encoding="utf-8"))
+    sound.set("ID", "AXS1")
+    sound.set("Name", "alchemist_invigorating_elixer_sound")
+    phase = sound.find('./Engine/Phase[@ID="Effector Begin"]')
+    if phase is None or phase.find("./Wave") is None:
+        raise ValueError("Stock Drink_Potion sound contract changed")
+    output = ET.Element("Majesty")
+    output.append(sound)
+    ET.indent(output, space="\t")
+    return ET.tostring(output, encoding="utf-8", xml_declaration=False) + b"\n"
+
+
+def add_native_rage_progress_control(brewing_menu: bytes, rage_menu: bytes) -> bytes:
+    """Append AP24's stock INSr child to CGBR and increment its child count."""
+    if brewing_menu.count(b"INSr") != 0:
+        raise ValueError("CGBR already contains an INSr progress control")
+    if rage_menu[RAGE_PROGRESS_RECORD_OFFSET + 0x2C : RAGE_PROGRESS_RECORD_OFFSET + 0x30] != b"INSr":
+        raise ValueError("Stock AP24 progress-control layout changed")
+    progress_record = bytearray(rage_menu[RAGE_PROGRESS_RECORD_OFFSET:])
+    if struct.pack("<I", RAGE_PROGRESS_CONTROL_ID) not in progress_record:
+        raise ValueError("Stock AP24 progress control ID is missing")
+    # AP69 already owns Back/Next controls along its bottom edge. Preserve the
+    # native Rage bar itself, but fit it precisely between those stock buttons.
+    struct.pack_into("<4I", progress_record, 0x68, *BREWING_PROGRESS_RECT)
+    output = bytearray(brewing_menu)
+    child_count = u32(output, 0x28)
+    if child_count != 12:
+        raise ValueError(f"Stock AP69 child count changed: {child_count}")
+    struct.pack_into("<I", output, 0x28, child_count + 1)
+    output += progress_record
+    return bytes(output)
+
+
 def disable_ap10_secondary_control(data: bytes) -> bytes:
     output = bytearray(data)
     actual = struct.unpack_from("<4I", output, AP10_SPELL_BUTTON_RECT_OFFSET)
@@ -286,6 +328,8 @@ def build_text_cam(
     brewing_menu = read_cam_entry(
         stock_text_cam, b"SMNU", SOURCE_BREWING_DIALOG_ID
     ).data
+    rage_menu = read_cam_entry(stock_text_cam, b"SMNU", SOURCE_RAGE_DIALOG_ID).data
+    brewing_menu = add_native_rage_progress_control(brewing_menu, rage_menu)
     brewing_strings = read_cam_entry(
         stock_text_cam, b"STRT", SOURCE_BREWING_DIALOG_ID
     ).data
@@ -388,6 +432,7 @@ def build_manifest(use_ap10_title_alias: bool = False) -> str:
 \t\t\t\t\t<CAM>Data\\alchemist_probe_miscdata.cam</CAM>
 \t\t\t\t\t<Descriptions>Data\\alchemist_probe_units.xml</Descriptions>
 \t\t\t\t\t<Descriptions>Data\\alchemist_brewing_overlays.xml</Descriptions>
+\t\t\t\t\t<Descriptions>Data\\alchemist_brewing_sounds.xml</Descriptions>
 \t\t\t\t\t<GPL>
 \t\t\t\t\t\t<Target>Data\\Alchemist.bcd</Target>
 \t\t\t\t\t\t<Source>GPL\\Alchemist_Building_Data.dat</Source>
@@ -411,6 +456,7 @@ def validate_output(
         output_root / "CustomGuildAlchemistProbe.mmxml",
         output_root / "Data" / "alchemist_probe_units.xml",
         output_root / "Data" / "alchemist_brewing_overlays.xml",
+        output_root / "Data" / "alchemist_brewing_sounds.xml",
         output_root / "Data" / "alchemist_probe_textdata.cam",
         output_root / "Data" / "alchemist_probe_miscdata.cam",
         output_root / "Data" / "Alchemist.bcd",
@@ -439,6 +485,10 @@ def validate_output(
     brewing_strings = read_cam_entry(text_cam, b"STRT", BREWING_DIALOG_ID).data
     if b"Invigorating Elixer\x00" not in brewing_strings:
         raise ValueError("CGBR Invigorating Elixer label is missing")
+    if brewing_menu.count(b"INSr") != 1:
+        raise ValueError("CGBR native progress control is missing or duplicated")
+    if struct.pack("<I", RAGE_PROGRESS_CONTROL_ID) not in brewing_menu:
+        raise ValueError("CGBR native progress control ID is missing")
     rect = struct.unpack_from("<4I", menu, AP10_SPELL_BUTTON_RECT_OFFSET)
     expected_rect = AP10_SPELL_BUTTON_RECT if enable_unsafe_brewing_control else (103, 162, 0, 0)
     if rect != expected_rect:
@@ -459,6 +509,8 @@ def validate_output(
     expected_title = "Temple_Fervus" if use_ap10_title_alias else "AlchemistsLaboratory"
     if building_data.count(f"(title {expected_title})") != 3:
         raise ValueError(f"Expected all GPL levels to use title {expected_title}")
+    if building_data.count("(Alchemist_Brewing True)") != 3:
+        raise ValueError("Every Laboratory level must carry its Brewing marker")
     for contract in (
         "(birthscript basic_birth)",
         "(birthScript2 Guild_Birth)",
@@ -493,6 +545,9 @@ def build(
     )
     (data_dir / "alchemist_brewing_overlays.xml").write_bytes(
         build_brewing_overlays_xml(sdk_data.parent / "DataMX" / "MX_Overlays.xml")
+    )
+    (data_dir / "alchemist_brewing_sounds.xml").write_bytes(
+        build_brewing_sounds_xml(sdk_data / "M_Sounds.xml")
     )
     build_text_cam(
         game_data / "textdata.cam",

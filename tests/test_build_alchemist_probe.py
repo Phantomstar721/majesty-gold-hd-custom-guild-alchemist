@@ -109,7 +109,8 @@ end
         source = (builder.GPL_SOURCE_ROOT / "Alchemist_Brewing.gpl").read_text(
             encoding="utf-8"
         )
-        self.assertIn('ThisAgent\'s "Title" == "AlchemistsLaboratory"', source)
+        self.assertIn('$HasAttribute("Alchemist_Brewing", ThisAgent)', source)
+        self.assertIn('ThisAgent\'s "Alchemist_Brewing" == True', source)
         self.assertIn('"hero"', source)
         self.assertIn('"monster"', source)
         self.assertIn("#ATTRIB_MovementRateModifier, -200", source)
@@ -135,6 +136,36 @@ end
         self.assertEqual(
             overlay.find("./Engine/Script").get("GPLFunction"),
             "Alchemist_Invigorating_Elixer_End",
+        )
+
+    def test_brewing_sound_has_a_private_description(self) -> None:
+        stock = """<Majesty><Description type="Sound" subType="Standard" ID="DP01" Name="Drink_Potion"><Engine><Category value="0"/><Phase ID="Effector Begin"><Wave value="DP01"/></Phase></Engine></Description></Majesty>"""
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "M_Sounds.xml"
+            path.write_text(stock, encoding="utf-8")
+            output = ET.fromstring(builder.build_brewing_sounds_xml(path))
+        sound = output.find("Description")
+        self.assertEqual(sound.get("ID"), "AXS1")
+        self.assertEqual(sound.get("Name"), "alchemist_invigorating_elixer_sound")
+        self.assertEqual(
+            sound.find('./Engine/Phase[@ID="Effector Begin"]/Wave').get("value"),
+            "DP01",
+        )
+
+    def test_brewing_menu_adds_stock_native_progress_child(self) -> None:
+        brewing = bytearray(0x40)
+        struct.pack_into("<I", brewing, 0x28, 12)
+        rage = bytearray(builder.RAGE_PROGRESS_RECORD_OFFSET)
+        record = bytearray(0x80)
+        record[0x2C:0x30] = b"INSr"
+        struct.pack_into("<I", record, 0x50, builder.RAGE_PROGRESS_CONTROL_ID)
+        rage += record
+        output = builder.add_native_rage_progress_control(bytes(brewing), bytes(rage))
+        self.assertEqual(struct.unpack_from("<I", output, 0x28)[0], 13)
+        self.assertEqual(output.count(b"INSr"), 1)
+        self.assertEqual(
+            struct.unpack_from("<4I", output, len(brewing) + 0x68),
+            builder.BREWING_PROGRESS_RECT,
         )
 
 

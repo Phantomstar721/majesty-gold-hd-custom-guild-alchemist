@@ -1,6 +1,6 @@
-// Invigorating Elixer is dispatched through Majesty's deterministic Market Day
-// command. The runtime sends that command only for the custom CGBR control.
-// Stock Marketplaces continue through the original behavior reproduced below.
+// Invigorating Elixer follows Rage of Krolm's stock gameplay pattern. The
+// runtime submits Majesty's deterministic Rage command only for CGBR; timed
+// effectors own every unit's cleanup. The stock Krolm branch is preserved.
 
 function Alchemist_Apply_Invigorating_Elixer(agent ThisAgent, string Family)
 declare
@@ -15,7 +15,11 @@ begin
 					if ($CheckEffector(Unit, "alchemist_invigorating_elixer_icon") == False)
 						begin
 							$AdjustAttribute(Unit, #ATTRIB_MovementRateModifier, -200);
-							$CreateEffector(Unit, "alchemist_invigorating_elixer_icon", 5000);
+							$AdjustAttribute(Unit, #ATTRIB_MaxHP, 20);
+							$AdjustAttribute(Unit, #ATTRIB_HP, 20);
+							Unit's "Self_Estimation" += 1;
+							$turnonSPeedTrail(Unit, 4);
+							$CreateEffector(Unit, "alchemist_invigorating_elixer_icon", 30000);
 						end
 				end
 		end
@@ -23,19 +27,65 @@ end
 
 function Alchemist_Invigorating_Elixer_End(agent ThisAgent)
 declare
-	integer Restored;
+	integer RestoredMaximum;
 begin
 	if ($IsValidGamePiece(ThisAgent))
 		begin
 			$AdjustAttribute(ThisAgent, #ATTRIB_MovementRateModifier, 200);
-			Restored = True;
+			$AdjustAttribute(ThisAgent, #ATTRIB_MaxHP, -20);
+			ThisAgent's "Self_Estimation" -= 1;
+			$turnoffSpeedTrail(ThisAgent);
+			RestoredMaximum = $GetAttribute(ThisAgent, #ATTRIB_MaxHP);
+			if ($GetAttribute(ThisAgent, #ATTRIB_HP) > $GetAttribute(ThisAgent, #ATTRIB_MaxHP))
+				$SetAttribute(ThisAgent, #ATTRIB_HP, RestoredMaximum);
 		end
 end
 
-function DoMarketDay(agent ThisAgent)
+function Alchemist_Stock_RageOfKrolm(agent ThisAgent)
+declare
+	list Heroes;
+	agent Hero;
+	agent Palace, AIRootAgent;
+	integer HeroCount;
+begin
+	AIRootAgent = $RetrieveAgent("GplAIRoot");
+	$ListObjects(ThisAgent, "hero", -1, Heroes, #MyPlayer, #InsideOtherUnits, #NoHiddenMap, #CheckSubtypes, "Hero");
+	HeroCount = 0;
+	foreach Hero in Heroes do
+		begin
+			if ($IsDead(Hero) == False)
+				begin
+					if ($HasAttribute("Deathmatch_Rules", AIRootAgent))
+						if (AIRootAgent's "Deathmatch_Rules" == True)
+							begin
+								$CreateEffector(Hero, "Rage_Icon", #Deathmatch_Rage_Krolm_Duration);
+								if (Hero's "Title" == "barbarian")
+									$AdjustAttribute(Hero, #ATTRIB_Armor_Basic_Damage, #Deathmatch_Rage_Armor_Bonus);
+							end
+						else
+							$CreateEffector(Hero, "Rage_Icon", #Rage_Krolm_Duration);
+					else
+						$CreateEffector(Hero, "Rage_Icon", #Rage_Krolm_Duration);
+					$MagicalAdjustAttribute(Hero, #ATTRIB_Strength, #Rage_Strength_Boost);
+					$MagicalAdjustAttribute(Hero, #ATTRIB_HtoH, #Rage_HtoH_Boost);
+					$MagicalAdjustAttribute(Hero, #ATTRIB_Dodge, #Rage_Dodge_Boost);
+					$MagicalAdjustAttribute(Hero, #ATTRIB_Parry, #Rage_Parry_Boost);
+					$AdjustAttribute(Hero, #ATTRIB_MaxHP, #Rage_MaxHP_Boost);
+					$AdjustAttribute(Hero, #ATTRIB_HP, #Rage_MaxHP_Boost);
+					Hero's "Self_Estimation" += #Rage_Self_Est_Boost;
+					$AdjustAttribute(Hero, #ATTRIB_MovementRateModifier, -200);
+					$turnonSPeedTrail(Hero, 4);
+					HeroCount += 1;
+				end
+		end
+	Palace = $GetTruePalace(ThisAgent);
+	$SetAttribute(Palace, #ATTRIB_RageOfKrolmCount, HeroCount);
+	$PlaySound(ThisAgent, "Rage_of_Krolm", "begin");
+end
+
+function DoRageOfKrolm(agent ThisAgent)
 declare
 	agent Palace;
-	integer Gold;
 begin
 	if (ThisAgent's "Title" == "AlchemistsLaboratory")
 		begin
@@ -44,19 +94,10 @@ begin
 				begin
 					$AdjustPlayerData(Palace, "Gold", -1);
 					$PlaySound(ThisAgent, "Temple_Fervus", "Select");
-					$CreateEffector(ThisAgent, "got_gold", 0);
 					$Alchemist_Apply_Invigorating_Elixer(ThisAgent, "hero");
 					$Alchemist_Apply_Invigorating_Elixer(ThisAgent, "monster");
 				end
 		end
 	else
-		begin
-			Gold = (#Market_Day_Duration / ThisAgent's "Revenue_Time") * ThisAgent's "Revenue_Amount";
-			Gold = $Random_To_Percent(Gold, 4) + ($RandomNumber(#Market_Day_Bonus) * ThisAgent's "Level");
-			$Give_Gold(ThisAgent, Gold);
-			$SuspendThread(ThisAgent's "RevenueScript");
-			ThisAgent's "Title" = "Closed";
-			ThisAgent's "SubType" = "Closed";
-			$Release_Occupants(ThisAgent);
-		end
+		$Alchemist_Stock_RageOfKrolm(ThisAgent);
 end

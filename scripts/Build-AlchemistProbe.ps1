@@ -3,7 +3,8 @@ param(
     [string]$OutputRoot = ".\dist\CustomGuildAlchemistProbe",
     [switch]$IncludePhantomsHauntProbe,
     [switch]$UseAP10TitleAliasProbe,
-    [switch]$EnableUnsafeBrewingControl
+    [switch]$EnableUnsafeBrewingControl,
+    [switch]$IncludeSiegeTestFixture
 )
 
 $ErrorActionPreference = "Stop"
@@ -37,6 +38,9 @@ if ($UseAP10TitleAliasProbe) {
 }
 if ($EnableUnsafeBrewingControl) {
     $arguments += "--enable-unsafe-brewing-control"
+}
+if ($IncludeSiegeTestFixture) {
+    $arguments += "--include-siege-test-fixture"
 }
 
 & $python @arguments

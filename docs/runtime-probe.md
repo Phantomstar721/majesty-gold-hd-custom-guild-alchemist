@@ -23,6 +23,11 @@ for the two-mod experiment while the CAM merger is unfinished.
 
 ## Test sequence
 
+For fast panel iteration, build with `-IncludeSiegeTestFixture` and start **The
+Siege**. The probe pre-places a completed Temple to Fervus and Alchemist's
+Laboratory near the player Palace. This quest override is development-only and
+is absent from default builds.
+
 1. Start a Palace-level-2 freestyle game with enough gold for construction.
 2. Confirm both **Phantoms Haunt** and **Alchemist's Laboratory** are separately
    available in the build list.
@@ -101,3 +106,14 @@ uses the AP69 DLL mapping with the temporary `Temple_Fervus` GPL title alias to
 test whether the controller obtains its layout and spell-provider context from
 the building title. The production design remains `CGAL` plus an independent
 `CGBR` resource/action namespace; a global Fervus title alias is not acceptable.
+
+## Result: AP10 context substitution
+
+The GPL title alias did not change the malformed AP69 window. Factory argument
+tracing then showed stock AP69 and the translated CGAL request use different
+shared controller/resource-context pointers. The runtime captured AP10's live
+context and supplied it to the translated request while preserving CGAL's
+per-window pointer; the malformed window remained unchanged. Therefore the
+missing initialization occurs before the common dialog factory call or through
+additional AP10-owned state, rather than in the FourCC, GPL title, or the two
+constructor arguments alone.

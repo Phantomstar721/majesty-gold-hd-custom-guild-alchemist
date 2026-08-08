@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 from dataclasses import dataclass
 from pathlib import Path
+import re
 import shutil
 import struct
 import subprocess
@@ -31,6 +32,38 @@ ALCHEMIST_BDEP_RULE = b"ALB1 : ABJ2 ABJ3 NOT NOT ||"
 PHANTOM_BDEP_RULE = b"PHG1 : ABJ2 ABJ3 NOT NOT ||"
 SOURCE_ROOT = Path(__file__).resolve().parent
 GPL_SOURCE_ROOT = SOURCE_ROOT / "gpl"
+
+
+def extract_gpl_function(source: str, function_name: str) -> str:
+    match = re.search(
+        rf"(?im)^function\s+{re.escape(function_name)}\s*\(", source
+    )
+    if match is None:
+        raise ValueError(f"Stock GPL function not found: {function_name}")
+    next_function = re.search(r"(?im)^function\s+", source[match.end() :])
+    end = len(source) if next_function is None else match.end() + next_function.start()
+    return source[match.start() : end].rstrip()
+
+
+def build_siege_test_fixture(stock_quests: Path) -> str:
+    source = stock_quests.read_text(encoding="cp1252")
+    function = extract_gpl_function(source, "SIEGE")
+    anchor = '\tpalace = $GetPlayerOnePalace ();'
+    if function.count(anchor) != 1:
+        raise ValueError("The Siege Palace initialization no longer matches the SDK fixture")
+    spawns = (
+        anchor
+        + '\n\t$SpawnUnit ( palace, "Temple_Fervus1", '
+        '$RandomCoord ( palace, 550, 750 ), "MaxHP" );'
+        + '\n\t$SpawnUnit ( palace, "AlchemistsLaboratory1", '
+        '$RandomCoord ( palace, 850, 1050 ), "MaxHP" );'
+    )
+    return function.replace(anchor, spawns, 1) + "\n"
+
+
+def build_gpl_project(include_siege_test_fixture: bool) -> str:
+    source = '\nsource="Alchemist_Siege_Test.gpl"' if include_siege_test_fixture else ""
+    return f'data="Alchemist_Building_Data.dat"{source}\n'
 
 
 @dataclass(frozen=True)
@@ -317,6 +350,7 @@ def validate_output(
     include_phantoms: bool,
     use_ap10_title_alias: bool = False,
     enable_unsafe_brewing_control: bool = False,
+    include_siege_test_fixture: bool = False,
 ) -> None:
     expected = {
         output_root / "CustomGuildAlchemistProbe.mmxml",
@@ -327,6 +361,8 @@ def validate_output(
         output_root / "GPL" / "Alchemist.gplproj",
         output_root / "GPL" / "Alchemist_Building_Data.dat",
     }
+    if include_siege_test_fixture:
+        expected.add(output_root / "GPL" / "Alchemist_Siege_Test.gpl")
     actual = {path for path in output_root.rglob("*") if path.is_file()}
     if actual != expected:
         raise ValueError(f"Unexpected package files: {sorted(str(p) for p in actual ^ expected)}")
@@ -379,6 +415,7 @@ def build(
     include_phantoms: bool,
     use_ap10_title_alias: bool = False,
     enable_unsafe_brewing_control: bool = False,
+    include_siege_test_fixture: bool = False,
 ) -> None:
     data_dir = output_root / "Data"
     gpl_dir = output_root / "GPL"
@@ -401,7 +438,9 @@ def build(
         data_dir / "alchemist_probe_miscdata.cam",
         include_phantoms,
     )
-    shutil.copy2(GPL_SOURCE_ROOT / "Alchemist.gplproj", gpl_dir / "Alchemist.gplproj")
+    (gpl_dir / "Alchemist.gplproj").write_text(
+        build_gpl_project(include_siege_test_fixture), encoding="utf-8"
+    )
     building_data = (GPL_SOURCE_ROOT / "Alchemist_Building_Data.dat").read_text(
         encoding="utf-8"
     )
@@ -410,6 +449,13 @@ def build(
             "(title AlchemistsLaboratory)", "(title Temple_Fervus)"
         )
     (gpl_dir / "Alchemist_Building_Data.dat").write_bytes(building_data.encode("utf-8"))
+    if include_siege_test_fixture:
+        siege_source = build_siege_test_fixture(
+            sdk_data.parent / "GPLMx" / "Rules" / "Quests_3.gpl"
+        )
+        (gpl_dir / "Alchemist_Siege_Test.gpl").write_text(
+            siege_source, encoding="utf-8"
+        )
     compiler = game_path / "SDK" / "Gplbcc.exe"
     if not compiler.is_file():
         raise FileNotFoundError(f"Majesty GPL compiler was not found: {compiler}")
@@ -433,6 +479,7 @@ def build(
         include_phantoms,
         use_ap10_title_alias,
         enable_unsafe_brewing_control,
+        include_siege_test_fixture,
     )
 
 
@@ -443,6 +490,7 @@ def main() -> int:
     parser.add_argument("--include-phantoms-haunt-probe", action="store_true")
     parser.add_argument("--use-ap10-title-alias-probe", action="store_true")
     parser.add_argument("--enable-unsafe-brewing-control", action="store_true")
+    parser.add_argument("--include-siege-test-fixture", action="store_true")
     args = parser.parse_args()
     build(
         args.game_path,
@@ -450,6 +498,7 @@ def main() -> int:
         args.include_phantoms_haunt_probe,
         args.use_ap10_title_alias_probe,
         args.enable_unsafe_brewing_control,
+        args.include_siege_test_fixture,
     )
     print(f"Built and validated Alchemist probe: {args.output_root}")
     return 0

@@ -1,6 +1,7 @@
 from pathlib import Path
 import struct
 import sys
+import tempfile
 import unittest
 import xml.etree.ElementTree as ET
 
@@ -75,6 +76,34 @@ class AlchemistProbeTests(unittest.TestCase):
         menu = bytes(builder.AP10_SPELL_BUTTON_RECT_OFFSET + 16)
         with self.assertRaisesRegex(ValueError, "layout changed"):
             builder.disable_ap10_secondary_control(menu)
+
+    def test_siege_fixture_spawns_both_completed_player_buildings(self) -> None:
+        source = """function SIEGE ()
+begin
+\tpalace = $GetPlayerOnePalace ();
+end
+
+function NEXT ()
+begin
+end
+"""
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "Quests_3.gpl"
+            path.write_text(source, encoding="cp1252")
+            fixture = builder.build_siege_test_fixture(path)
+        self.assertIn('"Temple_Fervus1"', fixture)
+        self.assertIn('"AlchemistsLaboratory1"', fixture)
+        self.assertEqual(fixture.count('"MaxHP"'), 2)
+        self.assertNotIn("function NEXT", fixture)
+
+    def test_siege_fixture_is_an_explicit_project_source(self) -> None:
+        self.assertEqual(
+            builder.build_gpl_project(False),
+            'data="Alchemist_Building_Data.dat"\n',
+        )
+        self.assertIn(
+            'source="Alchemist_Siege_Test.gpl"', builder.build_gpl_project(True)
+        )
 
 
 if __name__ == "__main__":

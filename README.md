@@ -63,3 +63,8 @@ proved that it crashes under `CGAL` even when the Laboratory aliases the stock
 `Temple_Fervus` GPL title. Use `-EnableUnsafeBrewingControl` only when developing
 the future DLL callback mapping; it intentionally restores the known-crashing
 control.
+
+For repeated Brewing development, add `-IncludeSiegeTestFixture`. This copies
+and overrides only the stock `SIEGE()` entry point in the generated probe and
+spawns a completed player-owned Temple to Fervus and Alchemist's Laboratory
+near the Palace. The switch is deliberately off by default.

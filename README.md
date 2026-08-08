@@ -57,3 +57,9 @@ measure.
 Follow the complete [CGAL runtime probe](docs/runtime-probe.md) so panel,
 upgrade, coexistence, stock-regression, and save/reload behavior are checked in
 a useful order.
+
+The default build disables the cloned AP10 secondary-control hitbox. Live tests
+proved that it crashes under `CGAL` even when the Laboratory aliases the stock
+`Temple_Fervus` GPL title. Use `-EnableUnsafeBrewingControl` only when developing
+the future DLL callback mapping; it intentionally restores the known-crashing
+control.

@@ -18,6 +18,8 @@ ENTRY_HEADER_SIZE = 28
 MOD_ID = "{42ba4603-2b13-446d-a2a4-6cf3a55ddac3}"
 DIALOG_ID = b"CGAL"
 SOURCE_DIALOG_ID = b"AP10"
+AP10_SPELL_BUTTON_RECT_OFFSET = 0x0D34
+AP10_SPELL_BUTTON_RECT = (103, 162, 93, 26)
 BUILDING_IDS = ("ALB1", "ALB2", "ALB3")
 BUILDING_NAMES = (
     "AlchemistsLaboratory1",
@@ -202,8 +204,26 @@ def build_units_xml(stock_buildings_xml: Path) -> bytes:
     return ET.tostring(output, encoding="utf-8", xml_declaration=False) + b"\n"
 
 
-def build_text_cam(stock_text_cam: Path, output_path: Path) -> None:
+def disable_ap10_secondary_control(data: bytes) -> bytes:
+    output = bytearray(data)
+    actual = struct.unpack_from("<4I", output, AP10_SPELL_BUTTON_RECT_OFFSET)
+    if actual != AP10_SPELL_BUTTON_RECT:
+        raise ValueError(
+            f"Stock AP10 secondary-control layout changed: expected "
+            f"{AP10_SPELL_BUTTON_RECT}, found {actual}"
+        )
+    struct.pack_into("<2I", output, AP10_SPELL_BUTTON_RECT_OFFSET + 8, 0, 0)
+    return bytes(output)
+
+
+def build_text_cam(
+    stock_text_cam: Path,
+    output_path: Path,
+    enable_unsafe_brewing_control: bool = False,
+) -> None:
     menu = read_cam_entry(stock_text_cam, b"SMNU", SOURCE_DIALOG_ID).data
+    if not enable_unsafe_brewing_control:
+        menu = disable_ap10_secondary_control(menu)
     strings = read_cam_entry(stock_text_cam, b"STRT", SOURCE_DIALOG_ID).data
     unit_names = read_cam_entry(stock_text_cam, b"STRT", b"UNTN").data
     patched_units = patch_strt_by_id(
@@ -296,6 +316,7 @@ def validate_output(
     output_root: Path,
     include_phantoms: bool,
     use_ap10_title_alias: bool = False,
+    enable_unsafe_brewing_control: bool = False,
 ) -> None:
     expected = {
         output_root / "CustomGuildAlchemistProbe.mmxml",
@@ -316,8 +337,13 @@ def validate_output(
     if any(item.find("./Game/DialogID").get("value") != "CGAL" for item in descriptions):
         raise ValueError("Every Laboratory level must use CGAL")
     text_cam = output_root / "Data" / "alchemist_probe_textdata.cam"
-    if read_cam_entry(text_cam, b"SMNU", DIALOG_ID).data == b"":
+    menu = read_cam_entry(text_cam, b"SMNU", DIALOG_ID).data
+    if menu == b"":
         raise ValueError("CGAL menu is empty")
+    rect = struct.unpack_from("<4I", menu, AP10_SPELL_BUTTON_RECT_OFFSET)
+    expected_rect = AP10_SPELL_BUTTON_RECT if enable_unsafe_brewing_control else (103, 162, 0, 0)
+    if rect != expected_rect:
+        raise ValueError(f"Unexpected CGAL secondary-control rectangle: {rect}")
     bdep = read_cam_entry(
         output_root / "Data" / "alchemist_probe_miscdata.cam", b"DATA", b"BDEP"
     ).data
@@ -352,6 +378,7 @@ def build(
     output_root: Path,
     include_phantoms: bool,
     use_ap10_title_alias: bool = False,
+    enable_unsafe_brewing_control: bool = False,
 ) -> None:
     data_dir = output_root / "Data"
     gpl_dir = output_root / "GPL"
@@ -364,7 +391,11 @@ def build(
     (data_dir / "alchemist_probe_units.xml").write_bytes(
         build_units_xml(sdk_data / "M_Buildings.xml")
     )
-    build_text_cam(game_data / "textdata.cam", data_dir / "alchemist_probe_textdata.cam")
+    build_text_cam(
+        game_data / "textdata.cam",
+        data_dir / "alchemist_probe_textdata.cam",
+        enable_unsafe_brewing_control,
+    )
     build_misc_cam(
         game_data / "miscdata.cam",
         data_dir / "alchemist_probe_miscdata.cam",
@@ -397,7 +428,12 @@ def build(
     (output_root / "CustomGuildAlchemistProbe.mmxml").write_bytes(
         build_manifest(use_ap10_title_alias).encode("utf-8")
     )
-    validate_output(output_root, include_phantoms, use_ap10_title_alias)
+    validate_output(
+        output_root,
+        include_phantoms,
+        use_ap10_title_alias,
+        enable_unsafe_brewing_control,
+    )
 
 
 def main() -> int:
@@ -406,12 +442,14 @@ def main() -> int:
     parser.add_argument("--output-root", type=Path, required=True)
     parser.add_argument("--include-phantoms-haunt-probe", action="store_true")
     parser.add_argument("--use-ap10-title-alias-probe", action="store_true")
+    parser.add_argument("--enable-unsafe-brewing-control", action="store_true")
     args = parser.parse_args()
     build(
         args.game_path,
         args.output_root,
         args.include_phantoms_haunt_probe,
         args.use_ap10_title_alias_probe,
+        args.enable_unsafe_brewing_control,
     )
     print(f"Built and validated Alchemist probe: {args.output_root}")
     return 0

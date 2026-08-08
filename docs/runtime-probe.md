@@ -66,3 +66,23 @@ looks up AP10 state by building title. It does not adopt `fervus_Birth`,
   missing link and can be intercepted by the future registry/DLL.
 - If it still crashes, the missing state is tied to the custom DialogID or
   another executable-only mapping, not the GPL title.
+
+## Result: AP10 title alias
+
+Confirmed in game: clicking **BREWING** still crashes immediately when the
+Laboratory's GPL title is temporarily aliased to `Temple_Fervus`. The title is
+therefore not the missing key. Stock AP10 receives executable-side secondary
+window/callback state that an unknown `CGAL` ID does not receive from the shared
+constructor alone.
+
+Windows Error Reporting records both Brewing failures as access violations at
+`MajestyHD.exe+0x25984` (VA `0x00425984`). Disassembly shows this instruction
+dereferences the controller returned by the common factory at `0x0050AC00`;
+that return is null. This is the same failure boundary as the first unsuccessful
+CGPH factory experiment, now triggered for AP10's requested secondary window.
+
+The default probe has returned to the independent `AlchemistsLaboratory` title
+and now zeroes the unsupported control's hitbox, using the same proven safeguard
+as Phantoms Haunt. `-EnableUnsafeBrewingControl` exists only to reproduce this
+crash during runtime-hook development. A functional Brewing window now belongs
+to the DLL/controller-registry milestone, not the data-only CAM fixture.

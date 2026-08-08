@@ -57,6 +57,25 @@ class AlchemistProbeTests(unittest.TestCase):
             self.assertIn(f"[{name}]", aliased)
         self.assertNotIn("fervus_Birth", aliased)
 
+    def test_safe_panel_disables_the_known_ap10_control(self) -> None:
+        menu = bytearray(builder.AP10_SPELL_BUTTON_RECT_OFFSET + 16)
+        struct.pack_into(
+            "<4I",
+            menu,
+            builder.AP10_SPELL_BUTTON_RECT_OFFSET,
+            *builder.AP10_SPELL_BUTTON_RECT,
+        )
+        safe = builder.disable_ap10_secondary_control(bytes(menu))
+        self.assertEqual(
+            struct.unpack_from("<4I", safe, builder.AP10_SPELL_BUTTON_RECT_OFFSET),
+            (103, 162, 0, 0),
+        )
+
+    def test_safe_panel_rejects_an_unknown_stock_layout(self) -> None:
+        menu = bytes(builder.AP10_SPELL_BUTTON_RECT_OFFSET + 16)
+        with self.assertRaisesRegex(ValueError, "layout changed"):
+            builder.disable_ap10_secondary_control(menu)
+
 
 if __name__ == "__main__":
     unittest.main()

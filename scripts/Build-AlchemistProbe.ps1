@@ -2,7 +2,8 @@ param(
     [string]$GamePath = "C:\Program Files (x86)\Steam\steamapps\common\Majesty HD",
     [string]$OutputRoot = ".\dist\CustomGuildAlchemistProbe",
     [switch]$IncludePhantomsHauntProbe,
-    [switch]$UseAP10TitleAliasProbe
+    [switch]$UseAP10TitleAliasProbe,
+    [switch]$EnableUnsafeBrewingControl
 )
 
 $ErrorActionPreference = "Stop"
@@ -33,6 +34,9 @@ if ($IncludePhantomsHauntProbe) {
 }
 if ($UseAP10TitleAliasProbe) {
     $arguments += "--use-ap10-title-alias-probe"
+}
+if ($EnableUnsafeBrewingControl) {
+    $arguments += "--enable-unsafe-brewing-control"
 }
 
 & $python @arguments

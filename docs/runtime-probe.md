@@ -48,3 +48,21 @@ for the two-mod experiment while the CAM merger is unfinished.
 
 The most valuable failure report is the last successful step plus the exact
 click that failed. A screenshot of any wrong-but-noncrashing panel is useful.
+
+## Result: custom title
+
+Confirmed in game: construction, all three Laboratory levels, and upgrades are
+functional with the independent `AlchemistsLaboratory` GPL title. Clicking the
+visible **BREWING** control crashes immediately. This reproduces the exact AP10
+control that the Haunt fixture had to remove.
+
+The next diagnostic build keeps `ALB1`-`ALB3`, `CGAL`, the generic guild
+callbacks, and the custom CAM resources unchanged, but temporarily aliases the
+GPL runtime title to `Temple_Fervus`. This tests whether the stock spell callback
+looks up AP10 state by building title. It does not adopt `fervus_Birth`,
+`fervus_destroyed`, or Fervus animal spawning.
+
+- If **BREWING** opens the stock Fervus spell window, title-based state is the
+  missing link and can be intercepted by the future registry/DLL.
+- If it still crashes, the missing state is tied to the custom DialogID or
+  another executable-only mapping, not the GPL title.

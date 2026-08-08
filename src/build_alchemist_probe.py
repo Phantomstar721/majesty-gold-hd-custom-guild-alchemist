@@ -259,14 +259,20 @@ def build_misc_cam(stock_misc_cam: Path, output_path: Path, include_phantoms: bo
     )
 
 
-def build_manifest() -> str:
+def build_manifest(use_ap10_title_alias: bool = False) -> str:
+    probe_detail = (
+        "Temporary fixture using stock Fervus and Cultist resources; its GPL title "
+        "aliases Temple_Fervus to isolate the AP10 spell callback."
+        if use_ap10_title_alias
+        else "Temporary fixture using stock Fervus and Cultist resources."
+    )
     return f'''<Majesty>
 \t<Mod id="{MOD_ID}">
 \t\t<Name>CustomGuildAlchemistProbe</Name>
 \t\t<DisplayName lang="en_US">Custom Guild: Alchemist (CGAL Probe)</DisplayName>
 \t\t<Description lang="en_US">
 \t\t\t<Short>Tests a custom AP10-derived Alchemist guild and Brewing panel.</Short>
-\t\t\t<Long>Temporary fixture using stock Fervus and Cultist resources.</Long>
+\t\t\t<Long>{probe_detail}</Long>
 \t\t</Description>
 \t\t<DataConfiguration>
 \t\t\t<Dataset base="Any">
@@ -286,7 +292,11 @@ def build_manifest() -> str:
 '''
 
 
-def validate_output(output_root: Path, include_phantoms: bool) -> None:
+def validate_output(
+    output_root: Path,
+    include_phantoms: bool,
+    use_ap10_title_alias: bool = False,
+) -> None:
     expected = {
         output_root / "CustomGuildAlchemistProbe.mmxml",
         output_root / "Data" / "alchemist_probe_units.xml",
@@ -321,6 +331,9 @@ def validate_output(output_root: Path, include_phantoms: bool) -> None:
     for name in BUILDING_NAMES:
         if f"[{name}]" not in building_data:
             raise ValueError(f"GPL building record is missing: {name}")
+    expected_title = "Temple_Fervus" if use_ap10_title_alias else "AlchemistsLaboratory"
+    if building_data.count(f"(title {expected_title})") != 3:
+        raise ValueError(f"Expected all GPL levels to use title {expected_title}")
     for contract in (
         "(birthscript basic_birth)",
         "(birthScript2 Guild_Birth)",
@@ -334,7 +347,12 @@ def validate_output(output_root: Path, include_phantoms: bool) -> None:
         raise ValueError("Compiled Alchemist bytecode is empty")
 
 
-def build(game_path: Path, output_root: Path, include_phantoms: bool) -> None:
+def build(
+    game_path: Path,
+    output_root: Path,
+    include_phantoms: bool,
+    use_ap10_title_alias: bool = False,
+) -> None:
     data_dir = output_root / "Data"
     gpl_dir = output_root / "GPL"
     if output_root.exists():
@@ -353,10 +371,14 @@ def build(game_path: Path, output_root: Path, include_phantoms: bool) -> None:
         include_phantoms,
     )
     shutil.copy2(GPL_SOURCE_ROOT / "Alchemist.gplproj", gpl_dir / "Alchemist.gplproj")
-    shutil.copy2(
-        GPL_SOURCE_ROOT / "Alchemist_Building_Data.dat",
-        gpl_dir / "Alchemist_Building_Data.dat",
+    building_data = (GPL_SOURCE_ROOT / "Alchemist_Building_Data.dat").read_text(
+        encoding="utf-8"
     )
+    if use_ap10_title_alias:
+        building_data = building_data.replace(
+            "(title AlchemistsLaboratory)", "(title Temple_Fervus)"
+        )
+    (gpl_dir / "Alchemist_Building_Data.dat").write_bytes(building_data.encode("utf-8"))
     compiler = game_path / "SDK" / "Gplbcc.exe"
     if not compiler.is_file():
         raise FileNotFoundError(f"Majesty GPL compiler was not found: {compiler}")
@@ -373,9 +395,9 @@ def build(game_path: Path, output_root: Path, include_phantoms: bool) -> None:
     shutil.copy2(compiled, data_dir / "Alchemist.bcd")
     compiled.unlink()
     (output_root / "CustomGuildAlchemistProbe.mmxml").write_bytes(
-        build_manifest().encode("utf-8")
+        build_manifest(use_ap10_title_alias).encode("utf-8")
     )
-    validate_output(output_root, include_phantoms)
+    validate_output(output_root, include_phantoms, use_ap10_title_alias)
 
 
 def main() -> int:
@@ -383,8 +405,14 @@ def main() -> int:
     parser.add_argument("--game-path", type=Path, required=True)
     parser.add_argument("--output-root", type=Path, required=True)
     parser.add_argument("--include-phantoms-haunt-probe", action="store_true")
+    parser.add_argument("--use-ap10-title-alias-probe", action="store_true")
     args = parser.parse_args()
-    build(args.game_path, args.output_root, args.include_phantoms_haunt_probe)
+    build(
+        args.game_path,
+        args.output_root,
+        args.include_phantoms_haunt_probe,
+        args.use_ap10_title_alias_probe,
+    )
     print(f"Built and validated Alchemist probe: {args.output_root}")
     return 0
 

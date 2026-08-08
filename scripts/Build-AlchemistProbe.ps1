@@ -1,7 +1,8 @@
 param(
     [string]$GamePath = "C:\Program Files (x86)\Steam\steamapps\common\Majesty HD",
     [string]$OutputRoot = ".\dist\CustomGuildAlchemistProbe",
-    [switch]$IncludePhantomsHauntProbe
+    [switch]$IncludePhantomsHauntProbe,
+    [switch]$UseAP10TitleAliasProbe
 )
 
 $ErrorActionPreference = "Stop"
@@ -29,6 +30,9 @@ $arguments = @(
 )
 if ($IncludePhantomsHauntProbe) {
     $arguments += "--include-phantoms-haunt-probe"
+}
+if ($UseAP10TitleAliasProbe) {
+    $arguments += "--use-ap10-title-alias-probe"
 }
 
 & $python @arguments

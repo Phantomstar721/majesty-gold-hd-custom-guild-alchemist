@@ -25,6 +25,9 @@ SOURCE_RAGE_DIALOG_ID = b"AP24"
 RAGE_PROGRESS_RECORD_OFFSET = 0x0C40
 RAGE_PROGRESS_CONTROL_ID = 0x2009
 BREWING_PROGRESS_RECT = (29, 223, 127, 15)
+STOCK_FERVUS_FIRST_SPELL_CONTROL_ID = 0x1140
+BREWING_INVIGORATING_CONTROL_ID = 0x2A10
+BREWING_FIRST_BUTTON_ID_OFFSET = 0x0204
 AP10_SPELL_BUTTON_RECT_OFFSET = 0x0D34
 AP10_SPELL_BUTTON_RECT = (103, 162, 93, 26)
 BUILDING_IDS = ("ALB1", "ALB2", "ALB3")
@@ -284,7 +287,7 @@ def build_brewing_sounds_xml(stock_sounds_xml: Path) -> bytes:
 
 
 def add_native_rage_progress_control(brewing_menu: bytes, rage_menu: bytes) -> bytes:
-    """Append AP24's stock INSr child to CGBR and increment its child count."""
+    """Append AP24's stock INSr child to CGBR's serialized child stream."""
     if brewing_menu.count(b"INSr") != 0:
         raise ValueError("CGBR already contains an INSr progress control")
     if rage_menu[RAGE_PROGRESS_RECORD_OFFSET + 0x2C : RAGE_PROGRESS_RECORD_OFFSET + 0x30] != b"INSr":
@@ -296,11 +299,21 @@ def add_native_rage_progress_control(brewing_menu: bytes, rage_menu: bytes) -> b
     # native Rage bar itself, but fit it precisely between those stock buttons.
     struct.pack_into("<4I", progress_record, 0x68, *BREWING_PROGRESS_RECT)
     output = bytearray(brewing_menu)
-    child_count = u32(output, 0x28)
-    if child_count != 12:
-        raise ValueError(f"Stock AP69 child count changed: {child_count}")
-    struct.pack_into("<I", output, 0x28, child_count + 1)
     output += progress_record
+    return bytes(output)
+
+
+def privateize_brewing_action_control(brewing_menu: bytes) -> bytes:
+    """Detach the first recipe from AP69's built-in Fervus spell metadata."""
+    output = bytearray(brewing_menu)
+    actual = u32(output, BREWING_FIRST_BUTTON_ID_OFFSET)
+    if actual != STOCK_FERVUS_FIRST_SPELL_CONTROL_ID:
+        raise ValueError(
+            f"Stock AP69 first spell control changed: 0x{actual:04X}"
+        )
+    struct.pack_into(
+        "<I", output, BREWING_FIRST_BUTTON_ID_OFFSET, BREWING_INVIGORATING_CONTROL_ID
+    )
     return bytes(output)
 
 
@@ -328,6 +341,7 @@ def build_text_cam(
     brewing_menu = read_cam_entry(
         stock_text_cam, b"SMNU", SOURCE_BREWING_DIALOG_ID
     ).data
+    brewing_menu = privateize_brewing_action_control(brewing_menu)
     rage_menu = read_cam_entry(stock_text_cam, b"SMNU", SOURCE_RAGE_DIALOG_ID).data
     brewing_menu = add_native_rage_progress_control(brewing_menu, rage_menu)
     brewing_strings = read_cam_entry(
@@ -489,6 +503,8 @@ def validate_output(
         raise ValueError("CGBR native progress control is missing or duplicated")
     if struct.pack("<I", RAGE_PROGRESS_CONTROL_ID) not in brewing_menu:
         raise ValueError("CGBR native progress control ID is missing")
+    if u32(brewing_menu, BREWING_FIRST_BUTTON_ID_OFFSET) != BREWING_INVIGORATING_CONTROL_ID:
+        raise ValueError("CGBR still uses Fervus's first spell control ID")
     rect = struct.unpack_from("<4I", menu, AP10_SPELL_BUTTON_RECT_OFFSET)
     expected_rect = AP10_SPELL_BUTTON_RECT if enable_unsafe_brewing_control else (103, 162, 0, 0)
     if rect != expected_rect:

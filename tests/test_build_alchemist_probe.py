@@ -161,11 +161,27 @@ end
         struct.pack_into("<I", record, 0x50, builder.RAGE_PROGRESS_CONTROL_ID)
         rage += record
         output = builder.add_native_rage_progress_control(bytes(brewing), bytes(rage))
-        self.assertEqual(struct.unpack_from("<I", output, 0x28)[0], 13)
+        self.assertEqual(struct.unpack_from("<I", output, 0x28)[0], 12)
         self.assertEqual(output.count(b"INSr"), 1)
         self.assertEqual(
             struct.unpack_from("<4I", output, len(brewing) + 0x68),
             builder.BREWING_PROGRESS_RECT,
+        )
+
+    def test_brewing_action_uses_a_private_control_id(self) -> None:
+        menu = bytearray(builder.BREWING_FIRST_BUTTON_ID_OFFSET + 4)
+        struct.pack_into(
+            "<I",
+            menu,
+            builder.BREWING_FIRST_BUTTON_ID_OFFSET,
+            builder.STOCK_FERVUS_FIRST_SPELL_CONTROL_ID,
+        )
+        output = builder.privateize_brewing_action_control(bytes(menu))
+        self.assertEqual(
+            struct.unpack_from(
+                "<I", output, builder.BREWING_FIRST_BUTTON_ID_OFFSET
+            )[0],
+            builder.BREWING_INVIGORATING_CONTROL_ID,
         )
 
 

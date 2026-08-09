@@ -24,6 +24,9 @@ walk, and attack direction. In the authored six-view sheets this means the
 southeast/front-three-quarter attack places the weapon on image-left, while the
 northwest/rear-three-quarter neutral, walk, and attack views place it on
 image-right. Never mirror a whole pose without correcting handedness afterward.
+In the northwest neutral and walk views, show the back of the right glove and
+its knuckles. The blade must leave the thumb/index side in a conventional
+forward grip; it may not project from the pinky side as a reversed grip.
 The northwest cast view must face upper-left and keep its potion in the same
 anatomical right hand; it must not duplicate the northeast view.
 
@@ -47,6 +50,9 @@ Level 1 building still standing and erects the second story/gallery around it.
 Level 3 construction begins with the finished Level 2 building still standing
 and adds the cupola, showcase distiller, upgraded well, and roof refinements.
 Only initial Level 1 construction starts from an empty foundation.
+The inherited stone tower remains anchored at the far-left side of the footprint
+in both Level 3 construction frames. It must not jump toward the center between
+early construction, late construction, and completion.
 
 The bottom-row state sequence is damaged, severely damaged, advanced collapse,
 and destroyed. The advanced-collapse cell must retain a recognizable partial
@@ -55,8 +61,10 @@ be reduced to a flattened footprint.
 
 The guild panel portrait represents the inside of the building, following the
 stock Majesty guild-panel convention. It must show the enclosed Alchemy
-Laboratory workspace—still, brewing well, shelves, herbs, and workbench—not an
-exterior building view.
+Laboratory workspace, not an exterior building view. Focus the portrait on the
+long workbench: formula book, mortar and pestle, balance, bowls, hand tools,
+ingredients, and compact glass retorts. Do not reproduce the exterior's large
+showcase distiller or potion well inside the portrait.
 
 ## Production source set
 

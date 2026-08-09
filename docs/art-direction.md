@@ -19,6 +19,14 @@ around the handle, thumb supporting the grip, and the blade projecting from the
 thumb/index-finger side of the fist. Do not copy the reference sheet's reversed
 or awkward wrist/blade relationship.
 
+The dagger is always in the Alchemist's anatomical right hand in every neutral,
+walk, and attack direction. In the authored six-view sheets this means the
+southeast/front-three-quarter attack places the weapon on image-left, while the
+northwest/rear-three-quarter neutral, walk, and attack views place it on
+image-right. Never mirror a whole pose without correcting handedness afterward.
+The northwest cast view must face upper-left and keep its potion in the same
+anatomical right hand; it must not duplicate the northeast view.
+
 ## Approved building progression
 
 - `assets/source/buildings/lab/level-1/profile.png` is the clean, modest brew
@@ -33,6 +41,22 @@ Building production must follow the Phantoms Haunt TILE and shadow pipeline:
 author each state independently, fit the native canvas, reserve palette indices
 247–250 for engine shadow controls, and encode visible and shadow RLE segments
 separately.
+
+Upgrade construction is additive. Level 2 construction begins with the finished
+Level 1 building still standing and erects the second story/gallery around it.
+Level 3 construction begins with the finished Level 2 building still standing
+and adds the cupola, showcase distiller, upgraded well, and roof refinements.
+Only initial Level 1 construction starts from an empty foundation.
+
+The bottom-row state sequence is damaged, severely damaged, advanced collapse,
+and destroyed. The advanced-collapse cell must retain a recognizable partial
+building with standing masonry and equipment. Only the final destroyed cell may
+be reduced to a flattened footprint.
+
+The guild panel portrait represents the inside of the building, following the
+stock Majesty guild-panel convention. It must show the enclosed Alchemy
+Laboratory workspace—still, brewing well, shelves, herbs, and workbench—not an
+exterior building view.
 
 ## Production source set
 

@@ -105,29 +105,47 @@ end
             'source="Alchemist_Siege_Test.gpl"', builder.build_gpl_project(True)
         )
 
-    def test_brewing_source_uses_a_guarded_realm_wide_speed_tier(self) -> None:
+    def test_brewing_source_copies_stock_rage_for_true_heroes(self) -> None:
         source = (builder.GPL_SOURCE_ROOT / "Alchemist_Brewing.gpl").read_text(
             encoding="utf-8"
         )
         self.assertIn('$HasAttribute("Alchemist_Brewing", ThisAgent)', source)
         self.assertIn('ThisAgent\'s "Alchemist_Brewing" == True', source)
+        self.assertIn("function Alchemist_Invigorating_Elixer_End(agent ThisAgent)", source)
+        self.assertIn("$IsDead(Hero) == False", source)
+        self.assertNotIn("$RunThread", source)
+        self.assertNotIn("Alchemist_Invigorated", source)
         self.assertIn('"hero"', source)
-        self.assertIn('"monster"', source)
+        self.assertIn('#CheckSubtypes, "Hero"', source)
+        self.assertNotIn("Henchman", source)
+        self.assertNotIn("$GetBuildingContents", source)
+        self.assertNotIn("$DebugOut", source)
+        self.assertNotIn("$CheckEffector", source)
+        self.assertIn("foreach Hero in Heroes", source)
+        self.assertNotIn('$ListObjects(ThisAgent, "monster"', source)
         self.assertIn("#ATTRIB_MovementRateModifier, -200", source)
         self.assertIn("#ATTRIB_MovementRateModifier, 200", source)
         self.assertIn("30000", source)
         self.assertIn('$AdjustPlayerData(Palace, "Gold", -1)', source)
         self.assertIn("#ATTRIB_MaxHP, 20", source)
         self.assertIn("#ATTRIB_HP, 20", source)
-        self.assertIn('Unit\'s "Self_Estimation" += 1', source)
-        self.assertIn("$turnonSPeedTrail(Unit, 4)", source)
+        self.assertIn('Hero\'s "Self_Estimation" += 1', source)
+        self.assertIn("$turnonSPeedTrail(Hero, 4)", source)
+        self.assertIn("#ATTRIB_RageOfKrolmCount, HeroCount", source)
         self.assertIn("function DoRageOfKrolm", source)
+        self.assertIn("function Alchemist_DoInvigoratingElixer", source)
         self.assertIn("$Alchemist_Stock_RageOfKrolm(ThisAgent)", source)
+        self.assertLess(
+            source.index(
+                '$CreateEffector(Hero, "alchemist_invigorating_elixer_icon", 30000)'
+            ),
+            source.index("$AdjustAttribute(Hero, #ATTRIB_MaxHP, 20)"),
+        )
 
     def test_brewing_overlay_has_a_private_callback(self) -> None:
-        stock = """<Majesty><Description type="Unit" subType="Overlay" ID="XR01" Name="Speed_Tonic_Icon" Description="Speed Tonic"><Engine><ImageIDBase value="XR01"/><Script type="0" cProc="0" GPLFunction="Speed_Tonic_End"/></Engine><Game/></Description></Majesty>"""
+        stock = """<Majesty><Description type="Unit" subType="Overlay" ID="QRa1" Name="Rage_icon" Description="Rage of Krolm"><Engine><Info value="Directionless"/><Info value="DontBlock"/><ImageIDBase value="QRa1"/><Script type="0" cProc="0" GPLFunction="rage_end"/></Engine><Game><StackPriority value="1"/></Game></Description></Majesty>"""
         with tempfile.TemporaryDirectory() as directory:
-            path = Path(directory) / "MX_Overlays.xml"
+            path = Path(directory) / "M_Overlays.xml"
             path.write_text(stock, encoding="utf-8")
             output = ET.fromstring(builder.build_brewing_overlays_xml(path))
         overlay = output.find("Description")
@@ -137,6 +155,7 @@ end
             overlay.find("./Engine/Script").get("GPLFunction"),
             "Alchemist_Invigorating_Elixer_End",
         )
+        self.assertEqual(overlay.find("./Engine/ImageIDBase").get("value"), "XR01")
 
     def test_brewing_sound_has_a_private_description(self) -> None:
         stock = """<Majesty><Description type="Sound" subType="Standard" ID="DP01" Name="Drink_Potion"><Engine><Category value="0"/><Phase ID="Effector Begin"><Wave value="DP01"/></Phase></Engine></Description></Majesty>"""

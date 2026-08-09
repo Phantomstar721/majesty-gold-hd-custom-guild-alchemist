@@ -1,43 +1,62 @@
 // Invigorating Elixer follows Rage of Krolm's stock gameplay pattern. The
-// runtime submits Majesty's deterministic Rage command only for CGBR; timed
-// effectors own every unit's cleanup. The stock Krolm branch is preserved.
+// runtime submits Majesty's deterministic Rage command only for CGBR. Like
+// stock Rage, the timed icon effector owns each unit's cleanup callback.
 
-function Alchemist_Apply_Invigorating_Elixer(agent ThisAgent, string Family)
-declare
-	list Units;
-	agent Unit;
-begin
-	$ListObjects(ThisAgent, Family, -1, Units, #MyPlayer, #InsideOtherUnits);
-	foreach Unit in Units do
-		begin
-			if ($IsValidGamePiece(Unit))
-				begin
-					if ($CheckEffector(Unit, "alchemist_invigorating_elixer_icon") == False)
-						begin
-							$AdjustAttribute(Unit, #ATTRIB_MovementRateModifier, -200);
-							$AdjustAttribute(Unit, #ATTRIB_MaxHP, 20);
-							$AdjustAttribute(Unit, #ATTRIB_HP, 20);
-							Unit's "Self_Estimation" += 1;
-							$turnonSPeedTrail(Unit, 4);
-							$CreateEffector(Unit, "alchemist_invigorating_elixer_icon", 30000);
-						end
-				end
-		end
-end
-
+// Literal private counterpart of stock Rage_end. Majesty invokes this when
+// the cloned Rage-style icon effector expires or is deleted.
 function Alchemist_Invigorating_Elixer_End(agent ThisAgent)
 declare
-	integer RestoredMaximum;
+	agent Palace;
 begin
-	if ($IsValidGamePiece(ThisAgent))
+	// Exact stock Rage lifecycle proof: use its registered Palace reference
+	// count. A private engine attribute must be registered before this can be
+	// separated without changing the lifecycle.
+	Palace = $GetTruePalace(ThisAgent);
+	if ($IsValidGamePiece(Palace))
+		$AdjustAttribute(Palace, #ATTRIB_RageOfKrolmCount, -1);
+
+	$AdjustAttribute(ThisAgent, #ATTRIB_MaxHP, -20);
+	ThisAgent's "Self_Estimation" -= 1;
+	$AdjustAttribute(ThisAgent, #ATTRIB_MovementRateModifier, 200);
+	$turnoffSpeedTrail(ThisAgent);
+	if ($GetAttribute(ThisAgent, #ATTRIB_HP) > $GetAttribute(ThisAgent, #ATTRIB_MaxHP))
+		$SetAttribute(ThisAgent, #ATTRIB_HP, $GetAttribute(ThisAgent, #ATTRIB_MaxHP));
+end
+
+// The DLL calls this private symbol through Rage's native GPL invocation
+// machinery. A unique name is required because Majesty's global registry
+// resolves the stock DoRageOfKrolm when two BCDs export that same symbol.
+function Alchemist_DoInvigoratingElixer(agent ThisAgent)
+declare
+	list Heroes;
+	agent Hero;
+	agent Palace;
+	integer HeroCount;
+begin
+	Palace = $GetTruePalace(ThisAgent);
+	if ($GetPlayerData(Palace, "Gold") >= 1)
 		begin
-			$AdjustAttribute(ThisAgent, #ATTRIB_MovementRateModifier, 200);
-			$AdjustAttribute(ThisAgent, #ATTRIB_MaxHP, -20);
-			ThisAgent's "Self_Estimation" -= 1;
-			$turnoffSpeedTrail(ThisAgent);
-			RestoredMaximum = $GetAttribute(ThisAgent, #ATTRIB_MaxHP);
-			if ($GetAttribute(ThisAgent, #ATTRIB_HP) > $GetAttribute(ThisAgent, #ATTRIB_MaxHP))
-				$SetAttribute(ThisAgent, #ATTRIB_HP, RestoredMaximum);
+			$AdjustPlayerData(Palace, "Gold", -1);
+			// Exact stock Rage target query, with only the private effector,
+			// values, duration, and sound substituted for the Alchemist brew.
+			$ListObjects(ThisAgent, "hero", -1, Heroes, #MyPlayer, #InsideOtherUnits, #NoHiddenMap, #CheckSubtypes, "Hero");
+			HeroCount = 0;
+			foreach Hero in Heroes do
+				begin
+					if ($IsDead(Hero) == False)
+						begin
+							$CreateEffector(Hero, "alchemist_invigorating_elixer_icon", 30000);
+							$AdjustAttribute(Hero, #ATTRIB_MaxHP, 20);
+							$AdjustAttribute(Hero, #ATTRIB_HP, 20);
+							Hero's "Self_Estimation" += 1;
+							$AdjustAttribute(Hero, #ATTRIB_MovementRateModifier, -200);
+							$turnonSPeedTrail(Hero, 4);
+							HeroCount += 1;
+						end
+				end
+
+			$SetAttribute(Palace, #ATTRIB_RageOfKrolmCount, HeroCount);
+			$PlaySound(ThisAgent, "alchemist_invigorating_elixer_sound", "Effector Begin");
 		end
 end
 
@@ -89,16 +108,7 @@ declare
 begin
 	if (($HasAttribute("Alchemist_Brewing", ThisAgent)) &&
 		(ThisAgent's "Alchemist_Brewing" == True))
-		begin
-			Palace = $GetTruePalace(ThisAgent);
-			if ($GetPlayerData(Palace, "Gold") >= 1)
-				begin
-					$AdjustPlayerData(Palace, "Gold", -1);
-					$PlaySound(ThisAgent, "alchemist_invigorating_elixer_sound", "Effector Begin");
-					$Alchemist_Apply_Invigorating_Elixer(ThisAgent, "hero");
-					$Alchemist_Apply_Invigorating_Elixer(ThisAgent, "monster");
-				end
-		end
+		$Alchemist_DoInvigoratingElixer(ThisAgent);
 	else
 		$Alchemist_Stock_RageOfKrolm(ThisAgent);
 end

@@ -15,6 +15,13 @@ rotation and the Marketplace's player-purchased consumables.
 
 See [the initial design brief](docs/design-brief.md).
 
+Invigorating Elixer is intentionally scoped to true recruitable heroes. Its
+activation, targeting, timed effector, Palace-side count, expiry cleanup, and
+repeat-use lifecycle copy the stock Rage of Krolm mechanism. Henchmen were
+removed after repeated live tests showed that Majesty's available enumeration
+paths select them inconsistently across casts. The complete test record is in
+[the Invigorating Elixer research log](docs/invigorating-elixer-research.md).
+
 ## Planned dependencies
 
 - **Majesty Gold HD - Expanded Building Slots** for a unique `CGAL` recruitment

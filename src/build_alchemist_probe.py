@@ -250,9 +250,9 @@ def build_units_xml(stock_buildings_xml: Path) -> bytes:
 
 def build_brewing_overlays_xml(stock_overlays_xml: Path) -> bytes:
     stock_root = ET.parse(stock_overlays_xml).getroot()
-    source = stock_root.find('.//Description[@Name="Speed_Tonic_Icon"]')
+    source = stock_root.find('.//Description[@Name="Rage_icon"]')
     if source is None:
-        raise ValueError("Stock Speed_Tonic_Icon overlay is missing")
+        raise ValueError("Stock Rage_icon overlay is missing")
     overlay = ET.fromstring(ET.tostring(source, encoding="utf-8"))
     overlay.set("ID", "AXE1")
     overlay.set("Name", "alchemist_invigorating_elixer_icon")
@@ -260,7 +260,7 @@ def build_brewing_overlays_xml(stock_overlays_xml: Path) -> bytes:
     image = overlay.find("./Engine/ImageIDBase")
     script = overlay.find("./Engine/Script")
     if image is None or script is None:
-        raise ValueError("Stock Speed_Tonic_Icon overlay contract changed")
+        raise ValueError("Stock Rage_icon overlay contract changed")
     image.set("value", "XR01")
     script.set("GPLFunction", "Alchemist_Invigorating_Elixer_End")
     output = ET.Element("Majesty")
@@ -560,7 +560,7 @@ def build(
         build_units_xml(sdk_data / "M_Buildings.xml")
     )
     (data_dir / "alchemist_brewing_overlays.xml").write_bytes(
-        build_brewing_overlays_xml(sdk_data.parent / "DataMX" / "MX_Overlays.xml")
+        build_brewing_overlays_xml(sdk_data / "M_Overlays.xml")
     )
     (data_dir / "alchemist_brewing_sounds.xml").write_bytes(
         build_brewing_sounds_xml(sdk_data / "M_Sounds.xml")

@@ -31,6 +31,8 @@ BREWING_FIRST_BUTTON_ID_OFFSET = 0x0204
 AP10_SPELL_BUTTON_RECT_OFFSET = 0x0D34
 AP10_SPELL_BUTTON_RECT = (103, 162, 93, 26)
 BUILDING_IDS = ("ALB1", "ALB2", "ALB3")
+ALCHEMIST_HERO_ID = "ALC1"
+ALCHEMIST_HERO_NAME = "Alchemist"
 BUILDING_NAMES = (
     "AlchemistsLaboratory1",
     "AlchemistsLaboratory2",
@@ -74,7 +76,12 @@ def build_gpl_project(include_siege_test_fixture: bool) -> str:
     sources = ['source="Alchemist_Brewing.gpl"']
     if include_siege_test_fixture:
         sources.append('source="Alchemist_Siege_Test.gpl"')
-    return 'data="Alchemist_Building_Data.dat"\n' + "\n".join(sources) + "\n"
+    return (
+        'data="Alchemist_Building_Data.dat"\n'
+        'data="Alchemist_Hero_Data.dat"\n'
+        + "\n".join(sources)
+        + "\n"
+    )
 
 
 @dataclass(frozen=True)
@@ -213,9 +220,18 @@ def encode_strt(version: bytes, records: list[tuple[int, bytes]]) -> bytes:
     return bytes(output)
 
 
-def build_units_xml(stock_buildings_xml: Path) -> bytes:
+def build_units_xml(stock_buildings_xml: Path, stock_characters_xml: Path) -> bytes:
     stock_root = ET.parse(stock_buildings_xml).getroot()
     output = ET.Element("Majesty")
+    character_root = ET.parse(stock_characters_xml).getroot()
+    stock_cultist = character_root.find('.//Description[@Name="Cultist"]')
+    if stock_cultist is None:
+        raise ValueError("Stock Cultist character description is missing")
+    alchemist = ET.fromstring(ET.tostring(stock_cultist, encoding="utf-8"))
+    alchemist.set("ID", ALCHEMIST_HERO_ID)
+    alchemist.set("Name", ALCHEMIST_HERO_NAME)
+    alchemist.set("Description", ALCHEMIST_HERO_NAME)
+    output.append(alchemist)
     for level, source_name in enumerate(SOURCE_BUILDING_NAMES):
         source = stock_root.find(f'.//Description[@Name="{source_name}"]')
         if source is None:
@@ -237,12 +253,11 @@ def build_units_xml(stock_buildings_xml: Path) -> bytes:
             upgrade_to.set("value", BUILDING_NAMES[level + 1])
         if upgrade_from is not None:
             upgrade_from.set("value", BUILDING_NAMES[level - 1])
-        # The first panel/constructor probe intentionally recruits the stock
-        # Cultist. A custom ALC1 description needs its own GPL decision wiring.
+        # Preserve the complete stock Cultist contract under a private identity.
         produced = description.find("./Game/Produces/Unit")
         if produced is None:
             raise ValueError(f"{source_name} has no recruitable unit")
-        produced.set("ID", "Cultist")
+        produced.set("ID", ALCHEMIST_HERO_NAME)
         output.append(description)
     ET.indent(output, space="\t")
     return ET.tostring(output, encoding="utf-8", xml_declaration=False) + b"\n"
@@ -354,14 +369,15 @@ def build_text_cam(
             fourcc_id("ALB1"): "Alchemy Lab",
             fourcc_id("ALB2"): "Alchemy Lab",
             fourcc_id("ALB3"): "Alchemy Lab",
+            fourcc_id(ALCHEMIST_HERO_ID): ALCHEMIST_HERO_NAME,
         },
     )
     patched_strings = patch_strt_by_index(
         strings,
         {
             0: "ALCHEMY LAB",
-            1: "RECRUIT Test Alchemist",
-            2: "Recruit a stock Cultist as the temporary Alchemist.",
+            1: "RECRUIT Alchemist",
+            2: "Recruit an Alchemist.",
             3: "Destroy this Alchemist's Laboratory.",
             29: "BREWING",
             30: "Open this Laboratory's experimental Brewing window.",
@@ -450,6 +466,7 @@ def build_manifest(use_ap10_title_alias: bool = False) -> str:
 \t\t\t\t\t<GPL>
 \t\t\t\t\t\t<Target>Data\\Alchemist.bcd</Target>
 \t\t\t\t\t\t<Source>GPL\\Alchemist_Building_Data.dat</Source>
+\t\t\t\t\t\t<Source>GPL\\Alchemist_Hero_Data.dat</Source>
 \t\t\t\t\t</GPL>
 \t\t\t\t</Load>
 \t\t\t</Dataset>
@@ -476,6 +493,7 @@ def validate_output(
         output_root / "Data" / "Alchemist.bcd",
         output_root / "GPL" / "Alchemist.gplproj",
         output_root / "GPL" / "Alchemist_Building_Data.dat",
+        output_root / "GPL" / "Alchemist_Hero_Data.dat",
         output_root / "GPL" / "Alchemist_Brewing.gpl",
     }
     if include_siege_test_fixture:
@@ -485,9 +503,17 @@ def validate_output(
         raise ValueError(f"Unexpected package files: {sorted(str(p) for p in actual ^ expected)}")
     root = ET.parse(output_root / "Data" / "alchemist_probe_units.xml").getroot()
     descriptions = root.findall("Description")
-    if [item.get("ID") for item in descriptions] != list(BUILDING_IDS):
-        raise ValueError("Building ID sequence is invalid")
-    if any(item.find("./Game/DialogID").get("value") != "CGAL" for item in descriptions):
+    if [item.get("ID") for item in descriptions] != [ALCHEMIST_HERO_ID, *BUILDING_IDS]:
+        raise ValueError("Alchemist unit ID sequence is invalid")
+    hero = descriptions[0]
+    buildings = descriptions[1:]
+    if hero.get("Name") != ALCHEMIST_HERO_NAME:
+        raise ValueError("Private Alchemist hero description is missing")
+    if hero.find("./Engine/ImageIDBase").get("value") != "AVC1":
+        raise ValueError("Alchemist probe must retain the stock Cultist image")
+    if hero.find("./Engine/DefaultSound").get("value") != "Cultist":
+        raise ValueError("Alchemist probe must retain the stock Cultist sound")
+    if any(item.find("./Game/DialogID").get("value") != "CGAL" for item in buildings):
         raise ValueError("Every Laboratory level must use CGAL")
     text_cam = output_root / "Data" / "alchemist_probe_textdata.cam"
     menu = read_cam_entry(text_cam, b"SMNU", DIALOG_ID).data
@@ -522,6 +548,13 @@ def validate_output(
     for name in BUILDING_NAMES:
         if f"[{name}]" not in building_data:
             raise ValueError(f"GPL building record is missing: {name}")
+    hero_data = (output_root / "GPL" / "Alchemist_Hero_Data.dat").read_text(
+        encoding="utf-8"
+    )
+    if "[Alchemist]" not in hero_data or "(title Alchemist)" not in hero_data:
+        raise ValueError("GPL Alchemist hero record is missing")
+    if hero_data.count("Cultist_tree") != 3:
+        raise ValueError("Alchemist must retain all three stock Cultist tree hooks")
     expected_title = "Temple_Fervus" if use_ap10_title_alias else "AlchemistsLaboratory"
     if building_data.count(f"(title {expected_title})") != 3:
         raise ValueError(f"Expected all GPL levels to use title {expected_title}")
@@ -557,7 +590,7 @@ def build(
     sdk_data = game_path / "SDK" / "OriginalQuests" / "Data"
     game_data = game_path / "Data"
     (data_dir / "alchemist_probe_units.xml").write_bytes(
-        build_units_xml(sdk_data / "M_Buildings.xml")
+        build_units_xml(sdk_data / "M_Buildings.xml", sdk_data / "M_Characters.xml")
     )
     (data_dir / "alchemist_brewing_overlays.xml").write_bytes(
         build_brewing_overlays_xml(sdk_data / "M_Overlays.xml")
@@ -586,6 +619,7 @@ def build(
             "(title AlchemistsLaboratory)", "(title Temple_Fervus)"
         )
     (gpl_dir / "Alchemist_Building_Data.dat").write_bytes(building_data.encode("utf-8"))
+    shutil.copy2(GPL_SOURCE_ROOT / "Alchemist_Hero_Data.dat", gpl_dir)
     shutil.copy2(GPL_SOURCE_ROOT / "Alchemist_Brewing.gpl", gpl_dir)
     if include_siege_test_fixture:
         siege_source = build_siege_test_fixture(

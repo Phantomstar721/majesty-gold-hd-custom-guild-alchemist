@@ -351,9 +351,9 @@ def build_text_cam(
     patched_units = patch_strt_by_id(
         unit_names,
         {
-            fourcc_id("ALB1"): "Alchemist's Laboratory",
-            fourcc_id("ALB2"): "Alchemist's Laboratory",
-            fourcc_id("ALB3"): "Alchemist's Laboratory",
+            fourcc_id("ALB1"): "Alchemy Lab",
+            fourcc_id("ALB2"): "Alchemy Lab",
+            fourcc_id("ALB3"): "Alchemy Lab",
         },
     )
     patched_strings = patch_strt_by_index(

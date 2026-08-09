@@ -207,6 +207,9 @@ end
         source = Path(builder.__file__).read_text(encoding="utf-8")
         self.assertIn('0: "ALCHEMY LAB"', source)
         self.assertIn('1: "Vigor Elixir"', source)
+        self.assertEqual(source.count('fourcc_id("ALB1"): "Alchemy Lab"'), 1)
+        self.assertEqual(source.count('fourcc_id("ALB2"): "Alchemy Lab"'), 1)
+        self.assertEqual(source.count('fourcc_id("ALB3"): "Alchemy Lab"'), 1)
         self.assertNotIn('0: "ALCHEMIST\'S LABORATORY"', source)
 
 

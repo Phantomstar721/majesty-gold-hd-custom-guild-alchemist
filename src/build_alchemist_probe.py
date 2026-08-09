@@ -7,7 +7,10 @@ import re
 import shutil
 import struct
 import subprocess
+import sys
 import xml.etree.ElementTree as ET
+
+from alchemist_art_package import write_interfacedata, write_maindata
 
 
 MAGIC = b"CYLBPC  \x01\x00\x01\x00"
@@ -114,7 +117,7 @@ def fourcc_id(value: str) -> int:
     return struct.unpack("<I", raw)[0]
 
 
-def read_cam_entry(path: Path, extension: bytes, name: bytes) -> CamEntry:
+def read_cam_entries(path: Path, extension: bytes) -> list[CamEntry]:
     data = path.read_bytes()
     if data[: len(MAGIC)] != MAGIC:
         raise ValueError(f"Not a CYLBPC CAM archive: {path}")
@@ -129,14 +132,23 @@ def read_cam_entry(path: Path, extension: bytes, name: bytes) -> CamEntry:
             continue
         count = u32(data, section_offset)
         cursor = section_offset + SECTION_HEADER_SIZE
+        entries: list[CamEntry] = []
         for _ in range(count):
             raw_name = data[cursor : cursor + 20]
             payload_offset = u32(data, cursor + 20)
             payload_size = u32(data, cursor + 24)
             cursor += ENTRY_HEADER_SIZE
-            if raw_name.rstrip(b"\x00") == name:
-                return CamEntry(raw_name, data[payload_offset : payload_offset + payload_size])
-        break
+            entries.append(
+                CamEntry(raw_name, data[payload_offset : payload_offset + payload_size])
+            )
+        return entries
+    raise ValueError(f"Could not find {extension.decode()} section in {path}")
+
+
+def read_cam_entry(path: Path, extension: bytes, name: bytes) -> CamEntry:
+    for entry in read_cam_entries(path, extension):
+        if entry.name.rstrip(b"\x00") == name:
+            return entry
     raise ValueError(f"Could not find {extension.decode()}/{name.decode()} in {path}")
 
 
@@ -231,6 +243,7 @@ def build_units_xml(stock_buildings_xml: Path, stock_characters_xml: Path) -> by
     alchemist.set("ID", ALCHEMIST_HERO_ID)
     alchemist.set("Name", ALCHEMIST_HERO_NAME)
     alchemist.set("Description", ALCHEMIST_HERO_NAME)
+    alchemist.find("./Engine/ImageIDBase").set("value", ALCHEMIST_HERO_ID)
     output.append(alchemist)
     for level, source_name in enumerate(SOURCE_BUILDING_NAMES):
         source = stock_root.find(f'.//Description[@Name="{source_name}"]')
@@ -243,6 +256,7 @@ def build_units_xml(stock_buildings_xml: Path, stock_characters_xml: Path) -> by
             "Description",
             "Alchemy Lab" if level == 0 else f"Alchemy Lab Level {level + 1}",
         )
+        description.find("./Engine/ImageIDBase").set("value", BUILDING_IDS[level])
         dialog = description.find("./Game/DialogID")
         if dialog is None:
             raise ValueError(f"{source_name} has no DialogID")
@@ -350,12 +364,14 @@ def build_text_cam(
     enable_unsafe_brewing_control: bool = False,
 ) -> None:
     menu = read_cam_entry(stock_text_cam, b"SMNU", SOURCE_DIALOG_ID).data
+    menu = menu.replace(b"INTI", b"ALTI").replace(b"INBb", b"ALBB")
     if not enable_unsafe_brewing_control:
         menu = disable_ap10_secondary_control(menu)
     strings = read_cam_entry(stock_text_cam, b"STRT", SOURCE_DIALOG_ID).data
     brewing_menu = read_cam_entry(
         stock_text_cam, b"SMNU", SOURCE_BREWING_DIALOG_ID
     ).data
+    brewing_menu = brewing_menu.replace(b"INTI", b"ALTI").replace(b"INBb", b"ALBB")
     brewing_menu = privateize_brewing_action_control(brewing_menu)
     rage_menu = read_cam_entry(stock_text_cam, b"SMNU", SOURCE_RAGE_DIALOG_ID).data
     brewing_menu = add_native_rage_progress_control(brewing_menu, rage_menu)
@@ -460,6 +476,8 @@ def build_manifest(use_ap10_title_alias: bool = False) -> str:
 \t\t\t\t<Load>
 \t\t\t\t\t<CAM>Data\\alchemist_probe_textdata.cam</CAM>
 \t\t\t\t\t<CAM>Data\\alchemist_probe_miscdata.cam</CAM>
+\t\t\t\t\t<CAM>Data\\alchemist_maindata.cam</CAM>
+\t\t\t\t\t<CAM>Data\\alchemist_interfacedata.cam</CAM>
 \t\t\t\t\t<Descriptions>Data\\alchemist_probe_units.xml</Descriptions>
 \t\t\t\t\t<Descriptions>Data\\alchemist_brewing_overlays.xml</Descriptions>
 \t\t\t\t\t<Descriptions>Data\\alchemist_brewing_sounds.xml</Descriptions>
@@ -490,6 +508,8 @@ def validate_output(
         output_root / "Data" / "alchemist_brewing_sounds.xml",
         output_root / "Data" / "alchemist_probe_textdata.cam",
         output_root / "Data" / "alchemist_probe_miscdata.cam",
+        output_root / "Data" / "alchemist_maindata.cam",
+        output_root / "Data" / "alchemist_interfacedata.cam",
         output_root / "Data" / "Alchemist.bcd",
         output_root / "GPL" / "Alchemist.gplproj",
         output_root / "GPL" / "Alchemist_Building_Data.dat",
@@ -509,12 +529,14 @@ def validate_output(
     buildings = descriptions[1:]
     if hero.get("Name") != ALCHEMIST_HERO_NAME:
         raise ValueError("Private Alchemist hero description is missing")
-    if hero.find("./Engine/ImageIDBase").get("value") != "AVC1":
-        raise ValueError("Alchemist probe must retain the stock Cultist image")
+    if hero.find("./Engine/ImageIDBase").get("value") != ALCHEMIST_HERO_ID:
+        raise ValueError("Alchemist must use its private image record")
     if hero.find("./Engine/DefaultSound").get("value") != "Cultist":
         raise ValueError("Alchemist probe must retain the stock Cultist sound")
     if any(item.find("./Game/DialogID").get("value") != "CGAL" for item in buildings):
         raise ValueError("Every Laboratory level must use CGAL")
+    if [item.find("./Engine/ImageIDBase").get("value") for item in buildings] != list(BUILDING_IDS):
+        raise ValueError("Every Laboratory level must use its private image record")
     text_cam = output_root / "Data" / "alchemist_probe_textdata.cam"
     menu = read_cam_entry(text_cam, b"SMNU", DIALOG_ID).data
     if menu == b"":
@@ -522,6 +544,37 @@ def validate_output(
     brewing_menu = read_cam_entry(text_cam, b"SMNU", BREWING_DIALOG_ID).data
     if brewing_menu == b"":
         raise ValueError("CGBR menu is empty")
+    for menu_name, menu_data in (("CGAL", menu), ("CGBR", brewing_menu)):
+        if b"ALTI" not in menu_data or b"ALBB" not in menu_data:
+            raise ValueError(f"{menu_name} does not use the private interface art")
+        if b"INTI" in menu_data or b"INBb" in menu_data:
+            raise ValueError(f"{menu_name} still references stock interface art")
+
+    main_art = output_root / "Data" / "alchemist_maindata.cam"
+    interface_art = output_root / "Data" / "alchemist_interfacedata.cam"
+    for name in (b"ALC1Alchemist", b"ALB1Alchemy Lab 1", b"ALB2Alchemy Lab 2", b"ALB3Alchemy Lab 3"):
+        if not read_cam_entry(main_art, b"IMAG", name).data:
+            raise ValueError(f"Private main art record is empty: {name!r}")
+    for name in (b"ALTIraw textures", b"ALBBbuilding frame"):
+        if not read_cam_entry(interface_art, b"IMAG", name).data:
+            raise ValueError(f"Private interface art record is empty: {name!r}")
+    for art_path, prefixes in (
+        (main_art, (b"ALC1", b"ALB1", b"ALB2", b"ALB3")),
+        (interface_art, (b"ALTI", b"ALBB")),
+    ):
+        tile_entries = read_cam_entries(art_path, b"TILE")
+        first_private = next(
+            (
+                index
+                for index, entry in enumerate(tile_entries)
+                if entry.name.rstrip(b"\x00").startswith(prefixes)
+            ),
+            None,
+        )
+        if first_private is None or not tile_entries[first_private].data:
+            raise ValueError(f"Private TILE payloads are missing from {art_path.name}")
+        if any(entry.data for entry in tile_entries[:first_private]):
+            raise ValueError(f"{art_path.name} overwrites a stock TILE slot")
     brewing_strings = read_cam_entry(text_cam, b"STRT", BREWING_DIALOG_ID).data
     if b"Vigor Elixir\x00" not in brewing_strings:
         raise ValueError("CGBR Vigor Elixir label is missing")
@@ -589,6 +642,34 @@ def build(
     gpl_dir.mkdir(parents=True)
     sdk_data = game_path / "SDK" / "OriginalQuests" / "Data"
     game_data = game_path / "Data"
+    generated_art = SOURCE_ROOT.parent / "artifacts" / "generated-art"
+    art_cache = SOURCE_ROOT.parent / "artifacts" / "art-cache"
+    cached_main = art_cache / "alchemist_maindata.cam"
+    cached_interface = art_cache / "alchemist_interfacedata.cam"
+    art_inputs = [
+        *(SOURCE_ROOT.parent / "assets" / "source").rglob("*"),
+        SOURCE_ROOT.parent / "scripts" / "generate_alchemist_art.py",
+        SOURCE_ROOT.parent / "src" / "alchemist_art_package.py",
+    ]
+    newest_input = max(path.stat().st_mtime for path in art_inputs if path.is_file())
+    cache_current = all(
+        path.is_file() and path.stat().st_mtime >= newest_input
+        for path in (cached_main, cached_interface)
+    )
+    if not cache_current:
+        art_result = subprocess.run(
+            (
+                sys.executable,
+                str(SOURCE_ROOT.parent / "scripts" / "generate_alchemist_art.py"),
+                "--repo",
+                str(SOURCE_ROOT.parent),
+                "--out-dir",
+                str(generated_art),
+            ),
+            check=False,
+        )
+        if art_result.returncode != 0:
+            raise RuntimeError(f"Alchemist art generation failed with exit code {art_result.returncode}")
     (data_dir / "alchemist_probe_units.xml").write_bytes(
         build_units_xml(sdk_data / "M_Buildings.xml", sdk_data / "M_Characters.xml")
     )
@@ -608,6 +689,25 @@ def build(
         data_dir / "alchemist_probe_miscdata.cam",
         include_phantoms,
     )
+    if cache_current:
+        shutil.copy2(cached_main, data_dir / "alchemist_maindata.cam")
+        shutil.copy2(cached_interface, data_dir / "alchemist_interfacedata.cam")
+    else:
+        write_maindata(
+            SOURCE_ROOT.parent,
+            game_data,
+            generated_art,
+            data_dir / "alchemist_maindata.cam",
+        )
+        write_interfacedata(
+            SOURCE_ROOT.parent,
+            game_data,
+            generated_art,
+            data_dir / "alchemist_interfacedata.cam",
+        )
+        art_cache.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(data_dir / "alchemist_maindata.cam", cached_main)
+        shutil.copy2(data_dir / "alchemist_interfacedata.cam", cached_interface)
     (gpl_dir / "Alchemist.gplproj").write_text(
         build_gpl_project(include_siege_test_fixture), encoding="utf-8"
     )

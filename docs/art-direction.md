@@ -33,3 +33,55 @@ Building production must follow the Phantoms Haunt TILE and shadow pipeline:
 author each state independently, fit the native canvas, reserve palette indices
 247–250 for engine shadow controls, and encode visible and shadow RLE segments
 separately.
+
+## Production source set
+
+The approved production masters are deliberately larger than the in-game
+sprites. `scripts/generate_alchemist_art.py` fits them to the stock geometry;
+do not resize the masters by hand.
+
+- `assets/source/hero/directionals.png` supplies the neutral six-view identity.
+- `walk-directionals.png`, `attack-directionals.png`,
+  `cast-directionals.png`, and `death-directionals.png` supply action-specific
+  six-view keys. The attack sheet is the corrected forward-grip dagger pose.
+- Each `assets/source/buildings/lab/level-N/states.png` is a 4-by-2 state sheet:
+  inactive, active, early construction, late construction, damaged, severely
+  damaged, collapsed, and destroyed.
+- `assets/source/interface/` contains the building icon, Brewing button icon,
+  building portrait, main-panel backing, and Brewing-panel backing.
+
+## Stock sprite contract
+
+The Alchemist is a private art clone of the Cultist (`AVC1`). The generator
+must retain these stock TILE counts and their ordering:
+
+- walk `3934–3997`: 8 directions × 8 frames
+- stand `3998–4005`: 8 directions × 1 frame
+- special `4006–4037`: 8 directions × 4 frames
+- attack `4038–4069`: 8 directions × 4 frames
+- cast `4070–4101`: 8 directions × 4 frames
+- death/body `4102–4136`: 16 directional collapse frames followed by the
+  stock shared corpse lifecycle
+
+Majesty's eight direction slots are populated from the six authored views with
+the stock Cultist mapping `(3, 2, 2, 1, 0, 5, 4, 4)`. The duplicated oblique
+slots are intentional. Preserve the stock hotspots, frame order, and timing.
+
+## Lighting, shadows, seams, and CAM isolation
+
+Majesty lights objects from the viewer's upper-right. Texture highlights belong
+on upper/right-facing materials, with ordinary self-shadow toward the lower
+left. Do not paint a ground shadow into the visible texture. The generator
+creates the projected upper-left shadow as a separate engine shadow segment.
+
+For indexed TILE v3 art, indices 1–246 are visible colors, 247 is the seam
+control color `(156, 33, 24)`, and 248–250 are the three projected-shadow
+controls. Every building state and hero frame is encoded with independent
+visible and shadow RLE streams. Keep the validated transparent top and side
+gutters; seam pixels may only occupy the validated footprint.
+
+The private records are `ALC1`, `ALB1`, `ALB2`, `ALB3`, `ALTI`, and `ALBB`.
+Their TILE data must be appended after the complete retail table. All earlier
+TILE slots in the mod CAM are zero-length fallthrough placeholders. Starting a
+private table immediately after the Cultist/Fervus source ranges would overwrite
+unrelated stock art and is forbidden.

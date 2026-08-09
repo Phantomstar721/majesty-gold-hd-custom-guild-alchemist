@@ -14,6 +14,20 @@ class AlchemistProbeTests(unittest.TestCase):
     def test_fourcc_is_little_endian(self) -> None:
         self.assertEqual(builder.fourcc_id("CGAL"), struct.unpack("<I", b"CGAL")[0])
 
+    def test_cam_reader_returns_a_complete_section(self) -> None:
+        entries = (
+            builder.CamEntry(builder.pad_name(b"First"), b""),
+            builder.CamEntry(builder.pad_name(b"Second"), b"payload"),
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "test.cam"
+            builder.write_cam(
+                path,
+                (builder.CamSection(b"TILE", entries),),
+            )
+            parsed = builder.read_cam_entries(path, b"TILE")
+        self.assertEqual(parsed, list(entries))
+
     def test_manifest_is_distinct_and_additive(self) -> None:
         root = ET.fromstring(builder.build_manifest())
         mod = root.find("Mod")

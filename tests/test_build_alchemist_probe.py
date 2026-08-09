@@ -203,6 +203,12 @@ end
             builder.BREWING_INVIGORATING_CONTROL_ID,
         )
 
+    def test_panel_uses_stock_length_display_labels(self) -> None:
+        source = Path(builder.__file__).read_text(encoding="utf-8")
+        self.assertIn('0: "ALCHEMY LAB"', source)
+        self.assertIn('1: "Vigor Elixir"', source)
+        self.assertNotIn('0: "ALCHEMIST\'S LABORATORY"', source)
+
 
 if __name__ == "__main__":
     unittest.main()

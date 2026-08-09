@@ -225,7 +225,7 @@ def build_units_xml(stock_buildings_xml: Path) -> bytes:
         description.set("Name", BUILDING_NAMES[level])
         description.set(
             "Description",
-            "Alchemist's Laboratory" if level == 0 else f"Alchemist's Laboratory Level {level + 1}",
+            "Alchemy Lab" if level == 0 else f"Alchemy Lab Level {level + 1}",
         )
         dialog = description.find("./Game/DialogID")
         if dialog is None:
@@ -359,7 +359,7 @@ def build_text_cam(
     patched_strings = patch_strt_by_index(
         strings,
         {
-            0: "ALCHEMIST'S LABORATORY",
+            0: "ALCHEMY LAB",
             1: "RECRUIT Test Alchemist",
             2: "Recruit a stock Cultist as the temporary Alchemist.",
             3: "Destroy this Alchemist's Laboratory.",
@@ -370,8 +370,8 @@ def build_text_cam(
     patched_brewing_strings = patch_strt_by_index(
         brewing_strings,
         {
-            0: "ALCHEMIST'S LABORATORY",
-            1: "Invigorating Elixer",
+            0: "ALCHEMY LAB",
+            1: "Vigor Elixir",
             2: "Invigorate every unit for 30 seconds: faster movement, 20 bonus hit points, and greater confidence.",
             3: "1",
             4: "Future Brew",
@@ -497,8 +497,8 @@ def validate_output(
     if brewing_menu == b"":
         raise ValueError("CGBR menu is empty")
     brewing_strings = read_cam_entry(text_cam, b"STRT", BREWING_DIALOG_ID).data
-    if b"Invigorating Elixer\x00" not in brewing_strings:
-        raise ValueError("CGBR Invigorating Elixer label is missing")
+    if b"Vigor Elixir\x00" not in brewing_strings:
+        raise ValueError("CGBR Vigor Elixir label is missing")
     if brewing_menu.count(b"INSr") != 1:
         raise ValueError("CGBR native progress control is missing or duplicated")
     if struct.pack("<I", RAGE_PROGRESS_CONTROL_ID) not in brewing_menu:

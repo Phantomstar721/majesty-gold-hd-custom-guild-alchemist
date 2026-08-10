@@ -109,8 +109,7 @@ end
         source = (builder.GPL_SOURCE_ROOT / "Alchemist_Brewing.gpl").read_text(
             encoding="utf-8"
         )
-        self.assertIn('$HasAttribute("Alchemist_Brewing", ThisAgent)', source)
-        self.assertIn('ThisAgent\'s "Alchemist_Brewing" == True', source)
+        self.assertIn("function DoInvigoratingElixer", source)
         self.assertIn('"hero"', source)
         self.assertIn('"monster"', source)
         self.assertIn("#ATTRIB_MovementRateModifier, -200", source)
@@ -121,8 +120,9 @@ end
         self.assertIn("#ATTRIB_HP, 20", source)
         self.assertIn('Unit\'s "Self_Estimation" += 1', source)
         self.assertIn("$turnonSPeedTrail(Unit, 4)", source)
-        self.assertIn("function DoRageOfKrolm", source)
-        self.assertIn("$Alchemist_Stock_RageOfKrolm(ThisAgent)", source)
+        self.assertIn("function DoInvigoratingElixer", source)
+        self.assertNotIn("function DoRageOfKrolm", source)
+        self.assertNotIn("function DoMarketDay", source)
 
     def test_brewing_overlay_has_a_private_callback(self) -> None:
         stock = """<Majesty><Description type="Unit" subType="Overlay" ID="XR01" Name="Speed_Tonic_Icon" Description="Speed Tonic"><Engine><ImageIDBase value="XR01"/><Script type="0" cProc="0" GPLFunction="Speed_Tonic_End"/></Engine><Game/></Description></Majesty>"""

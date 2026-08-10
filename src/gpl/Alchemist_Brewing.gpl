@@ -1,6 +1,6 @@
-// Invigorating Elixer follows Rage of Krolm's stock gameplay pattern. The
-// runtime submits Majesty's deterministic Rage command only for CGBR; timed
-// effectors own every unit's cleanup. The stock Krolm branch is preserved.
+// Invigorating Elixer uses Majesty's deterministic Rage command transport,
+// but the runtime routes the exact Laboratory agent to this private callback
+// before the stock Rage cooldown, voice, icon, or DoRageOfKrolm callback.
 
 function Alchemist_Apply_Invigorating_Elixer(agent ThisAgent, string Family)
 declare
@@ -36,69 +36,21 @@ begin
 			ThisAgent's "Self_Estimation" -= 1;
 			$turnoffSpeedTrail(ThisAgent);
 			RestoredMaximum = $GetAttribute(ThisAgent, #ATTRIB_MaxHP);
-			if ($GetAttribute(ThisAgent, #ATTRIB_HP) > $GetAttribute(ThisAgent, #ATTRIB_MaxHP))
+			if ($GetAttribute(ThisAgent, #ATTRIB_HP) > RestoredMaximum)
 				$SetAttribute(ThisAgent, #ATTRIB_HP, RestoredMaximum);
 		end
 end
 
-function Alchemist_Stock_RageOfKrolm(agent ThisAgent)
-declare
-	list Heroes;
-	agent Hero;
-	agent Palace, AIRootAgent;
-	integer HeroCount;
-begin
-	AIRootAgent = $RetrieveAgent("GplAIRoot");
-	$ListObjects(ThisAgent, "hero", -1, Heroes, #MyPlayer, #InsideOtherUnits, #NoHiddenMap, #CheckSubtypes, "Hero");
-	HeroCount = 0;
-	foreach Hero in Heroes do
-		begin
-			if ($IsDead(Hero) == False)
-				begin
-					if ($HasAttribute("Deathmatch_Rules", AIRootAgent))
-						if (AIRootAgent's "Deathmatch_Rules" == True)
-							begin
-								$CreateEffector(Hero, "Rage_Icon", #Deathmatch_Rage_Krolm_Duration);
-								if (Hero's "Title" == "barbarian")
-									$AdjustAttribute(Hero, #ATTRIB_Armor_Basic_Damage, #Deathmatch_Rage_Armor_Bonus);
-							end
-						else
-							$CreateEffector(Hero, "Rage_Icon", #Rage_Krolm_Duration);
-					else
-						$CreateEffector(Hero, "Rage_Icon", #Rage_Krolm_Duration);
-					$MagicalAdjustAttribute(Hero, #ATTRIB_Strength, #Rage_Strength_Boost);
-					$MagicalAdjustAttribute(Hero, #ATTRIB_HtoH, #Rage_HtoH_Boost);
-					$MagicalAdjustAttribute(Hero, #ATTRIB_Dodge, #Rage_Dodge_Boost);
-					$MagicalAdjustAttribute(Hero, #ATTRIB_Parry, #Rage_Parry_Boost);
-					$AdjustAttribute(Hero, #ATTRIB_MaxHP, #Rage_MaxHP_Boost);
-					$AdjustAttribute(Hero, #ATTRIB_HP, #Rage_MaxHP_Boost);
-					Hero's "Self_Estimation" += #Rage_Self_Est_Boost;
-					$AdjustAttribute(Hero, #ATTRIB_MovementRateModifier, -200);
-					$turnonSPeedTrail(Hero, 4);
-					HeroCount += 1;
-				end
-		end
-	Palace = $GetTruePalace(ThisAgent);
-	$SetAttribute(Palace, #ATTRIB_RageOfKrolmCount, HeroCount);
-	$PlaySound(ThisAgent, "Rage_of_Krolm", "begin");
-end
-
-function DoRageOfKrolm(agent ThisAgent)
+function DoInvigoratingElixer(agent ThisAgent)
 declare
 	agent Palace;
 begin
-	if (($HasAttribute("Alchemist_Brewing", ThisAgent)) &&
-		(ThisAgent's "Alchemist_Brewing" == True))
+	Palace = $GetTruePalace(ThisAgent);
+	if ($GetPlayerData(Palace, "Gold") >= 1)
 		begin
-			Palace = $GetTruePalace(ThisAgent);
-			if ($GetPlayerData(Palace, "Gold") >= 1)
-				begin
-					$AdjustPlayerData(Palace, "Gold", -1);
-					$PlaySound(ThisAgent, "alchemist_invigorating_elixer_sound", "Effector Begin");
-					$Alchemist_Apply_Invigorating_Elixer(ThisAgent, "hero");
-					$Alchemist_Apply_Invigorating_Elixer(ThisAgent, "monster");
-				end
+			$AdjustPlayerData(Palace, "Gold", -1);
+			$PlaySound(ThisAgent, "alchemist_invigorating_elixer_sound", "Effector Begin");
+			$Alchemist_Apply_Invigorating_Elixer(ThisAgent, "hero");
+			$Alchemist_Apply_Invigorating_Elixer(ThisAgent, "monster");
 		end
-	else
-		$Alchemist_Stock_RageOfKrolm(ThisAgent);
 end

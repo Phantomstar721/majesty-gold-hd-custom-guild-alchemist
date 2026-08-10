@@ -287,7 +287,7 @@ def build_brewing_sounds_xml(stock_sounds_xml: Path) -> bytes:
 
 
 def add_native_rage_progress_control(brewing_menu: bytes, rage_menu: bytes) -> bytes:
-    """Append AP24's stock INSr child to CGBR's serialized child stream."""
+    """Append AP24's stock INSr bytes without altering CGBR's valid stream."""
     if brewing_menu.count(b"INSr") != 0:
         raise ValueError("CGBR already contains an INSr progress control")
     if rage_menu[RAGE_PROGRESS_RECORD_OFFSET + 0x2C : RAGE_PROGRESS_RECORD_OFFSET + 0x30] != b"INSr":

@@ -14,6 +14,20 @@ class AlchemistProbeTests(unittest.TestCase):
     def test_fourcc_is_little_endian(self) -> None:
         self.assertEqual(builder.fourcc_id("CGAL"), struct.unpack("<I", b"CGAL")[0])
 
+    def test_cam_reader_returns_a_complete_section(self) -> None:
+        entries = (
+            builder.CamEntry(builder.pad_name(b"First"), b""),
+            builder.CamEntry(builder.pad_name(b"Second"), b"payload"),
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "test.cam"
+            builder.write_cam(
+                path,
+                (builder.CamSection(b"TILE", entries),),
+            )
+            parsed = builder.read_cam_entries(path, b"TILE")
+        self.assertEqual(parsed, list(entries))
+
     def test_manifest_is_distinct_and_additive(self) -> None:
         root = ET.fromstring(builder.build_manifest())
         mod = root.find("Mod")
@@ -43,8 +57,39 @@ class AlchemistProbeTests(unittest.TestCase):
             self.assertIn(f"[{name}]", data)
         self.assertIn("(birthscript basic_birth)", data)
         self.assertIn("(birthScript2 Guild_Birth)", data)
-        self.assertIn("(member_basicscript cultist_tree)", data)
+        self.assertIn("(member_basicscript Alchemist_tree)", data)
+        self.assertEqual(data.count("(member_title Alchemist)"), 3)
         self.assertNotIn("fervus_Birth", data)
+
+    def test_alchemist_hero_uses_private_stock_rogue_behavior(self) -> None:
+        data = (builder.GPL_SOURCE_ROOT / "Alchemist_Hero_Data.dat").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn("[Alchemist]", data)
+        self.assertIn("(title Alchemist)", data)
+        self.assertEqual(data.count("Alchemist_tree"), 3)
+        self.assertIn("(attack_action \t\tCultist_Dagger)", data)
+        self.assertIn("(special_attack_action  Fire_Dagger)", data)
+        self.assertIn("(Greed 26)", data)
+        self.assertIn("(Upgrade_Armor_Chance\t100)", data)
+        self.assertIn("(Upgrade_Weapon_Chance\t100)", data)
+        self.assertIn("(evaluationScript\teval_enemies_nearby)", data)
+
+    def test_private_rogue_tree_preserves_stock_greed_lifecycle(self) -> None:
+        source = (builder.GPL_SOURCE_ROOT / "Alchemist_Rogue.gpl").read_text(
+            encoding="utf-8"
+        )
+        expected = (
+            "$Check_rewards",
+            "$Purchase_equipment",
+            "$Loot_Gravestones(ThisAgent,100)",
+            "$Steal_Check(thisagent,95)",
+            '$Collect_Resource(thisagent,"poison_plants",90)',
+            "$Go_home(thisagent,95)",
+        )
+        positions = [source.index(token) for token in expected]
+        self.assertEqual(positions, sorted(positions))
+        self.assertNotIn("Cultist_tree", source)
 
     def test_title_alias_changes_only_the_gpl_title_token(self) -> None:
         data = (builder.GPL_SOURCE_ROOT / "Alchemist_Building_Data.dat").read_text(
@@ -99,35 +144,56 @@ end
     def test_siege_fixture_is_an_explicit_project_source(self) -> None:
         self.assertEqual(
             builder.build_gpl_project(False),
-            'data="Alchemist_Building_Data.dat"\nsource="Alchemist_Brewing.gpl"\n',
+            'data="Alchemist_Building_Data.dat"\n'
+            'data="Alchemist_Hero_Data.dat"\n'
+            'source="Alchemist_Rogue.gpl"\n'
+            'source="Alchemist_Brewing.gpl"\n',
         )
         self.assertIn(
             'source="Alchemist_Siege_Test.gpl"', builder.build_gpl_project(True)
         )
 
-    def test_brewing_source_uses_a_guarded_realm_wide_speed_tier(self) -> None:
+    def test_brewing_source_copies_stock_rage_for_true_heroes(self) -> None:
         source = (builder.GPL_SOURCE_ROOT / "Alchemist_Brewing.gpl").read_text(
             encoding="utf-8"
         )
-        self.assertIn("function DoInvigoratingElixer", source)
+        self.assertIn('$HasAttribute("Alchemist_Brewing", ThisAgent)', source)
+        self.assertIn('ThisAgent\'s "Alchemist_Brewing" == True', source)
+        self.assertIn("function Alchemist_Invigorating_Elixer_End(agent ThisAgent)", source)
+        self.assertIn("$IsDead(Hero) == False", source)
+        self.assertNotIn("$RunThread", source)
+        self.assertNotIn("Alchemist_Invigorated", source)
         self.assertIn('"hero"', source)
-        self.assertIn('"monster"', source)
+        self.assertIn('#CheckSubtypes, "Hero"', source)
+        self.assertNotIn("Henchman", source)
+        self.assertNotIn("$GetBuildingContents", source)
+        self.assertNotIn("$DebugOut", source)
+        self.assertNotIn("$CheckEffector", source)
+        self.assertIn("foreach Hero in Heroes", source)
+        self.assertNotIn('$ListObjects(ThisAgent, "monster"', source)
         self.assertIn("#ATTRIB_MovementRateModifier, -200", source)
         self.assertIn("#ATTRIB_MovementRateModifier, 200", source)
         self.assertIn("30000", source)
         self.assertIn('$AdjustPlayerData(Palace, "Gold", -1)', source)
         self.assertIn("#ATTRIB_MaxHP, 20", source)
         self.assertIn("#ATTRIB_HP, 20", source)
-        self.assertIn('Unit\'s "Self_Estimation" += 1', source)
-        self.assertIn("$turnonSPeedTrail(Unit, 4)", source)
-        self.assertIn("function DoInvigoratingElixer", source)
-        self.assertNotIn("function DoRageOfKrolm", source)
-        self.assertNotIn("function DoMarketDay", source)
+        self.assertIn('Hero\'s "Self_Estimation" += 1', source)
+        self.assertIn("$turnonSPeedTrail(Hero, 4)", source)
+        self.assertIn("#ATTRIB_RageOfKrolmCount, HeroCount", source)
+        self.assertIn("function DoRageOfKrolm", source)
+        self.assertIn("function Alchemist_DoInvigoratingElixer", source)
+        self.assertIn("$Alchemist_Stock_RageOfKrolm(ThisAgent)", source)
+        self.assertLess(
+            source.index(
+                '$CreateEffector(Hero, "alchemist_invigorating_elixer_icon", 30000)'
+            ),
+            source.index("$AdjustAttribute(Hero, #ATTRIB_MaxHP, 20)"),
+        )
 
     def test_brewing_overlay_has_a_private_callback(self) -> None:
-        stock = """<Majesty><Description type="Unit" subType="Overlay" ID="XR01" Name="Speed_Tonic_Icon" Description="Speed Tonic"><Engine><ImageIDBase value="XR01"/><Script type="0" cProc="0" GPLFunction="Speed_Tonic_End"/></Engine><Game/></Description></Majesty>"""
+        stock = """<Majesty><Description type="Unit" subType="Overlay" ID="QRa1" Name="Rage_icon" Description="Rage of Krolm"><Engine><Info value="Directionless"/><Info value="DontBlock"/><ImageIDBase value="QRa1"/><Script type="0" cProc="0" GPLFunction="rage_end"/></Engine><Game><StackPriority value="1"/></Game></Description></Majesty>"""
         with tempfile.TemporaryDirectory() as directory:
-            path = Path(directory) / "MX_Overlays.xml"
+            path = Path(directory) / "M_Overlays.xml"
             path.write_text(stock, encoding="utf-8")
             output = ET.fromstring(builder.build_brewing_overlays_xml(path))
         overlay = output.find("Description")
@@ -137,6 +203,7 @@ end
             overlay.find("./Engine/Script").get("GPLFunction"),
             "Alchemist_Invigorating_Elixer_End",
         )
+        self.assertEqual(overlay.find("./Engine/ImageIDBase").get("value"), "XR01")
 
     def test_brewing_sound_has_a_private_description(self) -> None:
         stock = """<Majesty><Description type="Sound" subType="Standard" ID="DP01" Name="Drink_Potion"><Engine><Category value="0"/><Phase ID="Effector Begin"><Wave value="DP01"/></Phase></Engine></Description></Majesty>"""
@@ -183,6 +250,18 @@ end
             )[0],
             builder.BREWING_INVIGORATING_CONTROL_ID,
         )
+
+    def test_panel_uses_stock_length_display_labels(self) -> None:
+        source = Path(builder.__file__).read_text(encoding="utf-8")
+        self.assertIn('0: "ALCHEMY LAB"', source)
+        self.assertIn('1: "Vigor Elixir"', source)
+        self.assertIn('29: "Brewing"', source)
+        self.assertIn('13: "Brewing"', source)
+        self.assertNotIn('29: "BREWING"', source)
+        self.assertEqual(source.count('fourcc_id("ALB1"): "Alchemy Lab"'), 1)
+        self.assertEqual(source.count('fourcc_id("ALB2"): "Alchemy Lab"'), 1)
+        self.assertEqual(source.count('fourcc_id("ALB3"): "Alchemy Lab"'), 1)
+        self.assertNotIn('0: "ALCHEMIST\'S LABORATORY"', source)
 
 
 if __name__ == "__main__":

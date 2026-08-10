@@ -27,6 +27,10 @@ SOURCE_BREWING_DIALOG_ID = b"AP69"
 SOURCE_RAGE_DIALOG_ID = b"AP24"
 RAGE_PROGRESS_RECORD_OFFSET = 0x0C40
 RAGE_PROGRESS_CONTROL_ID = 0x2009
+RAGE_PROGRESS_PREFIX_OFFSET = 0x68
+RAGE_PROGRESS_PREFIX = 2
+RAGE_PROGRESS_RECT_OFFSET = 0x6C
+RAGE_PROGRESS_RECT = (8, 222, 138, 15)
 BREWING_PROGRESS_RECT = (29, 223, 127, 15)
 STOCK_FERVUS_FIRST_SPELL_CONTROL_ID = 0x1140
 BREWING_INVIGORATING_CONTROL_ID = 0x2A10
@@ -333,9 +337,15 @@ def add_native_rage_progress_control(brewing_menu: bytes, rage_menu: bytes) -> b
     progress_record = bytearray(rage_menu[RAGE_PROGRESS_RECORD_OFFSET:])
     if struct.pack("<I", RAGE_PROGRESS_CONTROL_ID) not in progress_record:
         raise ValueError("Stock AP24 progress control ID is missing")
+    if u32(progress_record, RAGE_PROGRESS_PREFIX_OFFSET) != RAGE_PROGRESS_PREFIX:
+        raise ValueError("Stock AP24 progress-control prefix changed")
+    if struct.unpack_from("<4I", progress_record, RAGE_PROGRESS_RECT_OFFSET) != RAGE_PROGRESS_RECT:
+        raise ValueError("Stock AP24 progress-control rectangle changed")
     # AP69 already owns Back/Next controls along its bottom edge. Preserve the
     # native Rage bar itself, but fit it precisely between those stock buttons.
-    struct.pack_into("<4I", progress_record, 0x68, *BREWING_PROGRESS_RECT)
+    struct.pack_into(
+        "<4I", progress_record, RAGE_PROGRESS_RECT_OFFSET, *BREWING_PROGRESS_RECT
+    )
     output = bytearray(brewing_menu)
     output += progress_record
     return bytes(output)
@@ -611,6 +621,16 @@ def validate_output(
         raise ValueError("CGBR native progress control is missing or duplicated")
     if struct.pack("<I", RAGE_PROGRESS_CONTROL_ID) not in brewing_menu:
         raise ValueError("CGBR native progress control ID is missing")
+    progress_record_offset = brewing_menu.index(b"INSr") - 0x2C
+    if u32(
+        brewing_menu, progress_record_offset + RAGE_PROGRESS_PREFIX_OFFSET
+    ) != RAGE_PROGRESS_PREFIX:
+        raise ValueError("CGBR corrupted the native Rage progress-control prefix")
+    progress_rect = struct.unpack_from(
+        "<4I", brewing_menu, progress_record_offset + RAGE_PROGRESS_RECT_OFFSET
+    )
+    if progress_rect != BREWING_PROGRESS_RECT:
+        raise ValueError(f"Unexpected CGBR progress-control rectangle: {progress_rect}")
     if u32(brewing_menu, BREWING_FIRST_BUTTON_ID_OFFSET) != BREWING_INVIGORATING_CONTROL_ID:
         raise ValueError("CGBR still uses Fervus's first spell control ID")
     rect = struct.unpack_from("<4I", menu, AP10_SPELL_BUTTON_RECT_OFFSET)

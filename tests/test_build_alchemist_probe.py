@@ -225,14 +225,34 @@ end
         rage = bytearray(builder.RAGE_PROGRESS_RECORD_OFFSET)
         record = bytearray(0x80)
         record[0x2C:0x30] = b"INSr"
-        struct.pack_into("<I", record, 0x50, builder.RAGE_PROGRESS_CONTROL_ID)
+        struct.pack_into("<I", record, 0x54, builder.RAGE_PROGRESS_CONTROL_ID)
+        struct.pack_into(
+            "<I",
+            record,
+            builder.RAGE_PROGRESS_PREFIX_OFFSET,
+            builder.RAGE_PROGRESS_PREFIX,
+        )
+        struct.pack_into(
+            "<4I",
+            record,
+            builder.RAGE_PROGRESS_RECT_OFFSET,
+            *builder.RAGE_PROGRESS_RECT,
+        )
         rage += record
         output = builder.add_native_rage_progress_control(bytes(brewing), bytes(rage))
         self.assertEqual(struct.unpack_from("<I", output, 0x28)[0], 12)
         self.assertEqual(output.count(b"INSr"), 1)
         self.assertEqual(
-            struct.unpack_from("<4I", output, len(brewing) + 0x68),
+            struct.unpack_from(
+                "<4I", output, len(brewing) + builder.RAGE_PROGRESS_RECT_OFFSET
+            ),
             builder.BREWING_PROGRESS_RECT,
+        )
+        self.assertEqual(
+            struct.unpack_from(
+                "<I", output, len(brewing) + builder.RAGE_PROGRESS_PREFIX_OFFSET
+            )[0],
+            builder.RAGE_PROGRESS_PREFIX,
         )
 
     def test_brewing_action_uses_a_private_control_id(self) -> None:

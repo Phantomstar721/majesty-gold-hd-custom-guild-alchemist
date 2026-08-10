@@ -57,19 +57,39 @@ class AlchemistProbeTests(unittest.TestCase):
             self.assertIn(f"[{name}]", data)
         self.assertIn("(birthscript basic_birth)", data)
         self.assertIn("(birthScript2 Guild_Birth)", data)
-        self.assertIn("(member_basicscript cultist_tree)", data)
+        self.assertIn("(member_basicscript Alchemist_tree)", data)
         self.assertEqual(data.count("(member_title Alchemist)"), 3)
         self.assertNotIn("fervus_Birth", data)
 
-    def test_alchemist_hero_is_a_private_stock_cultist_clone(self) -> None:
+    def test_alchemist_hero_uses_private_stock_rogue_behavior(self) -> None:
         data = (builder.GPL_SOURCE_ROOT / "Alchemist_Hero_Data.dat").read_text(
             encoding="utf-8"
         )
         self.assertIn("[Alchemist]", data)
         self.assertIn("(title Alchemist)", data)
-        self.assertEqual(data.count("Cultist_tree"), 3)
+        self.assertEqual(data.count("Alchemist_tree"), 3)
         self.assertIn("(attack_action \t\tCultist_Dagger)", data)
         self.assertIn("(special_attack_action  Fire_Dagger)", data)
+        self.assertIn("(Greed 26)", data)
+        self.assertIn("(Upgrade_Armor_Chance\t100)", data)
+        self.assertIn("(Upgrade_Weapon_Chance\t100)", data)
+        self.assertIn("(evaluationScript\teval_enemies_nearby)", data)
+
+    def test_private_rogue_tree_preserves_stock_greed_lifecycle(self) -> None:
+        source = (builder.GPL_SOURCE_ROOT / "Alchemist_Rogue.gpl").read_text(
+            encoding="utf-8"
+        )
+        expected = (
+            "$Check_rewards",
+            "$Purchase_equipment",
+            "$Loot_Gravestones(ThisAgent,100)",
+            "$Steal_Check(thisagent,95)",
+            '$Collect_Resource(thisagent,"poison_plants",90)',
+            "$Go_home(thisagent,95)",
+        )
+        positions = [source.index(token) for token in expected]
+        self.assertEqual(positions, sorted(positions))
+        self.assertNotIn("Cultist_tree", source)
 
     def test_title_alias_changes_only_the_gpl_title_token(self) -> None:
         data = (builder.GPL_SOURCE_ROOT / "Alchemist_Building_Data.dat").read_text(
@@ -126,6 +146,7 @@ end
             builder.build_gpl_project(False),
             'data="Alchemist_Building_Data.dat"\n'
             'data="Alchemist_Hero_Data.dat"\n'
+            'source="Alchemist_Rogue.gpl"\n'
             'source="Alchemist_Brewing.gpl"\n',
         )
         self.assertIn(
@@ -234,6 +255,9 @@ end
         source = Path(builder.__file__).read_text(encoding="utf-8")
         self.assertIn('0: "ALCHEMY LAB"', source)
         self.assertIn('1: "Vigor Elixir"', source)
+        self.assertIn('29: "Brewing"', source)
+        self.assertIn('13: "Brewing"', source)
+        self.assertNotIn('29: "BREWING"', source)
         self.assertEqual(source.count('fourcc_id("ALB1"): "Alchemy Lab"'), 1)
         self.assertEqual(source.count('fourcc_id("ALB2"): "Alchemy Lab"'), 1)
         self.assertEqual(source.count('fourcc_id("ALB3"): "Alchemy Lab"'), 1)

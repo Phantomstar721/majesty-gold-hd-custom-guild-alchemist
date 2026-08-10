@@ -10,13 +10,25 @@ from PIL import Image, ImageEnhance, ImageFilter, ImageOps
 
 MAGENTA = (255, 0, 255)
 HERO_RANGES = {
-    "walk": (3934, 3998, 8),
-    "stand": (3998, 4006, 1),
-    "special": (4006, 4038, 4),
-    "attack": (4038, 4070, 4),
-    "cast": (4070, 4102, 4),
+    "walk": (5919, 5983, 8),
+    "stand": (5983, 5991, 1),
+    "attack": (6055, 6119, 8),
 }
-ENGINE_DIRECTION_MAP = (3, 2, 2, 1, 0, 5, 4, 4)
+WARRIOR_SPECIAL_GROUPS = (5991, 5994, 5997, 6001, 6005, 6009, 6013, 6017, 6020)
+# Literal stock Warrior movement-slot order, verified in motion. Do not infer
+# this mapping from how a decoded tile appears in isolation: doing so reverses
+# the actor against its engine movement vector.
+ENGINE_DIRECTION_MAP = (3, 4, 4, 5, 0, 1, 2, 2)
+WALK_ENGINE_DIRECTIONS = (
+    "north-v2.png",
+    "northeast-v2.png",
+    "east-v2.png",
+    "southeast-v2.png",
+    "south-v2.png",
+    "southwest-v2.png",
+    "west-v2.png",
+    "northwest-v2.png",
+)
 
 
 def chroma_crop(image: Image.Image) -> Image.Image:
@@ -68,6 +80,104 @@ def grid(image: Image.Image, columns: int, rows: int) -> list[Image.Image]:
     return result
 
 
+def load_haunt_hero_module(repo: Path):
+    path = (
+        repo.parent
+        / "majesty-gold-hd-custom-guild-phantoms-haunt"
+        / "scripts"
+        / "generate_phantom_hero_sprites.py"
+    )
+    spec = importlib.util.spec_from_file_location("proven_haunt_hero_pipeline", path)
+    if spec is None or spec.loader is None:
+        raise RuntimeError(f"Unable to load proven Haunt hero pipeline: {path}")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def extract_walk_frames(image: Image.Image, haunt) -> list[Image.Image]:
+    """Extract eight complete actors without assuming evenly spaced cells."""
+    keyed = haunt.chroma_key(image.convert("RGBA"))
+    alpha = keyed.getchannel("A")
+    mask = alpha.load()
+    seen: set[tuple[int, int]] = set()
+    components: list[list[tuple[int, int]]] = []
+    for y in range(keyed.height):
+        for x in range(keyed.width):
+            if not mask[x, y] or (x, y) in seen:
+                continue
+            points: list[tuple[int, int]] = []
+            stack = [(x, y)]
+            seen.add((x, y))
+            while stack:
+                current_x, current_y = stack.pop()
+                points.append((current_x, current_y))
+                for neighbor_y in range(max(0, current_y - 1), min(keyed.height, current_y + 2)):
+                    for neighbor_x in range(max(0, current_x - 1), min(keyed.width, current_x + 2)):
+                        point = (neighbor_x, neighbor_y)
+                        if mask[neighbor_x, neighbor_y] and point not in seen:
+                            seen.add(point)
+                            stack.append(point)
+            components.append(points)
+
+    if len(components) < 8:
+        raise ValueError(f"Walk sheet contains only {len(components)} alpha components")
+    bodies = sorted(components, key=len, reverse=True)[:8]
+    body_sizes = [len(points) for points in bodies]
+    if min(body_sizes) < max(body_sizes) * 0.62:
+        raise ValueError(f"Walk sheet has an incomplete body component: {body_sizes}")
+    bodies.sort(key=lambda points: sum(x for x, _y in points) / len(points))
+
+    frames: list[Image.Image] = []
+    for frame_index, points in enumerate(bodies):
+        xs = [x for x, _y in points]
+        ys = [y for _x, y in points]
+        pad = 18
+        crop_box = (
+            max(0, min(xs) - pad),
+            max(0, min(ys) - pad),
+            min(keyed.width, max(xs) + 1 + pad),
+            min(keyed.height, max(ys) + 1 + pad),
+        )
+        # Copy only the verified full-body component. Tiny detached chroma
+        # fragments near the west/southwest actors otherwise survive the
+        # Haunt proximity filter and flicker beside the hero in game.
+        frame = Image.new(
+            "RGBA",
+            (crop_box[2] - crop_box[0], crop_box[3] - crop_box[1]),
+            (0, 0, 0, 0),
+        )
+        frame_pixels = frame.load()
+        keyed_pixels = keyed.load()
+        for source_x, source_y in points:
+            frame_pixels[source_x - crop_box[0], source_y - crop_box[1]] = keyed_pixels[
+                source_x, source_y
+            ]
+        frame = haunt.prepare_frame(frame, "hover")
+        # crop_alpha cannot invent padding where the authored sheet itself
+        # ends (notably the rightmost actor). Give every isolated body a real,
+        # symmetric safety canvas before it reaches TILE fitting.
+        safety = 12
+        padded = Image.new(
+            "RGBA",
+            (frame.width + safety * 2, frame.height + safety * 2),
+            (0, 0, 0, 0),
+        )
+        padded.alpha_composite(frame, (safety, safety))
+        frame = padded
+        bounds = frame.getchannel("A").getbbox()
+        if bounds is None:
+            raise ValueError(f"Walk frame {frame_index} is empty")
+        left, top, right, bottom = bounds
+        if left < 5 or top < 5 or right > frame.width - 5 or bottom > frame.height - 5:
+            raise ValueError(
+                f"Walk frame {frame_index} lacks Haunt-style source padding: "
+                f"{bounds} in {frame.size}"
+            )
+        frames.append(frame)
+    return frames
+
+
 def keep_primary_component(image: Image.Image) -> Image.Image:
     """Discard detached cross-cell artifacts while retaining the main silhouette."""
     alpha = image.getchannel("A")
@@ -104,16 +214,11 @@ def transform_pose(base: Image.Image, action: str, stage: int, count: int) -> Im
     phase = stage / max(1, count - 1)
     image = base.copy()
     if action == "walk":
-        bob = (0, -2, -3, -2, 0, 1, 0, -1)[stage % 8]
-        shear = (-0.035, -0.02, 0.0, 0.025, 0.035, 0.02, 0.0, -0.025)[stage % 8]
-        image = image.transform(
-            (image.width, image.height),
-            Image.Transform.AFFINE,
-            (1, shear, -shear * image.height / 2, 0, 1, -bob),
-            Image.Resampling.BICUBIC,
-        )
+        # The source is already one authored frame in the exact eight-frame
+        # Warrior cycle. Do not add transforms that alter cadence or footing.
+        pass
     elif action == "attack":
-        angle = (-8, -3, 5, 0)[stage]
+        angle = (-2, -5, -8, -3, 4, 7, 3, 0)[stage]
         image = image.rotate(angle, resample=Image.Resampling.BICUBIC, expand=True)
     elif action == "cast":
         image = ImageEnhance.Brightness(image).enhance(0.94 + phase * 0.15)
@@ -128,13 +233,27 @@ def transform_pose(base: Image.Image, action: str, stage: int, count: int) -> Im
 
 
 def generate_hero(repo: Path, out_dir: Path) -> None:
+    haunt = load_haunt_hero_module(repo)
     direction_cells = grid(Image.open(repo / "assets/source/hero/directionals.png"), 3, 2)
     authored = direction_cells
     direction_frames = [authored[index] for index in ENGINE_DIRECTION_MAP]
+    # Warrior owns eight genuinely different travel headings. The neutral and
+    # one-pose action sheets can still use the approved six-view duplication,
+    # but Walk may not: borrowing an oblique pose made west/southwest actors
+    # visibly face northeast. Keep one authored eight-frame strip for each
+    # literal Warrior engine direction and consume it without remapping.  The
+    # stock Warrior movement slot order is the literal list above. Decoded
+    # visual facing alone is not a valid substitute for an in-motion trace.
+    walk_cycles = [
+        extract_walk_frames(
+            Image.open(repo / "assets/source/hero/walk-cycles-engine" / name),
+            haunt,
+        )
+        for name in WALK_ENGINE_DIRECTIONS
+    ]
     action_directions = {
         action: [cell[index] for index in ENGINE_DIRECTION_MAP]
         for action, cell in (
-            ("walk", grid(Image.open(repo / "assets/source/hero/walk-directionals.png"), 3, 2)),
             ("attack", grid(Image.open(repo / "assets/source/hero/attack-directionals.png"), 3, 2)),
             ("cast", grid(Image.open(repo / "assets/source/hero/cast-directionals.png"), 3, 2)),
             ("death", grid(Image.open(repo / "assets/source/hero/death-directionals.png"), 3, 2)),
@@ -147,37 +266,48 @@ def generate_hero(repo: Path, out_dir: Path) -> None:
             direction = relative // per_direction
             stage = relative % per_direction
             if action == "walk":
-                source = direction_frames[direction] if stage in (0, 4) else action_directions["walk"][direction]
+                source = walk_cycles[direction][stage]
             elif action == "attack":
                 source = direction_frames[direction] if stage in (0, 3) else action_directions["attack"][direction]
-            elif action in ("cast", "special"):
-                source = direction_frames[direction] if stage == 0 else action_directions["cast"][direction]
             else:
                 source = direction_frames[direction]
             image = transform_pose(source, action, stage, per_direction)
             image.save(out_dir / f"hero_tile_{tile_index:05d}.png")
 
-    # Cultist death is a stock two-part lifecycle: 16 directional body frames,
-    # followed by 19 shared settle/fade frames. Preserve those counts exactly.
-    for tile_index in range(4102, 4118):
-        direction = (tile_index - 4102) // 2
-        stage = (tile_index - 4102) % 2
+    # Warrior Special and Cast share these exact 29 source tiles and their
+    # stock sequencing.  Render each unique directional pose once; the cloned
+    # Warrior IMAG retains its original repeated-frame order and timing.
+    for direction in range(8):
+        start = WARRIOR_SPECIAL_GROUPS[direction]
+        end = WARRIOR_SPECIAL_GROUPS[direction + 1]
+        for tile_index in range(start, end):
+            stage = tile_index - start
+            image = transform_pose(
+                action_directions["cast"][direction], "cast", stage, end - start
+            )
+            image.save(out_dir / f"hero_tile_{tile_index:05d}.png")
+
+    # Warrior's death lifecycle owns four unique directional collapse poses;
+    # its stock IMAG then holds the last pose before switching to Dead tile
+    # 6052. Preserve that lifecycle and only replace its private artwork.
+    for tile_index in range(6020, 6052):
+        direction = (tile_index - 6020) // 4
+        stage = (tile_index - 6020) % 4
         base = action_directions["death"][direction]
-        angle = (-10 if direction < 4 else 10) * stage
+        angle = (-7 if direction < 4 else 7) * stage
         fallen = base.rotate(angle, resample=Image.Resampling.BICUBIC, expand=True)
-        fallen = fallen.resize((fallen.width, max(1, round(fallen.height * (1.0 - stage * 0.24)))), Image.Resampling.LANCZOS)
+        fallen = fallen.resize(
+            (fallen.width, max(1, round(fallen.height * (1.0 - stage * 0.16)))),
+            Image.Resampling.LANCZOS,
+        )
         fallen.save(out_dir / f"hero_tile_{tile_index:05d}.png")
-    shared = action_directions["death"][4].rotate(-28, resample=Image.Resampling.BICUBIC, expand=True)
-    shared = shared.resize((shared.width, max(1, round(shared.height * 0.62))), Image.Resampling.LANCZOS)
-    for tile_index in range(4118, 4137):
-        stage = tile_index - 4118
-        alpha = max(0.0, 1.0 - stage / 18.0)
-        image = shared.copy()
-        channel = image.getchannel("A").point(lambda value, a=alpha: round(value * a))
-        image.putalpha(channel)
-        if stage > 8:
-            image = image.filter(ImageFilter.GaussianBlur((stage - 8) * 0.10))
-        image.save(out_dir / f"hero_tile_{tile_index:05d}.png")
+    dead = action_directions["death"][4].rotate(
+        -28, resample=Image.Resampling.BICUBIC, expand=True
+    )
+    dead = dead.resize(
+        (dead.width, max(1, round(dead.height * 0.52))), Image.Resampling.LANCZOS
+    )
+    dead.save(out_dir / "hero_tile_06052.png")
 
 
 def load_haunt_building_module(repo: Path):
@@ -191,38 +321,90 @@ def load_haunt_building_module(repo: Path):
     # Phantom-specific ice recolor and cyan pulse.
     module.grade_for_ice_palette = lambda image: image
     module.pulse_cyan = pulse_alchemy
+    stock_prepare_building_source = module.prepare_building_source
+
+    def prepare_lab_building_source(image, *args, **kwargs):
+        # The Laboratory is wider than the Haunt art fitted by the shared
+        # renderer.  Give the finished/damage silhouettes real pre-fit room so
+        # Majesty's upper-left shadow projection can taper inside the fixed
+        # Fervus TILE instead of being cut off at column zero.  Padding here is
+        # intentional: render_variant includes it in its stock-shaped fit,
+        # whereas padding the authored sheet would be removed by chroma_crop.
+        source = stock_prepare_building_source(image, *args, **kwargs)
+        pad_x = max(6, round(source.width * 0.07))
+        pad_top = max(3, round(source.height * 0.025))
+        # Level 3's foreground rail was visually clamped by the inherited
+        # Fervus canvas. Preserve real transparent room below the body before
+        # the stock fitter/shadow encoder runs; do not shift a finished frame.
+        level = getattr(module, "_alchemist_render_level", 1)
+        pad_bottom = (
+            max(12, round(source.height * 0.065))
+            if level == 3
+            else pad_top
+        )
+        padded = Image.new(
+            "RGBA",
+            (source.width + pad_x * 2, source.height + pad_top + pad_bottom),
+            (0, 0, 0, 0),
+        )
+        padded.alpha_composite(source, (pad_x, pad_top))
+        return padded
+
+    module.prepare_building_source = prepare_lab_building_source
+    stock_state_x_offset = module.state_x_offset
+
+    def lab_state_x_offset(variant_name, *, level):
+        # The retained left tower makes the upgraded Laboratory footprint
+        # asymmetric.  Center the actual ground footprint—not the transparent
+        # source rectangle—inside the inherited Fervus canvas.
+        return stock_state_x_offset(variant_name, level=level) + (8 if level in (2, 3) else 0)
+
+    module.state_x_offset = lab_state_x_offset
+    stock_add_cast_shadow = module.add_cast_shadow
+
+    def add_lab_cast_shadow(image, shear=module.SHADOW_SHEAR, vertical_scale=module.SHADOW_VERTICAL_SCALE, **kwargs):
+        # Use Haunt's exact projected-shadow implementation, but keep its
+        # exposed foreground-clearance control nonzero for this wider Lab.
+        # This leaves the projection exclusively northwest of the footprint
+        # instead of wrapping the tall silhouette down its front-left edge.
+        kwargs["shadow_bottom_clearance"] = max(
+            42,
+            kwargs.get("shadow_bottom_clearance", 0),
+        )
+        return stock_add_cast_shadow(image, shear, vertical_scale, **kwargs)
+
+    module.add_cast_shadow = add_lab_cast_shadow
     # The approved Lab footprint is wider than the Haunt. Keep Majesty's
     # upper-left projection direction while shortening reach enough to retain
     # the mandatory transparent side gutter on the same Fervus canvases.
     module.SHADOW_PROFILES = {
         **module.SHADOW_PROFILES,
-        "build_0": (0.08, 0.95),
-        "build_1": (0.20, 0.89),
-        "build_2": (0.30, 0.84),
-        "inactive": (0.34, 0.80),
-        "active": (0.34, 0.80),
-        "damaged": (0.35, 0.82),
-        "damaged_b": (0.31, 0.84),
-        "collapsed_intermediate": (0.20, 0.90),
-        "destroyed": (0.09, 0.94),
+        "build_0": (0.02, 0.97),
+        "build_1": (0.05, 0.94),
+        "build_2": (0.10, 0.90),
+        "inactive": (0.22, 0.80),
+        "active": (0.22, 0.80),
+        "damaged": (0.23, 0.82),
+        "damaged_b": (0.20, 0.84),
+        "collapsed_intermediate": (0.14, 0.90),
+        "destroyed": (0.06, 0.94),
     }
     stock_gutter_validator = module.assert_transparent_side_gutter
 
-    def repair_and_validate_gutter(image, *, label, include_top=False):
-        # The Lab is asymmetrically wider on its shadow-facing side. Preserve
-        # every pixel by translating the complete encoded body+shadow layer
-        # into the stock canvas before applying the untouched Haunt validator.
-        rgba = image.convert("RGBA")
-        alpha = rgba.getchannel("A")
-        bbox = alpha.getbbox()
-        if bbox and bbox[0] < 2:
-            shift = 2 - bbox[0]
-            moved = Image.new("RGBA", rgba.size, (0, 0, 0, 0))
-            moved.alpha_composite(rgba, (shift, 0))
-            image.paste(moved)
+    def validate_lab_gutter(image, *, label, include_top=False):
+        # Haunt's boundary check caught the original clipping regression.  The
+        # Laboratory needs a wider, visible taper because its footprint nearly
+        # fills the Fervus canvas.  Never "repair" a finished frame by shifting
+        # it after shadow generation: that merely transfers clipping to the
+        # opposite edge.
         stock_gutter_validator(image, label=label, include_top=include_top)
+        bbox = image.convert("RGBA").getchannel("A").getbbox()
+        if bbox and (bbox[0] < 6 or bbox[2] > image.width - 6):
+            raise ValueError(
+                f"{label} lacks the Laboratory's six-pixel side safety gutter: {bbox}"
+            )
 
-    module.assert_transparent_side_gutter = repair_and_validate_gutter
+    module.assert_transparent_side_gutter = validate_lab_gutter
     return module
 
 
@@ -259,25 +441,48 @@ def generate_buildings(repo: Path, out_root: Path) -> None:
     module = load_haunt_building_module(repo)
     for level in (1, 2, 3):
         cells = grid(Image.open(repo / f"assets/source/buildings/lab/level-{level}/states.png"), 4, 2)
+        # Haunt's proven state rule: active and inactive share one canonical
+        # architecture silhouette. Activity is expressed only by the stock
+        # animation color pulse. This prevents occupancy from moving walls,
+        # roofs, shadows, or hotspots and removes L3's active-only roof hole.
         variants = {
             "inactive": cells[0],
-            "active": cells[1],
+            "active": cells[0],
             "damaged": cells[4],
             "damaged_b": cells[5],
             "collapsed_intermediate": cells[6],
             "destroyed": cells[7],
         }
-        # Fervus's fixed construction canvases reserve narrow transparent side
-        # gutters for the engine shadow seam. Keep the authored footprint but
-        # inset the high-resolution construction paintings before conformance.
+        # Haunt's renderer already conforms construction art to the inherited
+        # fixed canvas. Do not inset it a second time: the double scale made
+        # upgrade scaffolds markedly smaller than the completed structure.
+        if level == 1:
+            construction_sources = (cells[2], cells[2], cells[3])
+        else:
+            construction_sources = (
+                chroma_crop(Image.open(repo / f"assets/source/buildings/lab/level-{level}/construction-early-v{3 if level == 3 else 2}.png")),
+                chroma_crop(Image.open(repo / f"assets/source/buildings/lab/level-{level}/construction-early-v{3 if level == 3 else 2}.png")),
+                chroma_crop(Image.open(repo / f"assets/source/buildings/lab/level-{level}/construction-late-v2.png")),
+            )
+        construction_scales = {
+            1: (0.97, 0.97, 0.97),
+            # The additive late-upgrade masters contain the entire prior
+            # building plus outward scaffolding. Give only those broad late
+            # silhouettes enough side gutter for Haunt's fixed TILE check.
+            2: (0.97, 0.97, 0.90),
+            # Haunt's level-3 late-frame renderer already applies its own
+            # 0.84 safety fit. A second 0.90 inset made the Lab visibly shrink
+            # between its early frame and completed state.
+            3: (0.94, 0.94, 0.99),
+        }[level]
         construction = {
-            0: inset_source(cells[2], 0.78),
-            1: inset_source(cells[2], 0.78),
-            2: inset_source(cells[3], 0.82),
+            stage: inset_source(source, construction_scales[stage])
+            for stage, source in enumerate(construction_sources)
         }
         out_dir = out_root / f"level-{level}"
         out_dir.mkdir(parents=True, exist_ok=True)
         specs = module.TILE_SPECS_BY_LEVEL[level]
+        module._alchemist_render_level = level
         for tile_index, (variant, width, height) in specs.items():
             image = module.render_variant(variants, variant, width, height, construction, level=level)
             image.save(out_dir / f"building_tile_{tile_index:05d}.png")
@@ -315,8 +520,12 @@ def generate_interface(repo: Path, out_dir: Path) -> None:
     hero = hero.crop((round(w * .14), round(h * .05), round(w * .86), round(h * .80)))
     hero.resize((34, 34), Image.Resampling.LANCZOS).filter(ImageFilter.SMOOTH_MORE).resize((25, 25), Image.Resampling.LANCZOS).save(out_dir / "hero-icon-25.png")
     brew = chroma_crop(Image.open(repo / "assets/source/interface/brewing-button-icon.png"))
-    brew.thumbnail((16, 16), Image.Resampling.LANCZOS)
-    brew.save(out_dir / "brewing-button-icon-16.png")
+    brew.thumbnail((19, 19), Image.Resampling.LANCZOS)
+    brew.save(out_dir / "brewing-button-icon-19.png")
+    vigor = Image.open(repo / "assets/source/interface/vigor-elixir-icon-v1.png").convert("RGB")
+    vigor.resize((32, 32), Image.Resampling.LANCZOS).filter(ImageFilter.SHARPEN).resize(
+        (24, 24), Image.Resampling.LANCZOS
+    ).save(out_dir / "vigor-elixir-icon-24.png")
 
 
 def main() -> int:

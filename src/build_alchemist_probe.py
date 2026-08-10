@@ -76,7 +76,10 @@ def build_siege_test_fixture(stock_quests: Path) -> str:
 
 
 def build_gpl_project(include_siege_test_fixture: bool) -> str:
-    sources = ['source="Alchemist_Brewing.gpl"']
+    sources = [
+        'source="Alchemist_Rogue.gpl"',
+        'source="Alchemist_Brewing.gpl"',
+    ]
     if include_siege_test_fixture:
         sources.append('source="Alchemist_Siege_Test.gpl"')
     return (
@@ -244,6 +247,12 @@ def build_units_xml(stock_buildings_xml: Path, stock_characters_xml: Path) -> by
     alchemist.set("Name", ALCHEMIST_HERO_NAME)
     alchemist.set("Description", ALCHEMIST_HERO_NAME)
     alchemist.find("./Engine/ImageIDBase").set("value", ALCHEMIST_HERO_ID)
+    movement = alchemist.find('./Engine/Attachment[@kind="Movement"]')
+    if movement is None:
+        raise ValueError("Stock Cultist movement attachment is missing")
+    # The private IMAG is a literal Warrior animation/timing clone, so retain
+    # Warrior's matching stock movement class rather than Cultist Class 3.
+    movement.set("ID", "Class 1")
     output.append(alchemist)
     for level, source_name in enumerate(SOURCE_BUILDING_NAMES):
         source = stock_root.find(f'.//Description[@Name="{source_name}"]')
@@ -364,14 +373,23 @@ def build_text_cam(
     enable_unsafe_brewing_control: bool = False,
 ) -> None:
     menu = read_cam_entry(stock_text_cam, b"SMNU", SOURCE_DIALOG_ID).data
-    menu = menu.replace(b"INTI", b"ALTI").replace(b"INBb", b"ALBB")
+    menu = (
+        menu.replace(b"INTI", b"ALTI")
+        .replace(b"INBb", b"ALBB")
+        .replace(b"INBg", b"ALBG")
+    )
     if not enable_unsafe_brewing_control:
         menu = disable_ap10_secondary_control(menu)
     strings = read_cam_entry(stock_text_cam, b"STRT", SOURCE_DIALOG_ID).data
     brewing_menu = read_cam_entry(
         stock_text_cam, b"SMNU", SOURCE_BREWING_DIALOG_ID
     ).data
-    brewing_menu = brewing_menu.replace(b"INTI", b"ALTI").replace(b"INBb", b"ALBB")
+    brewing_menu = (
+        brewing_menu.replace(b"INTI", b"ALTI")
+        .replace(b"INBb", b"ALBB")
+        .replace(b"INBg", b"ALBG")
+        .replace(b"INTN", b"ALIN")
+    )
     brewing_menu = privateize_brewing_action_control(brewing_menu)
     rage_menu = read_cam_entry(stock_text_cam, b"SMNU", SOURCE_RAGE_DIALOG_ID).data
     brewing_menu = add_native_rage_progress_control(brewing_menu, rage_menu)
@@ -395,7 +413,7 @@ def build_text_cam(
             1: "RECRUIT Alchemist",
             2: "Recruit an Alchemist.",
             3: "Destroy this Alchemist's Laboratory.",
-            29: "BREWING",
+            29: "Brewing",
             30: "Open this Laboratory's experimental Brewing window.",
         },
     )
@@ -412,7 +430,7 @@ def build_text_cam(
             7: "Future Brew",
             8: "This brewing slot is not yet available.",
             9: "",
-            13: "BREWING",
+            13: "Brewing",
         },
     )
     write_cam(
@@ -514,6 +532,7 @@ def validate_output(
         output_root / "GPL" / "Alchemist.gplproj",
         output_root / "GPL" / "Alchemist_Building_Data.dat",
         output_root / "GPL" / "Alchemist_Hero_Data.dat",
+        output_root / "GPL" / "Alchemist_Rogue.gpl",
         output_root / "GPL" / "Alchemist_Brewing.gpl",
     }
     if include_siege_test_fixture:
@@ -533,6 +552,9 @@ def validate_output(
         raise ValueError("Alchemist must use its private image record")
     if hero.find("./Engine/DefaultSound").get("value") != "Cultist":
         raise ValueError("Alchemist probe must retain the stock Cultist sound")
+    movement = hero.find('./Engine/Attachment[@kind="Movement"]')
+    if movement is None or movement.get("ID") != "Class 1":
+        raise ValueError("Alchemist must use the stock Warrior movement class")
     if any(item.find("./Game/DialogID").get("value") != "CGAL" for item in buildings):
         raise ValueError("Every Laboratory level must use CGAL")
     if [item.find("./Engine/ImageIDBase").get("value") for item in buildings] != list(BUILDING_IDS):
@@ -545,22 +567,29 @@ def validate_output(
     if brewing_menu == b"":
         raise ValueError("CGBR menu is empty")
     for menu_name, menu_data in (("CGAL", menu), ("CGBR", brewing_menu)):
-        if b"ALTI" not in menu_data or b"ALBB" not in menu_data:
+        if b"ALTI" not in menu_data or b"ALBB" not in menu_data or b"ALBG" not in menu_data:
             raise ValueError(f"{menu_name} does not use the private interface art")
-        if b"INTI" in menu_data or b"INBb" in menu_data:
+        if b"INTI" in menu_data or b"INBb" in menu_data or b"INBg" in menu_data:
             raise ValueError(f"{menu_name} still references stock interface art")
+    if b"ALIN" not in brewing_menu or b"INTN" in brewing_menu:
+        raise ValueError("CGBR does not use the private Vigor recipe-icon art")
 
     main_art = output_root / "Data" / "alchemist_maindata.cam"
     interface_art = output_root / "Data" / "alchemist_interfacedata.cam"
     for name in (b"ALC1Alchemist", b"ALB1Alchemy Lab 1", b"ALB2Alchemy Lab 2", b"ALB3Alchemy Lab 3"):
         if not read_cam_entry(main_art, b"IMAG", name).data:
             raise ValueError(f"Private main art record is empty: {name!r}")
-    for name in (b"ALTIraw textures", b"ALBBbuilding frame"):
+    for name in (
+        b"ALTIraw textures",
+        b"ALBBbuilding frame",
+        b"ALBGbuilding dialog",
+        b"ALINrecipe icons",
+    ):
         if not read_cam_entry(interface_art, b"IMAG", name).data:
             raise ValueError(f"Private interface art record is empty: {name!r}")
     for art_path, prefixes in (
         (main_art, (b"ALC1", b"ALB1", b"ALB2", b"ALB3")),
-        (interface_art, (b"ALTI", b"ALBB")),
+        (interface_art, (b"ALTI", b"ALBB", b"ALBG", b"ALIN")),
     ):
         tile_entries = read_cam_entries(art_path, b"TILE")
         first_private = next(
@@ -606,8 +635,8 @@ def validate_output(
     )
     if "[Alchemist]" not in hero_data or "(title Alchemist)" not in hero_data:
         raise ValueError("GPL Alchemist hero record is missing")
-    if hero_data.count("Cultist_tree") != 3:
-        raise ValueError("Alchemist must retain all three stock Cultist tree hooks")
+    if hero_data.count("Alchemist_tree") != 3:
+        raise ValueError("Alchemist must retain all three private Rogue tree hooks")
     expected_title = "Temple_Fervus" if use_ap10_title_alias else "AlchemistsLaboratory"
     if building_data.count(f"(title {expected_title})") != 3:
         raise ValueError(f"Expected all GPL levels to use title {expected_title}")
@@ -616,7 +645,7 @@ def validate_output(
     for contract in (
         "(birthscript basic_birth)",
         "(birthScript2 Guild_Birth)",
-        "(member_basicscript cultist_tree)",
+        "(member_basicscript Alchemist_tree)",
         "(upgradescript basic_upgrade)",
     ):
         if contract not in building_data:
@@ -720,6 +749,7 @@ def build(
         )
     (gpl_dir / "Alchemist_Building_Data.dat").write_bytes(building_data.encode("utf-8"))
     shutil.copy2(GPL_SOURCE_ROOT / "Alchemist_Hero_Data.dat", gpl_dir)
+    shutil.copy2(GPL_SOURCE_ROOT / "Alchemist_Rogue.gpl", gpl_dir)
     shutil.copy2(GPL_SOURCE_ROOT / "Alchemist_Brewing.gpl", gpl_dir)
     if include_siege_test_fixture:
         siege_source = build_siege_test_fixture(

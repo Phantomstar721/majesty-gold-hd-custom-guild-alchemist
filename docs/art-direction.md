@@ -8,7 +8,7 @@
   satchel, dagger, and amber/green/blue belt potions.
 
 The reference sheet is concept art, not final animation geometry. During the
-final sprite build, reconstruct every action on the stock Cultist scaffold and
+final sprite build, reconstruct every action on the stock Warrior scaffold and
 fit it to the stock directional TILE metrics.
 
 ### Mandatory dagger correction
@@ -84,20 +84,33 @@ do not resize the masters by hand.
 
 ## Stock sprite contract
 
-The Alchemist is a private art clone of the Cultist (`AVC1`). The generator
+The Alchemist is a private art clone of the Warrior (`AVL1`). The generator
 must retain these stock TILE counts and their ordering:
 
-- walk `3934–3997`: 8 directions × 8 frames
-- stand `3998–4005`: 8 directions × 1 frame
-- special `4006–4037`: 8 directions × 4 frames
-- attack `4038–4069`: 8 directions × 4 frames
-- cast `4070–4101`: 8 directions × 4 frames
-- death/body `4102–4136`: 16 directional collapse frames followed by the
-  stock shared corpse lifecycle
+- walk `5919–5982`: 8 directions × 8 frames
+- stand `5983–5990`: 8 directions × 1 frame
+- special/cast `5991–6019`: the Warrior's shared, direction-specific frame
+  pool with its original repeated-frame sequencing
+- death/body `6020–6051`, then dead tile `6052`: the Warrior's directional
+  collapse-and-hold lifecycle
+- attack `6055–6118`: 8 directions × 8 frames
 
-Majesty's eight direction slots are populated from the six authored views with
-the stock Cultist mapping `(3, 2, 2, 1, 0, 5, 4, 4)`. The duplicated oblique
-slots are intentional. Preserve the stock hotspots, frame order, and timing.
+Stock Warrior movement slots are ordered north, northeast, east, southeast,
+south, southwest, west, northwest. This is verified from live movement; do not
+rename the slots from the apparent facing of decoded frames in isolation.
+Neutral and single-pose action slots are populated from the six authored views
+with mapping `(3, 4, 4, 5, 0, 1, 2, 2)`. Walking is the exception: stock Warrior Walk has
+eight distinct headings, so `assets/source/hero/walk-cycles-engine/` owns one
+literal strip for each heading. Each strip has exactly eight poses and is
+packaged in that stock engine order without mirroring. Frames are extracted as
+complete alpha components rather than equal-width cells; several approved
+sheets cross their nominal eighths. Every Walk frame is scaled and anchored to
+the matching stock Warrior Walk TILE's per-frame body height and hotspot
+geometry. This preserves the stock gait's stable head line and footfall instead
+of applying the Phantom's hovering Stand-height normalization to a grounded
+hero.
+Preserve stock hotspots, frame order, timing, opposing arm swing, and the
+anatomical right-hand dagger.
 
 ## Lighting, shadows, seams, and CAM isolation
 
@@ -115,5 +128,5 @@ gutters; seam pixels may only occupy the validated footprint.
 The private records are `ALC1`, `ALB1`, `ALB2`, `ALB3`, `ALTI`, and `ALBB`.
 Their TILE data must be appended after the complete retail table. All earlier
 TILE slots in the mod CAM are zero-length fallthrough placeholders. Starting a
-private table immediately after the Cultist/Fervus source ranges would overwrite
+private table immediately after the Warrior/Fervus source ranges would overwrite
 unrelated stock art and is forbidden.

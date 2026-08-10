@@ -220,10 +220,16 @@ end
         )
 
     def test_brewing_menu_adds_stock_native_progress_child(self) -> None:
-        brewing = bytearray(0x40)
+        brewing = bytearray(builder.AP69_FIRST_BREW_RECT_OFFSET + 0x10)
         struct.pack_into("<I", brewing, 0x28, 12)
+        struct.pack_into(
+            "<4I",
+            brewing,
+            builder.AP69_FIRST_BREW_RECT_OFFSET,
+            *builder.AP69_FIRST_BREW_RECT,
+        )
         rage = bytearray(builder.RAGE_PROGRESS_RECORD_OFFSET)
-        record = bytearray(0x80)
+        record = bytearray(builder.RAGE_ACTIVE_DISPLAY_ID_OFFSET + 4)
         record[0x2C:0x30] = b"INSr"
         struct.pack_into("<I", record, 0x54, builder.RAGE_PROGRESS_CONTROL_ID)
         struct.pack_into(
@@ -238,10 +244,19 @@ end
             builder.RAGE_PROGRESS_RECT_OFFSET,
             *builder.RAGE_PROGRESS_RECT,
         )
+        struct.pack_into(
+            "<I",
+            record,
+            builder.RAGE_ACTIVE_DISPLAY_ID_OFFSET,
+            builder.RAGE_ACTIVE_DISPLAY_CONTROL_ID,
+        )
         rage += record
         output = builder.add_native_rage_progress_control(bytes(brewing), bytes(rage))
         self.assertEqual(struct.unpack_from("<I", output, 0x28)[0], 12)
         self.assertEqual(output.count(b"INSr"), 1)
+        self.assertIn(
+            struct.pack("<I", builder.RAGE_ACTIVE_DISPLAY_CONTROL_ID), output
+        )
         self.assertEqual(
             struct.unpack_from(
                 "<4I", output, len(brewing) + builder.RAGE_PROGRESS_RECT_OFFSET

@@ -25,13 +25,13 @@ SOURCE_DIALOG_ID = b"AP10"
 BREWING_DIALOG_ID = b"CGBR"
 SOURCE_BREWING_DIALOG_ID = b"AP69"
 SOURCE_RAGE_DIALOG_ID = b"AP24"
-RAGE_PROGRESS_RECORD_OFFSET = 0x0C40
+RAGE_PROGRESS_RECORD_OFFSET = 0x0C68
 RAGE_PROGRESS_CONTROL_ID = 0x2009
 RAGE_ACTIVE_DISPLAY_CONTROL_ID = 0x227A
-RAGE_ACTIVE_DISPLAY_ID_OFFSET = 0xB8
-RAGE_PROGRESS_PREFIX_OFFSET = 0x68
+RAGE_ACTIVE_DISPLAY_ID_OFFSET = 0x90
+RAGE_PROGRESS_PREFIX_OFFSET = 0x40
 RAGE_PROGRESS_PREFIX = 2
-RAGE_PROGRESS_RECT_OFFSET = 0x6C
+RAGE_PROGRESS_RECT_OFFSET = 0x44
 RAGE_PROGRESS_RECT = (8, 222, 138, 15)
 AP69_FIRST_BREW_RECT_OFFSET = 0x0240
 AP69_FIRST_BREW_RECT = (150, 63, 40, 17)
@@ -343,7 +343,9 @@ def add_native_rage_progress_control(brewing_menu: bytes, rage_menu: bytes) -> b
         raise ValueError("CGBR already contains an INSr progress control")
     if struct.unpack_from("<4I", brewing_menu, AP69_FIRST_BREW_RECT_OFFSET) != AP69_FIRST_BREW_RECT:
         raise ValueError("Stock AP69 first-recipe rectangle changed")
-    if rage_menu[RAGE_PROGRESS_RECORD_OFFSET + 0x2C : RAGE_PROGRESS_RECORD_OFFSET + 0x30] != b"INSr":
+    if rage_menu[RAGE_PROGRESS_RECORD_OFFSET : RAGE_PROGRESS_RECORD_OFFSET + 8] != struct.pack(
+        "<I4s", 12, b"INSr"
+    ):
         raise ValueError("Stock AP24 progress-control layout changed")
     progress_record = bytearray(rage_menu[RAGE_PROGRESS_RECORD_OFFSET:])
     if struct.pack("<I", RAGE_PROGRESS_CONTROL_ID) not in progress_record:
@@ -636,7 +638,7 @@ def validate_output(
         raise ValueError("CGBR native progress control ID is missing")
     if struct.pack("<I", RAGE_ACTIVE_DISPLAY_CONTROL_ID) not in brewing_menu:
         raise ValueError("CGBR native Rage active-display child is missing")
-    progress_record_offset = brewing_menu.index(b"INSr") - 0x2C
+    progress_record_offset = brewing_menu.index(b"INSr") - 4
     if u32(
         brewing_menu, progress_record_offset + RAGE_PROGRESS_PREFIX_OFFSET
     ) != RAGE_PROGRESS_PREFIX:

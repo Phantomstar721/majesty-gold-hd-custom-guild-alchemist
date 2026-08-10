@@ -230,8 +230,8 @@ end
         )
         rage = bytearray(builder.RAGE_PROGRESS_RECORD_OFFSET)
         record = bytearray(builder.RAGE_ACTIVE_DISPLAY_ID_OFFSET + 4)
-        record[0x2C:0x30] = b"INSr"
-        struct.pack_into("<I", record, 0x54, builder.RAGE_PROGRESS_CONTROL_ID)
+        struct.pack_into("<I4s", record, 0, 12, b"INSr")
+        struct.pack_into("<I", record, 0x2C, builder.RAGE_PROGRESS_CONTROL_ID)
         struct.pack_into(
             "<I",
             record,

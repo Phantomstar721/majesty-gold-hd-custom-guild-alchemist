@@ -25,22 +25,33 @@ SOURCE_DIALOG_ID = b"AP10"
 BREWING_DIALOG_ID = b"CGBR"
 SOURCE_BREWING_DIALOG_ID = b"AP69"
 SOURCE_RAGE_DIALOG_ID = b"AP24"
-RAGE_PROGRESS_RECORD_OFFSET = 0x0C68
+RAGE_PROGRESS_RECORD_OFFSET = 0x0C28
+RAGE_PROGRESS_INNER_OFFSET = 0x40
+RAGE_PROGRESS_OUTER_RECT_OFFSET = 0x08
+RAGE_PROGRESS_OUTER_RECT = (7, 219, 140, 21)
 RAGE_PROGRESS_CONTROL_ID = 0x2009
 RAGE_ACTIVE_DISPLAY_CONTROL_ID = 0x227A
-RAGE_ACTIVE_DISPLAY_ID_OFFSET = 0x90
-RAGE_PROGRESS_PREFIX_OFFSET = 0x40
+RAGE_ACTIVE_DISPLAY_ID_OFFSET = RAGE_PROGRESS_INNER_OFFSET + 0x90
+RAGE_PROGRESS_PREFIX_OFFSET = RAGE_PROGRESS_INNER_OFFSET + 0x40
 RAGE_PROGRESS_PREFIX = 2
-RAGE_PROGRESS_RECT_OFFSET = 0x44
+RAGE_PROGRESS_RECT_OFFSET = RAGE_PROGRESS_INNER_OFFSET + 0x44
 RAGE_PROGRESS_RECT = (8, 222, 138, 15)
 AP69_FIRST_BREW_RECT_OFFSET = 0x0240
 AP69_FIRST_BREW_RECT = (150, 63, 40, 17)
-BREWING_PROGRESS_RECT = (
-    RAGE_PROGRESS_RECT[0],
-    AP69_FIRST_BREW_RECT[1],
-    RAGE_PROGRESS_RECT[2],
-    RAGE_PROGRESS_RECT[3],
+AP69_FIRST_BREW_OUTER_RECT_OFFSET = 0x0184
+AP69_FIRST_BREW_OUTER_RECT = (30, 62, 162, 20)
+AP69_TERMINAL_RECORD_OFFSET = 0x06D8
+AP69_TERMINAL_INNER_OFFSET = 0x28
+AP69_TERMINAL_RECORD_HEADER = struct.pack(
+    "<11I4s", 0, 2, 3, 0xDF, 0x19, 0x14, 0x21, 0x0C, 0x0A, 2, 12, b"INTG"
 )
+BREWING_PROGRESS_RECT = (
+    AP69_FIRST_BREW_OUTER_RECT[0] + 1,
+    AP69_FIRST_BREW_OUTER_RECT[1] + 3,
+    AP69_FIRST_BREW_OUTER_RECT[2] - 2,
+    AP69_FIRST_BREW_OUTER_RECT[3] - 6,
+)
+BREWING_PROGRESS_OUTER_RECT = AP69_FIRST_BREW_OUTER_RECT
 STOCK_FERVUS_FIRST_SPELL_CONTROL_ID = 0x1140
 BREWING_INVIGORATING_CONTROL_ID = 0x2A10
 BREWING_FIRST_BUTTON_ID_OFFSET = 0x0204
@@ -82,6 +93,8 @@ def build_siege_test_fixture(stock_quests: Path) -> str:
         anchor
         + '\n\t$SpawnUnit ( palace, "Temple_Fervus1", '
         '$RandomCoord ( palace, 550, 750 ), "MaxHP" );'
+        + '\n\t$SpawnUnit ( palace, "Temple_Krolm", '
+        '$RandomCoord ( palace, 700, 900 ), "MaxHP" );'
         + '\n\t$SpawnUnit ( palace, "AlchemistsLaboratory1", '
         '$RandomCoord ( palace, 850, 1050 ), "MaxHP" );'
     )
@@ -228,10 +241,20 @@ def patch_strt_by_index(data: bytes, replacements: dict[int, str]) -> bytes:
     version = data[2:4]
     offsets = struct.unpack_from(f"<{count}I", data, 4)
     records: list[tuple[int, bytes]] = []
-    for index, offset in enumerate(offsets):
-        string_id = u32(data, offset)
-        end = data.index(b"\x00", offset + 4)
-        text = replacements.get(index, data[offset + 4 : end].decode("cp1252"))
+    target_count = max(count, max(replacements, default=-1) + 1)
+    for index in range(target_count):
+        if index < count:
+            offset = offsets[index]
+            string_id = u32(data, offset)
+            end = data.index(b"\x00", offset + 4)
+            stock_text = data[offset + 4 : end].decode("cp1252")
+        else:
+            # SMNU text properties address STRT records positionally. Preserve
+            # that stock contract by padding missing AP69 slots with matching
+            # numeric IDs before adding AP24's active-display index 28.
+            string_id = index
+            stock_text = ""
+        text = replacements.get(index, stock_text)
         records.append((string_id, text.encode("cp1252")))
     return encode_strt(version, records)
 
@@ -338,14 +361,33 @@ def build_brewing_sounds_xml(stock_sounds_xml: Path) -> bytes:
 
 
 def add_native_rage_progress_control(brewing_menu: bytes, rage_menu: bytes) -> bytes:
-    """Append AP24's complete active Rage display on AP69's first recipe row."""
+    """Insert AP24's complete Rage display before AP69's terminal control."""
     if brewing_menu.count(b"INSr") != 0:
         raise ValueError("CGBR already contains an INSr progress control")
     if struct.unpack_from("<4I", brewing_menu, AP69_FIRST_BREW_RECT_OFFSET) != AP69_FIRST_BREW_RECT:
         raise ValueError("Stock AP69 first-recipe rectangle changed")
-    if rage_menu[RAGE_PROGRESS_RECORD_OFFSET : RAGE_PROGRESS_RECORD_OFFSET + 8] != struct.pack(
-        "<I4s", 12, b"INSr"
+    if struct.unpack_from(
+        "<4I", brewing_menu, AP69_FIRST_BREW_OUTER_RECT_OFFSET
+    ) != AP69_FIRST_BREW_OUTER_RECT:
+        raise ValueError("Stock AP69 first-recipe outer rectangle changed")
+    if (
+        brewing_menu[
+            AP69_TERMINAL_RECORD_OFFSET :
+            AP69_TERMINAL_RECORD_OFFSET + len(AP69_TERMINAL_RECORD_HEADER)
+        ]
+        != AP69_TERMINAL_RECORD_HEADER
     ):
+        raise ValueError("Stock AP69 terminal-control layout changed")
+    if u32(rage_menu, RAGE_PROGRESS_RECORD_OFFSET) != 9:
+        raise ValueError("Stock AP24 progress-control subtype changed")
+    if struct.unpack_from(
+        "<4I",
+        rage_menu,
+        RAGE_PROGRESS_RECORD_OFFSET + RAGE_PROGRESS_OUTER_RECT_OFFSET,
+    ) != RAGE_PROGRESS_OUTER_RECT:
+        raise ValueError("Stock AP24 progress-control outer rectangle changed")
+    inner_offset = RAGE_PROGRESS_RECORD_OFFSET + RAGE_PROGRESS_INNER_OFFSET
+    if rage_menu[inner_offset : inner_offset + 8] != struct.pack("<I4s", 12, b"INSr"):
         raise ValueError("Stock AP24 progress-control layout changed")
     progress_record = bytearray(rage_menu[RAGE_PROGRESS_RECORD_OFFSET:])
     if struct.pack("<I", RAGE_PROGRESS_CONTROL_ID) not in progress_record:
@@ -357,13 +399,24 @@ def add_native_rage_progress_control(brewing_menu: bytes, rage_menu: bytes) -> b
     if struct.unpack_from("<4I", progress_record, RAGE_PROGRESS_RECT_OFFSET) != RAGE_PROGRESS_RECT:
         raise ValueError("Stock AP24 progress-control rectangle changed")
     # Preserve AP24's complete INSr/0x227A active display. Only move its Y
-    # coordinate from AP24's primary-panel row to AP69's first recipe row.
+    # coordinates from AP24's primary-panel row to AP69's first recipe row.
+    struct.pack_into(
+        "<4I",
+        progress_record,
+        RAGE_PROGRESS_OUTER_RECT_OFFSET,
+        *BREWING_PROGRESS_OUTER_RECT,
+    )
     struct.pack_into(
         "<4I", progress_record, RAGE_PROGRESS_RECT_OFFSET, *BREWING_PROGRESS_RECT
     )
-    output = bytearray(brewing_menu)
-    output += progress_record
-    return bytes(output)
+    # AP69's final INTG is the menu's terminal/root ornament control. Keep it
+    # last, as stock AP69 does. AP31 demonstrates that INSr is a normal member
+    # of the streamed control sequence and may be followed by later controls.
+    return bytes(
+        brewing_menu[:AP69_TERMINAL_RECORD_OFFSET]
+        + progress_record
+        + brewing_menu[AP69_TERMINAL_RECORD_OFFSET:]
+    )
 
 
 def privateize_brewing_action_control(brewing_menu: bytes) -> bytes:
@@ -418,6 +471,9 @@ def build_text_cam(
     brewing_menu = privateize_brewing_action_control(brewing_menu)
     rage_menu = read_cam_entry(stock_text_cam, b"SMNU", SOURCE_RAGE_DIALOG_ID).data
     brewing_menu = add_native_rage_progress_control(brewing_menu, rage_menu)
+    if brewing_menu.count(b"INSr") != 1:
+        raise ValueError("CGBR must contain exactly one stock Rage progress-art reference")
+    brewing_menu = brewing_menu.replace(b"INSr", b"ALSR")
     brewing_strings = read_cam_entry(
         stock_text_cam, b"STRT", SOURCE_BREWING_DIALOG_ID
     ).data
@@ -456,6 +512,7 @@ def build_text_cam(
             8: "This brewing slot is not yet available.",
             9: "",
             13: "Brewing",
+            28: "Invigorated",
         },
     )
     write_cam(
@@ -598,6 +655,8 @@ def validate_output(
             raise ValueError(f"{menu_name} still references stock interface art")
     if b"ALIN" not in brewing_menu or b"INTN" in brewing_menu:
         raise ValueError("CGBR does not use the private Vigor recipe-icon art")
+    if b"ALSR" not in brewing_menu or b"INSr" in brewing_menu:
+        raise ValueError("CGBR does not use the private full-width progress art")
 
     main_art = output_root / "Data" / "alchemist_maindata.cam"
     interface_art = output_root / "Data" / "alchemist_interfacedata.cam"
@@ -609,12 +668,13 @@ def validate_output(
         b"ALBBbuilding frame",
         b"ALBGbuilding dialog",
         b"ALINrecipe icons",
+        b"ALSRalchemy progress",
     ):
         if not read_cam_entry(interface_art, b"IMAG", name).data:
             raise ValueError(f"Private interface art record is empty: {name!r}")
     for art_path, prefixes in (
         (main_art, (b"ALC1", b"ALB1", b"ALB2", b"ALB3")),
-        (interface_art, (b"ALTI", b"ALBB", b"ALBG", b"ALIN")),
+        (interface_art, (b"ALTI", b"ALBB", b"ALBG", b"ALIN", b"ALSR")),
     ):
         tile_entries = read_cam_entries(art_path, b"TILE")
         first_private = next(
@@ -632,13 +692,38 @@ def validate_output(
     brewing_strings = read_cam_entry(text_cam, b"STRT", BREWING_DIALOG_ID).data
     if b"Vigor Elixir\x00" not in brewing_strings:
         raise ValueError("CGBR Vigor Elixir label is missing")
-    if brewing_menu.count(b"INSr") != 1:
-        raise ValueError("CGBR native progress control is missing or duplicated")
+    if b"Invigorated\x00" not in brewing_strings:
+        raise ValueError("CGBR active progress label is missing")
+    brewing_string_count = struct.unpack_from("<H", brewing_strings, 0)[0]
+    if brewing_string_count <= 28:
+        raise ValueError("CGBR active progress label is not present at STRT index 28")
+    brewing_string_offsets = struct.unpack_from(
+        f"<{brewing_string_count}I", brewing_strings, 4
+    )
+    active_label_offset = brewing_string_offsets[28]
+    active_label_end = brewing_strings.index(b"\x00", active_label_offset + 4)
+    if brewing_strings[active_label_offset + 4 : active_label_end] != b"Invigorated":
+        raise ValueError("CGBR STRT index 28 is not the Invigorated label")
+    if brewing_menu.count(b"ALSR") != 1 or b"INSr" in brewing_menu:
+        raise ValueError("CGBR private progress art is missing or duplicated")
     if struct.pack("<I", RAGE_PROGRESS_CONTROL_ID) not in brewing_menu:
         raise ValueError("CGBR native progress control ID is missing")
     if struct.pack("<I", RAGE_ACTIVE_DISPLAY_CONTROL_ID) not in brewing_menu:
         raise ValueError("CGBR native Rage active-display child is missing")
-    progress_record_offset = brewing_menu.index(b"INSr") - 4
+    progress_record_offset = (
+        brewing_menu.index(b"ALSR") - 4 - RAGE_PROGRESS_INNER_OFFSET
+    )
+    if u32(brewing_menu, progress_record_offset) != 9:
+        raise ValueError("CGBR lost the stock Rage progress-control subtype")
+    progress_outer_rect = struct.unpack_from(
+        "<4I",
+        brewing_menu,
+        progress_record_offset + RAGE_PROGRESS_OUTER_RECT_OFFSET,
+    )
+    if progress_outer_rect != BREWING_PROGRESS_OUTER_RECT:
+        raise ValueError(
+            f"Unexpected CGBR progress-control outer rectangle: {progress_outer_rect}"
+        )
     if u32(
         brewing_menu, progress_record_offset + RAGE_PROGRESS_PREFIX_OFFSET
     ) != RAGE_PROGRESS_PREFIX:
@@ -690,6 +775,11 @@ def validate_output(
     compiled = output_root / "Data" / "Alchemist.bcd"
     if compiled.stat().st_size == 0:
         raise ValueError("Compiled Alchemist bytecode is empty")
+    compiled_symbols = compiled.read_bytes()
+    if b"Alchemist_DoInvigoratingElixer" not in compiled_symbols:
+        raise ValueError("Compiled Alchemist bytecode lost its private Vigor symbol")
+    if b"DoRageOfKrolm" in compiled_symbols or b"Alchemist_Stock_RageOfKrolm" in compiled_symbols:
+        raise ValueError("Alchemist bytecode must not override or reimplement stock Rage")
 
 
 def build(

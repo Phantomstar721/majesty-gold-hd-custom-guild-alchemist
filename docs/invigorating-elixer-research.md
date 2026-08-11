@@ -1,5 +1,12 @@
 # Invigorating Elixer Research Log
 
+The complete reusable UI method for a labeled timed-effect bar in a custom
+subpanel is documented in the expanded-building-slots repository under
+`docs/rage-of-krolm-reference.md`, section **Reusable recipe: timed effect bar
+inside a custom subpanel**. It records the proven `INSr` clone, private IMAG and
+single-span frame, positional STRT index 28, AP24 display messages, simulation
+clock refresh, Palace mutual exclusion, GPL cleanup, and regression checklist.
+
 ## Final prototype scope
 
 Invigorating Elixer affects true player heroes only. This is deliberate. The

@@ -8,9 +8,22 @@ import xml.etree.ElementTree as ET
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 import build_alchemist_probe as builder
+import alchemist_art_package as art_package
 
 
 class AlchemistProbeTests(unittest.TestCase):
+    def test_vigor_enabled_icon_is_colored_and_disabled_mask_is_grey(self) -> None:
+        enabled_background, enabled_border, enabled_brightness = (
+            art_package.VIGOR_ICON_STYLES[199]
+        )
+        _disabled_background, _disabled_border, disabled_brightness = (
+            art_package.VIGOR_ICON_STYLES[342]
+        )
+        self.assertEqual(enabled_background, (9, 31, 14))
+        self.assertEqual(enabled_border, (184, 151, 42))
+        self.assertEqual(enabled_brightness, 1.0)
+        self.assertLess(disabled_brightness, 0.7)
+
     def test_fourcc_is_little_endian(self) -> None:
         self.assertEqual(builder.fourcc_id("CGAL"), struct.unpack("<I", b"CGAL")[0])
 
@@ -137,8 +150,9 @@ end
             path.write_text(source, encoding="cp1252")
             fixture = builder.build_siege_test_fixture(path)
         self.assertIn('"Temple_Fervus1"', fixture)
+        self.assertIn('"Temple_Krolm"', fixture)
         self.assertIn('"AlchemistsLaboratory1"', fixture)
-        self.assertEqual(fixture.count('"MaxHP"'), 2)
+        self.assertEqual(fixture.count('"MaxHP"'), 3)
         self.assertNotIn("function NEXT", fixture)
 
     def test_siege_fixture_is_an_explicit_project_source(self) -> None:
@@ -157,8 +171,7 @@ end
         source = (builder.GPL_SOURCE_ROOT / "Alchemist_Brewing.gpl").read_text(
             encoding="utf-8"
         )
-        self.assertIn('$HasAttribute("Alchemist_Brewing", ThisAgent)', source)
-        self.assertIn('ThisAgent\'s "Alchemist_Brewing" == True', source)
+        self.assertNotIn('$HasAttribute("Alchemist_Brewing", ThisAgent)', source)
         self.assertIn("function Alchemist_Invigorating_Elixer_End(agent ThisAgent)", source)
         self.assertIn("$IsDead(Hero) == False", source)
         self.assertNotIn("$RunThread", source)
@@ -180,9 +193,9 @@ end
         self.assertIn('Hero\'s "Self_Estimation" += 1', source)
         self.assertIn("$turnonSPeedTrail(Hero, 4)", source)
         self.assertIn("#ATTRIB_RageOfKrolmCount, HeroCount", source)
-        self.assertIn("function DoRageOfKrolm", source)
         self.assertIn("function Alchemist_DoInvigoratingElixer", source)
-        self.assertIn("$Alchemist_Stock_RageOfKrolm(ThisAgent)", source)
+        self.assertNotIn("function DoRageOfKrolm", source)
+        self.assertNotIn("function Alchemist_Stock_RageOfKrolm", source)
         self.assertLess(
             source.index(
                 '$CreateEffector(Hero, "alchemist_invigorating_elixer_icon", 30000)'
@@ -220,7 +233,10 @@ end
         )
 
     def test_brewing_menu_adds_stock_native_progress_child(self) -> None:
-        brewing = bytearray(builder.AP69_FIRST_BREW_RECT_OFFSET + 0x10)
+        brewing = bytearray(
+            builder.AP69_TERMINAL_RECORD_OFFSET
+            + len(builder.AP69_TERMINAL_RECORD_HEADER)
+        )
         struct.pack_into("<I", brewing, 0x28, 12)
         struct.pack_into(
             "<4I",
@@ -228,10 +244,35 @@ end
             builder.AP69_FIRST_BREW_RECT_OFFSET,
             *builder.AP69_FIRST_BREW_RECT,
         )
+        struct.pack_into(
+            "<4I",
+            brewing,
+            builder.AP69_FIRST_BREW_OUTER_RECT_OFFSET,
+            *builder.AP69_FIRST_BREW_OUTER_RECT,
+        )
+        brewing[
+            builder.AP69_TERMINAL_RECORD_OFFSET :
+            builder.AP69_TERMINAL_RECORD_OFFSET
+            + len(builder.AP69_TERMINAL_RECORD_HEADER)
+        ] = builder.AP69_TERMINAL_RECORD_HEADER
         rage = bytearray(builder.RAGE_PROGRESS_RECORD_OFFSET)
         record = bytearray(builder.RAGE_ACTIVE_DISPLAY_ID_OFFSET + 4)
-        struct.pack_into("<I4s", record, 0, 12, b"INSr")
-        struct.pack_into("<I", record, 0x2C, builder.RAGE_PROGRESS_CONTROL_ID)
+        struct.pack_into("<I", record, 0, 9)
+        struct.pack_into(
+            "<4I",
+            record,
+            builder.RAGE_PROGRESS_OUTER_RECT_OFFSET,
+            *builder.RAGE_PROGRESS_OUTER_RECT,
+        )
+        struct.pack_into(
+            "<I4s", record, builder.RAGE_PROGRESS_INNER_OFFSET, 12, b"INSr"
+        )
+        struct.pack_into(
+            "<I",
+            record,
+            builder.RAGE_PROGRESS_INNER_OFFSET + 0x2C,
+            builder.RAGE_PROGRESS_CONTROL_ID,
+        )
         struct.pack_into(
             "<I",
             record,
@@ -259,15 +300,39 @@ end
         )
         self.assertEqual(
             struct.unpack_from(
-                "<4I", output, len(brewing) + builder.RAGE_PROGRESS_RECT_OFFSET
+                "<4I",
+                output,
+                builder.AP69_TERMINAL_RECORD_OFFSET
+                + builder.RAGE_PROGRESS_OUTER_RECT_OFFSET,
+            ),
+            builder.BREWING_PROGRESS_OUTER_RECT,
+        )
+        self.assertEqual(
+            struct.unpack_from(
+                "<4I",
+                output,
+                builder.AP69_TERMINAL_RECORD_OFFSET
+                + builder.RAGE_PROGRESS_RECT_OFFSET,
             ),
             builder.BREWING_PROGRESS_RECT,
         )
         self.assertEqual(
             struct.unpack_from(
-                "<I", output, len(brewing) + builder.RAGE_PROGRESS_PREFIX_OFFSET
+                "<I",
+                output,
+                builder.AP69_TERMINAL_RECORD_OFFSET
+                + builder.RAGE_PROGRESS_PREFIX_OFFSET,
             )[0],
             builder.RAGE_PROGRESS_PREFIX,
+        )
+        self.assertEqual(
+            output[
+                builder.AP69_TERMINAL_RECORD_OFFSET + len(record) :
+                builder.AP69_TERMINAL_RECORD_OFFSET
+                + len(record)
+                + len(builder.AP69_TERMINAL_RECORD_HEADER)
+            ],
+            builder.AP69_TERMINAL_RECORD_HEADER,
         )
 
     def test_brewing_action_uses_a_private_control_id(self) -> None:
@@ -292,11 +357,29 @@ end
         self.assertIn('1: "Vigor Elixir"', source)
         self.assertIn('29: "Brewing"', source)
         self.assertIn('13: "Brewing"', source)
+        self.assertIn('28: "Invigorated"', source)
         self.assertNotIn('29: "BREWING"', source)
         self.assertEqual(source.count('fourcc_id("ALB1"): "Alchemy Lab"'), 1)
         self.assertEqual(source.count('fourcc_id("ALB2"): "Alchemy Lab"'), 1)
         self.assertEqual(source.count('fourcc_id("ALB3"): "Alchemy Lab"'), 1)
         self.assertNotIn('0: "ALCHEMIST\'S LABORATORY"', source)
+
+    def test_strt_index_patch_pads_missing_stock_slots(self) -> None:
+        source = builder.encode_strt(
+            b"\x01\x00", [(0, b"zero"), (1, b"one")]
+        )
+        output = builder.patch_strt_by_index(source, {4: "four"})
+        self.assertEqual(struct.unpack_from("<H", output, 0)[0], 5)
+        offsets = struct.unpack_from("<5I", output, 4)
+        records = []
+        for offset in offsets:
+            string_id = struct.unpack_from("<I", output, offset)[0]
+            end = output.index(b"\x00", offset + 4)
+            records.append((string_id, output[offset + 4 : end]))
+        self.assertEqual(
+            records,
+            [(0, b"zero"), (1, b"one"), (2, b""), (3, b""), (4, b"four")],
+        )
 
 
 if __name__ == "__main__":

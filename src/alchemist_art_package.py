@@ -28,6 +28,8 @@ BUILDING_DIALOG_SOURCE = b"INBgbuilding dialog"
 BUILDING_DIALOG_CUSTOM = b"ALBGbuilding dialog"
 NAVIGATION_SOURCE = b"INTN"
 NAVIGATION_CUSTOM = b"ALINrecipe icons"
+PROGRESS_SOURCE = b"INSrreasearch"
+PROGRESS_CUSTOM = b"ALSRalchemy progress"
 BUILDING_PROFILE_TILE = 1509
 BUILDING_ICON_TILE = 1510
 HERO_PORTRAIT_TILE = 6053
@@ -40,7 +42,23 @@ BUILDING_PALETTE = 560
 HERO_ART_PALETTE = 560
 BREWING_BUTTON_TILES = (739, 740, 741, 742)
 BREWING_DIALOG_FRAME_TILE = 594
+RAGE_PROGRESS_TILES = (412, 413)
+CLEAN_PROGRESS_SOURCE_TILES = (414, 415)
+BREWING_PROGRESS_FRAME_SIZE = (162, 20)
 VIGOR_ICON_TILES = (177, 199, 252, 280, 302, 319, 325, 342)
+VIGOR_ICON_STYLES = {
+    177: ((9, 31, 14), (184, 151, 42), 1.00),
+    # AP69 first recipe uses INTN set 1013: TILE 199 is its enabled
+    # artwork and TILE 342 is the shared disabled mask. Keep 199 fully
+    # colored; desaturating it makes an available Vigor look locked.
+    199: ((9, 31, 14), (184, 151, 42), 1.00),
+    252: ((26, 27, 24), (104, 101, 83), 0.50),
+    280: ((67, 68, 62), (139, 135, 111), 0.62),
+    302: ((10, 45, 19), (231, 198, 62), 1.18),
+    319: ((35, 29, 8), (247, 205, 58), 1.12),
+    325: ((18, 58, 25), (170, 142, 37), 0.86),
+    342: ((8, 12, 9), (72, 72, 65), 0.38),
+}
 HERO_SPRITE_RANGES = ((5919, 6053), (6055, 6119))
 WARRIOR_WALK_START = 5919
 WARRIOR_WALK_END = 5983
@@ -195,6 +213,61 @@ def tile_image(stock, tile: bytes, palettes) -> Image.Image:
     return image
 
 
+def brewing_progress_frames(stock, tiles) -> dict[int, bytes]:
+    """Build a private, single-span frame for the stock INSr renderer.
+
+    Rage's 140x21 research-bar art contains a complete framed span.  Majesty
+    tiles it when the control is widened, repeating the baked right and left
+    caps.  The stock recruit bar provides the same grey/blue states as clean,
+    uncrowded spans.  Resize those two stock states to the Brewing row, then
+    encode them in private v1 TILEs using Rage's original TILE headers.
+    """
+    target_width, target_height = BREWING_PROGRESS_FRAME_SIZE
+    output: dict[int, bytes] = {}
+    for target_index, source_index in zip(
+        RAGE_PROGRESS_TILES, CLEAN_PROGRESS_SOURCE_TILES
+    ):
+        source = tile_image(stock, tiles[source_index].data, []).convert("RGB")
+        fitted = source.resize(
+            (target_width, target_height), Image.Resampling.NEAREST
+        )
+        template = bytearray(tiles[target_index].data)
+        if struct.unpack_from("<H", template, 0)[0] != 3:
+            raise ValueError("Stock Rage progress TILE is no longer indexed-v3")
+        struct.pack_into(
+            "<3H", template, 2, target_height, target_width, target_width
+        )
+        encoded = stock.tile_v3_from_rgb(bytes(template), [], fitted.tobytes())
+        if struct.unpack_from("<3H", encoded, 2) != (
+            target_height,
+            target_width,
+            target_width,
+        ):
+            raise ValueError("Private Brewing progress TILE geometry changed")
+        output[target_index] = encoded
+    return output
+
+
+def privateize_progress_imag(stock, imag: bytes, append, frames: dict[int, bytes]) -> bytes:
+    """Clone the two stock INSr states without assuming button-IMAG layout."""
+    replacements: dict[int, int] = {}
+    for source_index in RAGE_PROGRESS_TILES:
+        matches = [
+            offset
+            for offset in range(0, len(imag) - 3, 4)
+            if struct.unpack_from("<I", imag, offset)[0] & 0xFFFF == source_index
+        ]
+        if len(matches) != 1:
+            raise ValueError(
+                f"Stock INSr IMAG references TILE {source_index} {len(matches)} times"
+            )
+        replacements[source_index] = append(
+            b"ALSR" + f"{source_index:05d}".encode("ascii"),
+            frames[source_index],
+        )
+    return stock.remap_imag_low16_tile_indices(imag, replacements)
+
+
 def brewing_button_frames(stock, tiles, palettes, icon_path: Path, output_dir: Path) -> list[Path]:
     # The approved large apparatus is the art-direction source, but it cannot
     # survive inside AP10's 14-pixel glyph well. Draw a deliberate pixel flask
@@ -243,23 +316,13 @@ def brewing_button_frames(stock, tiles, palettes, icon_path: Path, output_dir: P
 def vigor_icon_overrides(stock, tiles, icon_path: Path, output_dir: Path) -> dict[int, bytes]:
     """Clone AP69's stock first-spell icon states with private Vigor artwork."""
     master = Image.open(icon_path).convert("RGB")
-    styles = {
-        177: ((9, 31, 14), (184, 151, 42), 1.00),
-        199: ((7, 20, 10), (65, 72, 42), 0.48),
-        252: ((26, 27, 24), (104, 101, 83), 0.50),
-        280: ((67, 68, 62), (139, 135, 111), 0.62),
-        302: ((10, 45, 19), (231, 198, 62), 1.18),
-        319: ((35, 29, 8), (247, 205, 58), 1.12),
-        325: ((18, 58, 25), (170, 142, 37), 0.86),
-        342: ((8, 12, 9), (72, 72, 65), 0.38),
-    }
     output: dict[int, bytes] = {}
     for tile_index in VIGOR_ICON_TILES:
         tile = tiles[tile_index].data
         if len(tile) < 8:
             raise ValueError(f"Stock Vigor icon template {tile_index} is truncated")
         height, width = struct.unpack_from("<HH", tile, 2)
-        background, border, brightness = styles[tile_index]
+        background, border, brightness = VIGOR_ICON_STYLES[tile_index]
         frame = Image.new("RGB", (width, height), background)
         draw = ImageDraw.Draw(frame)
         draw.rectangle((0, 0, width - 1, height - 1), outline=border)
@@ -539,6 +602,7 @@ def write_interfacedata(repo: Path, game_data: Path, art_dir: Path, output: Path
     frame_imag = stock.read_cam_entry(source, b"IMAG", BUILDING_FRAME_SOURCE).data
     dialog_imag = stock.read_cam_entry(source, b"IMAG", BUILDING_DIALOG_SOURCE).data
     navigation_imag = stock.read_cam_entry(source, b"IMAG", NAVIGATION_SOURCE).data
+    progress_imag = stock.read_cam_entry(source, b"IMAG", PROGRESS_SOURCE).data
     base_max = len(tiles) - 1
     extra: list = []
 
@@ -601,6 +665,12 @@ def write_interfacedata(repo: Path, game_data: Path, art_dir: Path, output: Path
             art_dir / "interface",
         ),
     )
+    progress_imag = privateize_progress_imag(
+        stock,
+        progress_imag,
+        append,
+        brewing_progress_frames(stock, tiles),
+    )
 
     tile_entries = [stock.CamEntry(name=tile.name, data=b"") for tile in tiles]
     tile_entries.extend(extra)
@@ -614,6 +684,7 @@ def write_interfacedata(repo: Path, game_data: Path, art_dir: Path, output: Path
                     stock.CamEntry(stock.pad_name(BUILDING_FRAME_CUSTOM), frame_imag),
                     stock.CamEntry(stock.pad_name(BUILDING_DIALOG_CUSTOM), dialog_imag),
                     stock.CamEntry(stock.pad_name(NAVIGATION_CUSTOM), navigation_imag),
+                    stock.CamEntry(stock.pad_name(PROGRESS_CUSTOM), progress_imag),
                 ),
             ),
             stock.CamSection(b"TILE", b"\x01\x00\x00\x00", tuple(tile_entries)),

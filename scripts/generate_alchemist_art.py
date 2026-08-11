@@ -532,6 +532,19 @@ def generate_interface(repo: Path, out_dir: Path) -> None:
     ).resize((25, 25), Image.Resampling.LANCZOS).save(
         out_dir / "weapon-oil-icon-25.png"
     )
+    phoenix_phial = Image.open(
+        repo / "assets/source/interface/phoenix-phial-icon.png"
+    ).convert("RGB")
+    phoenix_phial.resize((40, 40), Image.Resampling.LANCZOS).filter(
+        ImageFilter.SHARPEN
+    ).resize((25, 25), Image.Resampling.LANCZOS).save(
+        out_dir / "phoenix-phial-icon-25.png"
+    )
+    phoenix_phial.resize((128, 128), Image.Resampling.LANCZOS).filter(
+        ImageFilter.SHARPEN
+    ).resize((100, 100), Image.Resampling.LANCZOS).save(
+        out_dir / "phoenix-phial-item-100.png"
+    )
 
 
 def main() -> int:

@@ -82,6 +82,7 @@ class AlchemistProbeTests(unittest.TestCase):
         self.assertIn("(birthscript basic_birth)", data)
         self.assertIn("(birthScript2 Guild_Birth)", data)
         self.assertIn("(member_basicscript Alchemist_tree)", data)
+        self.assertEqual(data.count("(Visited_Script Alchemy_Lab_Visited)"), 3)
         self.assertEqual(data.count("(member_title Alchemist)"), 3)
         self.assertNotIn("fervus_Birth", data)
 
@@ -164,13 +165,16 @@ end
             fixture = builder.build_siege_test_fixture(path)
         self.assertIn('"Temple_Fervus1"', fixture)
         self.assertIn('"Temple_Krolm"', fixture)
+        self.assertIn('"Wizards_Guild3"', fixture)
         self.assertIn('"AlchemistsLaboratory1"', fixture)
-        self.assertEqual(fixture.count('"MaxHP"'), 3)
+        self.assertEqual(fixture.count('"MaxHP"'), 4)
+        self.assertIn('$AdjustPlayerData ( palace, "gold", 100000 )', fixture)
         self.assertIn("#ATTRIB_ResearchArrows, 1", fixture)
         self.assertIn('oilRogue = $SpawnUnit ( palace, "Rogue"', fixture)
         self.assertIn('oilWarrior = $SpawnUnit ( palace, "Warrior"', fixture)
         self.assertIn('oilAlchemist = $SpawnUnit ( palace, "Alchemist"', fixture)
-        self.assertEqual(fixture.count("#ATTRIB_Gold, 2000"), 3)
+        self.assertEqual(fixture.count("$Advance_To_Level"), 3)
+        self.assertEqual(fixture.count("#ATTRIB_Gold, 5000"), 3)
         self.assertEqual(fixture.count("#ATTRIB_Intelligence, 100"), 3)
         self.assertEqual(fixture.count("$Alchemist_Oil_Test_Buyer"), 3)
         self.assertIn("Function Alchemist_Oil_Test_Buyer", fixture)
@@ -182,10 +186,12 @@ end
             builder.build_gpl_project(False),
             'data="Alchemist_Building_Data.dat"\n'
             'data="Alchemist_Hero_Data.dat"\n'
+            'data="Alchemist_Phoenix_Phial.dat"\n'
             'source="Alchemist_Rogue.gpl"\n'
             'source="Alchemist_Brewing.gpl"\n'
             'source="Alchemist_Economy.gpl"\n'
-            'source="Alchemist_Weapon_Oil.gpl"\n',
+            'source="Alchemist_Weapon_Oil.gpl"\n'
+            'source="Alchemist_Phoenix_Phial.gpl"\n',
         )
         self.assertIn(
             'source="Alchemist_Siege_Test.gpl"', builder.build_gpl_project(True)
@@ -208,6 +214,10 @@ end
             'alchemyLabs = $List_Attribs(alchemyLabs,#ATTRIB_ResearchArrows);',
             generated,
         )
+        self.assertIn(
+            'phoenixLabs = $List_Attribs(alchemyLabs,#ATTRIB_ResearchPowerfulItem);',
+            generated,
+        )
         self.assertNotIn("wizGuilds << AlchemyLab", generated)
         self.assertIn("$Alchemy_Oil_Check (ThisAgent,alchemyLabs)", generated)
         self.assertIn("Wants_Poison,Wants_Oil", generated)
@@ -221,6 +231,7 @@ end
         self.assertIn(
             "If (Wants_Poison && $Poison_Check (ThisAgent))", generated
         )
+        self.assertIn("$Phoenix_Phial_Check (ThisAgent,phoenixLabs)", generated)
         self.assertLess(
             generated.index("$Alchemy_Oil_Check"), generated.index("$Poison_Check")
         )
@@ -255,7 +266,7 @@ end
             builder.build_gpl_text_cam(stock, output)
             intents = builder.read_cam_entry(output, b"STRT", b"AITX").data
         count = struct.unpack_from("<H", intents, 0)[0]
-        self.assertEqual(count, builder.ALCHEMY_OIL_INTENT_INDEX + 1)
+        self.assertEqual(count, builder.PHOENIX_PHIAL_INTENT_INDEX + 1)
         offsets = struct.unpack_from(f"<{count}I", intents, 4)
         offset = offsets[builder.ALCHEMY_OIL_INTENT_INDEX]
         end = intents.index(b"\x00", offset + 4)
@@ -301,7 +312,7 @@ end
         )
 
     def test_brewing_overlay_has_a_private_callback(self) -> None:
-        stock = """<Majesty><Description type="Unit" subType="Overlay" ID="QRa1" Name="Rage_icon" Description="Rage of Krolm"><Engine><Info value="Directionless"/><Info value="DontBlock"/><ImageIDBase value="QRa1"/><Script type="0" cProc="0" GPLFunction="rage_end"/></Engine><Game><StackPriority value="1"/></Game></Description></Majesty>"""
+        stock = """<Majesty><Description type="Unit" subType="Overlay" ID="QRa1" Name="Rage_icon" Description="Rage of Krolm"><Engine><Info value="Directionless"/><Info value="DontBlock"/><ImageIDBase value="QRa1"/><Script type="0" cProc="0" GPLFunction="rage_end"/></Engine><Game><StackPriority value="1"/></Game></Description><Description type="Unit" subType="Overlay" ID="HRC1" Name="resurrection_effector" Description="Resurrection"><Engine><Info value="Directionless"/><Info value="DontBlock"/><ImageIDBase value="HRC1"/><Script type="0" cProc="0" GPLFunction="Resurrection_End"/></Engine><Game><StackPriority value="0"/></Game></Description></Majesty>"""
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "M_Overlays.xml"
             path.write_text(stock, encoding="utf-8")
@@ -314,6 +325,27 @@ end
             "Alchemist_Invigorating_Elixer_End",
         )
         self.assertEqual(overlay.find("./Engine/ImageIDBase").get("value"), "XR01")
+        resurrection = output.findall("Description")[1]
+        self.assertEqual(resurrection.get("Name"), "phoenix_phial_resurrection_effector")
+        self.assertEqual(
+            resurrection.find("./Engine/Script").get("GPLFunction"),
+            "Phoenix_Phial_Resurrection_End",
+        )
+
+    def test_phoenix_phial_composes_stock_purchase_rebirth_and_flee(self) -> None:
+        source = (builder.GPL_SOURCE_ROOT / "Alchemist_Phoenix_Phial.gpl").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn("expression #Phoenix_Phial_Price 1000", source)
+        self.assertIn("expression #Phoenix_Phial_Revive_Chance 70", source)
+        self.assertIn('$AgentHasInventoryItem ("PhoenixPhial", ThisAgent)', source)
+        self.assertIn('$CreateNewInventoryItem ("PhoenixPhial"', source)
+        self.assertIn('$DeleteInventoryItem ("PhoenixPhial", ThisAgent)', source)
+        self.assertIn("$Shared_Begin_Resurrect (ThisAgent)", source)
+        self.assertIn("$Shared_End_Resurrect (ThisAgent)", source)
+        self.assertIn("$Flee (ThisAgent, #Intent_Flee)", source)
+        self.assertIn("function gravestone(agent thisagent)", source)
+        self.assertNotIn("$RunThread", source)
 
     def test_brewing_sound_has_a_private_description(self) -> None:
         stock = """<Majesty><Description type="Sound" subType="Standard" ID="DP01" Name="Drink_Potion"><Engine><Category value="0"/><Phase ID="Effector Begin"><Wave value="DP01"/></Phase></Engine></Description></Majesty>"""
@@ -455,6 +487,42 @@ end
             builder.BREWING_WEAPON_OIL_ICON_CONTROL_ID,
         )
         self.assertNotIn(b"INCr", output)
+
+    def test_phoenix_row_and_icon_clone_weapon_oil_geometry(self) -> None:
+        stock = Path(
+            r"C:\Program Files (x86)\Steam\steamapps\common\Majesty HD\Data\textdata.cam"
+        )
+        brewing = builder.read_cam_entry(
+            stock, b"SMNU", builder.SOURCE_BREWING_DIALOG_ID
+        ).data
+        research = builder.read_cam_entry(
+            stock, b"SMNU", builder.SOURCE_RESEARCH_DIALOG_ID
+        ).data
+        rage = builder.read_cam_entry(
+            stock, b"SMNU", builder.SOURCE_RAGE_DIALOG_ID
+        ).data
+        brewing = builder.add_native_rage_progress_control(brewing, rage)
+        weapon = builder.add_stock_weapon_oil_research_control(brewing, research)
+        output = builder.add_stock_phoenix_phial_research_control(weapon, research)
+        private_id = struct.pack("<I", builder.BREWING_PHOENIX_PHIAL_CONTROL_ID)
+        control_id_offset = output.index(private_id)
+        record = control_id_offset - builder.RESEARCH_ROW_CONTROL_ID_OFFSET
+        self.assertEqual(
+            struct.unpack_from("<3I", output, record + 0x08),
+            (30, 114, 162),
+        )
+
+        output = builder.add_stock_phoenix_phial_icon_control(output, research)
+        marker = output.index(b"ALPI")
+        icon_record = marker - 0x24
+        self.assertEqual(
+            struct.unpack_from("<4I", output, icon_record + 0x08),
+            (3, 113, 25, 25),
+        )
+        self.assertEqual(
+            struct.unpack_from("<I", output, icon_record + 0x3C)[0],
+            builder.BREWING_PHOENIX_PHIAL_ICON_CONTROL_ID,
+        )
 
     def test_cgal_clones_stock_visitors_control_for_layout_probe(self) -> None:
         stock = Path(

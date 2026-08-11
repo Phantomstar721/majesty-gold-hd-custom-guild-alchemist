@@ -30,6 +30,9 @@ NAVIGATION_SOURCE = b"INTN"
 NAVIGATION_CUSTOM = b"ALINrecipe icons"
 RESEARCH_ICON_SOURCE = b"INCrresearch icon"
 RESEARCH_ICON_CUSTOM = b"ALWIweapon oil icon"
+PHOENIX_RESEARCH_ICON_CUSTOM = b"ALPIphial icon"
+INVENTORY_ITEM_SOURCE = b"AVk4Res Item"
+INVENTORY_ITEM_CUSTOM = b"PXF1Phoenix Phial"
 PROGRESS_SOURCE = b"INSrreasearch"
 PROGRESS_CUSTOM = b"ALSRalchemy progress"
 BUILDING_PROFILE_TILE = 1509
@@ -49,6 +52,8 @@ CLEAN_PROGRESS_SOURCE_TILES = (414, 415)
 BREWING_PROGRESS_FRAME_SIZE = (162, 20)
 VIGOR_ICON_TILES = (177, 199, 252, 280, 302, 319, 325, 342)
 WEAPON_OIL_ICON_TILE = 162
+PHOENIX_ITEM_TILES = tuple(range(8282, 8291))
+PHOENIX_ITEM_INTERFACE_TILE = 8285
 VIGOR_ICON_STYLES = {
     177: ((9, 31, 14), (184, 151, 42), 1.00),
     # AP69 first recipe uses INTN set 1013: TILE 199 is its enabled
@@ -409,6 +414,9 @@ def write_maindata(repo: Path, game_data: Path, art_dir: Path, output: Path) -> 
     palettes = stock.read_cam_entries(source, b"SPLT")
     hero_imag = stock.read_cam_entry(source, b"IMAG", HERO_SOURCE).data
     building_imags = [stock.read_cam_entry(source, b"IMAG", name).data for name in BUILDING_SOURCES]
+    phoenix_item_imag = stock.read_cam_entry(
+        source, b"IMAG", INVENTORY_ITEM_SOURCE
+    ).data
 
     # All appended art is private. Stock TILE slots remain empty fall-through
     # placeholders in the emitted CAM, so no retail art is globally replaced.
@@ -509,6 +517,28 @@ def write_maindata(repo: Path, game_data: Path, art_dir: Path, output: Path) -> 
     )
     hero_imag = stock.remap_imag_low16_tile_indices(hero_imag, hero_replacements)
 
+    # Retail and the SDK model carried items as ordinary IsInventoryItem units
+    # backed by AVk4's Inactive/Minimap/Interface animation sets. Preserve that
+    # whole structure and privatize only the image identity and referenced art.
+    phoenix_item_replacements: dict[int, int] = {}
+    item_master = Image.open(
+        art_dir / "interface/phoenix-phial-item-100.png"
+    ).convert("RGB")
+    for source_index in PHOENIX_ITEM_TILES:
+        template = tiles[source_index].data
+        height, width = struct.unpack_from("<HH", template, 2)
+        rendered = stock.tile_from_rgb(
+            template,
+            palettes,
+            item_master.resize((width, height), Image.Resampling.LANCZOS).tobytes(),
+        )
+        phoenix_item_replacements[source_index] = append(
+            f"PXF1Item{source_index:05d}".encode("ascii"), rendered
+        )
+    phoenix_item_imag = stock.remap_imag_low16_tile_indices(
+        phoenix_item_imag, phoenix_item_replacements
+    )
+
     profile_index = append(
         b"ALB1Profile",
         stock.tile_from_rgb(
@@ -586,6 +616,7 @@ def write_maindata(repo: Path, game_data: Path, art_dir: Path, output: Path) -> 
     images = (
         stock.CamEntry(stock.pad_name(HERO_CUSTOM), hero_imag),
         *(stock.CamEntry(stock.pad_name(name), imag) for name, imag in zip(BUILDING_CUSTOM, building_imags)),
+        stock.CamEntry(stock.pad_name(INVENTORY_ITEM_CUSTOM), phoenix_item_imag),
     )
     stock.write_cam(
         (
@@ -681,6 +712,20 @@ def write_interfacedata(repo: Path, game_data: Path, art_dir: Path, output: Path
             )
         },
     )
+    phoenix_research_icon_imag = privateize_interface_imag_tiles(
+        stock.read_cam_entry(source, b"IMAG", RESEARCH_ICON_SOURCE).data,
+        tiles,
+        append,
+        b"ALPI",
+        {
+            WEAPON_OIL_ICON_TILE: stock.tile_v1_embedded_from_rgb(
+                tiles[WEAPON_OIL_ICON_TILE].data,
+                image_rgb(
+                    art_dir / "interface/phoenix-phial-icon-25.png", (25, 25)
+                ),
+            )
+        },
+    )
     progress_imag = privateize_progress_imag(
         stock,
         progress_imag,
@@ -701,6 +746,10 @@ def write_interfacedata(repo: Path, game_data: Path, art_dir: Path, output: Path
                     stock.CamEntry(stock.pad_name(BUILDING_DIALOG_CUSTOM), dialog_imag),
                     stock.CamEntry(stock.pad_name(NAVIGATION_CUSTOM), navigation_imag),
                     stock.CamEntry(stock.pad_name(RESEARCH_ICON_CUSTOM), research_icon_imag),
+                    stock.CamEntry(
+                        stock.pad_name(PHOENIX_RESEARCH_ICON_CUSTOM),
+                        phoenix_research_icon_imag,
+                    ),
                     stock.CamEntry(stock.pad_name(PROGRESS_CUSTOM), progress_imag),
                 ),
             ),

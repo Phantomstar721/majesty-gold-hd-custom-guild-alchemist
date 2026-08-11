@@ -26,6 +26,7 @@ BREWING_DIALOG_ID = b"CGBR"
 SOURCE_BREWING_DIALOG_ID = b"AP69"
 SOURCE_RAGE_DIALOG_ID = b"AP24"
 SOURCE_RESEARCH_DIALOG_ID = b"APa1"
+SOURCE_MARKET_RESEARCH_DIALOG_ID = b"APa3"
 SOURCE_VISITORS_DIALOG_ID = b"AP02"
 RAGE_PROGRESS_RECORD_OFFSET = 0x0C28
 RAGE_PROGRESS_INNER_OFFSET = 0x40
@@ -76,10 +77,18 @@ BREWING_WEAPON_OIL_CONTROL_ID = 0x2A13
 BREWING_WEAPON_OIL_PROGRESS_CONTROL_ID = 0x2A11
 BREWING_WEAPON_OIL_ACTIVE_DISPLAY_CONTROL_ID = 0x2A12
 BREWING_WEAPON_OIL_ICON_CONTROL_ID = 0x2A14
+BREWING_PHOENIX_PHIAL_CONTROL_ID = 0x2A16
+BREWING_PHOENIX_PHIAL_PROGRESS_CONTROL_ID = 0x2A17
+BREWING_PHOENIX_PHIAL_ACTIVE_DISPLAY_CONTROL_ID = 0x2A18
+BREWING_PHOENIX_PHIAL_ICON_CONTROL_ID = 0x2A19
 ALCHEMY_OIL_INTENT_INDEX = 177
 ALCHEMY_OIL_INTENT_TEXT = "Applying weapon oil at the alchemy lab"
+PHOENIX_PHIAL_INTENT_INDEX = 178
+PHOENIX_PHIAL_INTENT_TEXT = "Purchasing a Phoenix Phial at the alchemy lab"
 WEAPON_OIL_PROGRESS_OUTER_RECT = (30, 87, 162, 20)
 WEAPON_OIL_PROGRESS_LABEL_RECT = (31, 90, 160, 14)
+PHOENIX_PHIAL_PROGRESS_OUTER_RECT = (30, 114, 162, 20)
+PHOENIX_PHIAL_PROGRESS_LABEL_RECT = (31, 117, 160, 14)
 AP10_SPELL_BUTTON_RECT_OFFSET = 0x0D34
 AP10_SPELL_BUTTON_RECT = (103, 162, 93, 26)
 BREWING_FINAL_RECT = (7, 217, 93, 26)
@@ -130,6 +139,9 @@ def build_siege_test_fixture(stock_quests: Path) -> str:
         raise ValueError("The Siege Palace initialization no longer matches the SDK fixture")
     spawns = (
         anchor
+        + '\n\t$AdjustPlayerData ( palace, "gold", 100000 );'
+        + '\n\t$SpawnUnit ( palace, "Wizards_Guild3", '
+        '$RandomCoord ( palace, 400, 525 ), "MaxHP" );'
         + '\n\t$SpawnUnit ( palace, "Temple_Fervus1", '
         '$RandomCoord ( palace, 550, 750 ), "MaxHP" );'
         + '\n\t$SpawnUnit ( palace, "Temple_Krolm", '
@@ -147,7 +159,9 @@ def build_siege_test_fixture(stock_quests: Path) -> str:
     setup = ""
     for buyer in ("oilRogue", "oilWarrior", "oilAlchemist"):
         setup += (
-            f'\n\t$SetAttribute ( {buyer}, #ATTRIB_Gold, 2000 );'
+            f'\n\t$Advance_To_Level ( {buyer}, 10 );'
+            f'\n\t$SetAttribute ( {buyer}, #ATTRIB_Experience, 0 );'
+            f'\n\t$SetAttribute ( {buyer}, #ATTRIB_Gold, 5000 );'
             f'\n\t$SetAttribute ( {buyer}, #ATTRIB_Intelligence, 100 );'
             f'\n\t$SetAttribute ( {buyer}, #ATTRIB_Weapon_Struct_Bonus, 3 );'
             f'\n\t$SetAttribute ( {buyer}, #ATTRIB_Armor_Struct_Bonus, 3 );'
@@ -199,14 +213,12 @@ def build_alchemist_economy(stock_purchase_equipment: Path) -> str:
         + "\n\t\tWants_Oil = TRUE;"
     )
     function = function.replace(weapon_gate_anchor, oil_classification, 1)
-    list_anchor = (
-        "\tlist blacksmiths,wizguilds,markets,shops,fairgrounds,buildings;"
-    )
+    list_anchor = "\tlist blacksmiths,wizguilds,markets,shops,fairgrounds,buildings;"
     if function.count(list_anchor) != 1:
         raise ValueError("Stock Purchase_Equipment list declaration changed")
     function = function.replace(
         list_anchor,
-        "\tlist blacksmiths,wizguilds,markets,shops,fairgrounds,buildings,alchemyLabs;",
+        "\tlist blacksmiths,wizguilds,markets,shops,fairgrounds,buildings,alchemyLabs,phoenixLabs;",
         1,
     )
     wizard_anchor = '\twizGuilds = $listTitles(buildings,"Wizards_Guild");'
@@ -215,6 +227,7 @@ def build_alchemist_economy(stock_purchase_equipment: Path) -> str:
     gate = (
         wizard_anchor
         + '\n\talchemyLabs = $listTitles(buildings,"AlchemistsLaboratory");'
+        + '\n\tphoenixLabs = $List_Attribs(alchemyLabs,#ATTRIB_ResearchPowerfulItem);'
         + "\n\talchemyLabs = $List_Attribs(alchemyLabs,#ATTRIB_ResearchArrows);"
     )
     function = function.replace(wizard_anchor, gate, 1)
@@ -235,7 +248,24 @@ def build_alchemist_economy(stock_purchase_equipment: Path) -> str:
         "\n\t\t\t\t\t\tElse"
         "\n" + poison_anchor
     )
-    return function.replace(poison_anchor, oil_then_poison, 1) + "\n"
+    function = function.replace(poison_anchor, oil_then_poison, 1)
+    market_anchor = (
+        "\t\t\t\t\t\t\t\t\tIf ($Market3_Check (ThisAgent,markets))"
+        "\n\t\t\t\t\t\t\t\t\t\tbegin"
+        "\n\t\t\t\t\t\t\t\t\t\t\tFlag = TRUE;"
+        "\n\t\t\t\t\t\t\t\t\t\tend"
+    )
+    if function.count(market_anchor) != 1:
+        raise ValueError("Stock Purchase_Equipment Market3 branch changed")
+    phoenix_after_market = (
+        market_anchor
+        + "\n\t\t\t\t\t\t\t\t\tElse"
+        + "\n\t\t\t\t\t\t\t\t\t\tIf ($Phoenix_Phial_Check (ThisAgent,phoenixLabs))"
+        + "\n\t\t\t\t\t\t\t\t\t\t\tbegin"
+        + "\n\t\t\t\t\t\t\t\t\t\t\t\tFlag = TRUE;"
+        + "\n\t\t\t\t\t\t\t\t\t\t\tend"
+    )
+    return function.replace(market_anchor, phoenix_after_market, 1) + "\n"
 
 
 def build_gpl_project(include_siege_test_fixture: bool) -> str:
@@ -244,12 +274,14 @@ def build_gpl_project(include_siege_test_fixture: bool) -> str:
         'source="Alchemist_Brewing.gpl"',
         'source="Alchemist_Economy.gpl"',
         'source="Alchemist_Weapon_Oil.gpl"',
+        'source="Alchemist_Phoenix_Phial.gpl"',
     ]
     if include_siege_test_fixture:
         sources.append('source="Alchemist_Siege_Test.gpl"')
     return (
         'data="Alchemist_Building_Data.dat"\n'
         'data="Alchemist_Hero_Data.dat"\n'
+        'data="Alchemist_Phoenix_Phial.dat"\n'
         + "\n".join(sources)
         + "\n"
     )
@@ -457,6 +489,36 @@ def build_units_xml(stock_buildings_xml: Path, stock_characters_xml: Path) -> by
             raise ValueError(f"{source_name} has no recruitable unit")
         produced.set("ID", ALCHEMIST_HERO_NAME)
         output.append(description)
+    # SDK SpecialItemsExample contract: a named inventory item is a normal
+    # character description carrying IsInventoryItem and its own inventory
+    # attribute. It is never spawned on the map in this prototype.
+    phoenix = ET.SubElement(
+        output,
+        "Description",
+        {
+            "type": "Unit",
+            "subType": "Character",
+            "ID": "PXF1",
+            "Name": "PhoenixPhial",
+            "Description": "Phoenix Phial",
+        },
+    )
+    engine = ET.SubElement(phoenix, "Engine", {"version": "1"})
+    ET.SubElement(engine, "Info", {"value": "Static"})
+    ET.SubElement(engine, "Info", {"value": "Directionless"})
+    ET.SubElement(engine, "CanUse", {"value": "HumanPlayer"})
+    ET.SubElement(engine, "Menu", {"value": "11"})
+    ET.SubElement(engine, "ImageIDBase", {"value": "PXF1"})
+    ET.SubElement(engine, "DefaultSound", {"value": "0"})
+    game = ET.SubElement(phoenix, "Game", {"version": "1"})
+    ET.SubElement(game, "DialogID", {"value": "0"})
+    ET.SubElement(game, "MaxHP", {"value": "10"})
+    ET.SubElement(game, "Flags", {"value": "NotFlaggable"})
+    ET.SubElement(game, "Flags", {"value": "NotSpellTarget"})
+    ET.SubElement(game, "Flags", {"value": "IsInventoryItem"})
+    attributes = ET.SubElement(game, "Attributes")
+    ET.SubElement(attributes, "Attribute", {"ID": "CanDropItem", "Value": "0"})
+    ET.SubElement(attributes, "Attribute", {"ID": "PhoenixPhial", "Value": "0"})
     ET.indent(output, space="\t")
     return ET.tostring(output, encoding="utf-8", xml_declaration=False) + b"\n"
 
@@ -478,6 +540,22 @@ def build_brewing_overlays_xml(stock_overlays_xml: Path) -> bytes:
     script.set("GPLFunction", "Alchemist_Invigorating_Elixer_End")
     output = ET.Element("Majesty")
     output.append(overlay)
+    resurrection_source = stock_root.find(
+        './/Description[@Name="resurrection_effector"]'
+    )
+    if resurrection_source is None:
+        raise ValueError("Stock resurrection_effector overlay is missing")
+    resurrection = ET.fromstring(
+        ET.tostring(resurrection_source, encoding="utf-8")
+    )
+    resurrection.set("ID", "PXE1")
+    resurrection.set("Name", "phoenix_phial_resurrection_effector")
+    resurrection.set("Description", "Phoenix Phial Resurrection")
+    resurrection_script = resurrection.find("./Engine/Script")
+    if resurrection_script is None:
+        raise ValueError("Stock resurrection effector callback is missing")
+    resurrection_script.set("GPLFunction", "Phoenix_Phial_Resurrection_End")
+    output.append(resurrection)
     ET.indent(output, space="\t")
     return ET.tostring(output, encoding="utf-8", xml_declaration=False) + b"\n"
 
@@ -652,6 +730,41 @@ def add_stock_weapon_oil_research_control(
     return result
 
 
+def add_stock_phoenix_phial_research_control(
+    brewing_menu: bytes, research_menu: bytes
+) -> bytes:
+    """Clone Weapon Oil's exact APa1 compound row for Phoenix research."""
+    source = bytearray(
+        research_menu[APA1_ARROWS_RECORD_START:APA1_ARROWS_RECORD_END]
+    )
+    if len(source) != 0xF8 or source[-4:] != b"\xff" * 4:
+        raise ValueError("Stock APa1 Arrows row boundary changed")
+    if u32(source, RESEARCH_ROW_CONTROL_ID_OFFSET) != STOCK_ARROWS_RESEARCH_CONTROL_ID:
+        raise ValueError("Stock APa1 Arrows control ID changed")
+    if (
+        u32(source, RESEARCH_ROW_LABEL_INDEX_OFFSET) != 1
+        or u32(source, RESEARCH_ROW_TOOLTIP_INDEX_OFFSET) != 2
+    ):
+        raise ValueError("Stock APa1 Arrows string contract changed")
+    if u32(brewing_menu, 0x320) != 0xFFFFFFFF or u32(brewing_menu, 0x324) != 0:
+        raise ValueError("Stock AP69 remaining recipe boundary changed")
+    struct.pack_into("<I", source, RESEARCH_ROW_OUTER_X_OFFSET, 30)
+    struct.pack_into("<I", source, RESEARCH_ROW_OUTER_Y_OFFSET, 114)
+    struct.pack_into("<I", source, RESEARCH_ROW_OUTER_WIDTH_OFFSET, 162)
+    struct.pack_into(
+        "<I", source, RESEARCH_ROW_CONTROL_ID_OFFSET, BREWING_PHOENIX_PHIAL_CONTROL_ID
+    )
+    struct.pack_into("<I", source, RESEARCH_ROW_LABEL_INDEX_OFFSET, 4)
+    struct.pack_into("<I", source, RESEARCH_ROW_TOOLTIP_INDEX_OFFSET, 5)
+    if source.count(b"INBb") != 1:
+        raise ValueError("Stock APa1 Arrows background changed")
+    source = source.replace(b"INBb", b"ALBB", 1)
+    result = bytes(brewing_menu[:0x324] + source + brewing_menu[0x478:])
+    if u32(result, 0x320) != 0xFFFFFFFF or u32(result, 0x324) != 0:
+        raise ValueError("CGBR Phoenix Phial splice broke its leading boundary")
+    return result
+
+
 def add_native_weapon_oil_progress_control(
     brewing_menu: bytes, rage_menu: bytes
 ) -> bytes:
@@ -726,6 +839,61 @@ def add_stock_weapon_oil_icon_control(
     if vigor_record < 4 or u32(brewing_menu, vigor_record - 4) != 0xFFFFFFFF:
         raise ValueError("CGBR pre-Vigor icon insertion boundary changed")
     return bytes(brewing_menu[:vigor_record] + source + brewing_menu[vigor_record:])
+
+
+def add_stock_phoenix_phial_icon_control(
+    brewing_menu: bytes, research_menu: bytes
+) -> bytes:
+    """Clone Weapon Oil's exact APa1 icon control for Phoenix Phial."""
+    source = bytearray(
+        research_menu[APA1_ARROWS_ICON_RECORD_START:APA1_ARROWS_ICON_RECORD_END]
+    )
+    if len(source) != 0x4C or source[-4:] != b"\xff" * 4:
+        raise ValueError("Stock APa1 Arrows icon boundary changed")
+    if struct.unpack_from("<4I", source, 0x08) != (3, 60, 25, 25):
+        raise ValueError("Stock APa1 Arrows icon rectangle changed")
+    if source.count(b"INCr") != 1 or u32(source, 0x3C) != 0x1590:
+        raise ValueError("Stock APa1 Arrows icon contract changed")
+    struct.pack_into("<I", source, 0x0C, 113)
+    source = source.replace(b"INCr", b"ALPI", 1)
+    struct.pack_into("<I", source, 0x3C, BREWING_PHOENIX_PHIAL_ICON_CONTROL_ID)
+    vigor_id = struct.pack("<I", RAGE_PROGRESS_CONTROL_ID)
+    vigor_record = brewing_menu.index(vigor_id) - 0x6C
+    if vigor_record < 4 or u32(brewing_menu, vigor_record - 4) != 0xFFFFFFFF:
+        raise ValueError("CGBR pre-Vigor Phoenix icon insertion boundary changed")
+    return bytes(brewing_menu[:vigor_record] + source + brewing_menu[vigor_record:])
+
+
+def add_native_phoenix_phial_progress_control(
+    brewing_menu: bytes, rage_menu: bytes
+) -> bytes:
+    """Clone the proven AP24 display pair over the Phoenix research row."""
+    source = rage_menu[RAGE_PROGRESS_RECORD_OFFSET:]
+    if len(source) != 0xEC or source[-8:] != b"\xff" * 8:
+        raise ValueError("Stock AP24 terminal display layout changed")
+    display = bytearray(source[:-4])
+    if (
+        u32(display, 0x6C) != RAGE_PROGRESS_CONTROL_ID
+        or u32(display, RAGE_ACTIVE_DISPLAY_ID_OFFSET) != RAGE_ACTIVE_DISPLAY_CONTROL_ID
+    ):
+        raise ValueError("Stock AP24 Phoenix display IDs changed")
+    struct.pack_into("<4I", display, 0x08, *PHOENIX_PHIAL_PROGRESS_OUTER_RECT)
+    struct.pack_into(
+        "<4I", display, RAGE_PROGRESS_RECT_OFFSET, *PHOENIX_PHIAL_PROGRESS_LABEL_RECT
+    )
+    struct.pack_into("<I", display, 0x6C, BREWING_PHOENIX_PHIAL_PROGRESS_CONTROL_ID)
+    struct.pack_into(
+        "<I",
+        display,
+        RAGE_ACTIVE_DISPLAY_ID_OFFSET,
+        BREWING_PHOENIX_PHIAL_ACTIVE_DISPLAY_CONTROL_ID,
+    )
+    struct.pack_into("<I", display, RAGE_ACTIVE_DISPLAY_LABEL_INDEX_OFFSET, 30)
+    vigor_id = struct.pack("<I", RAGE_PROGRESS_CONTROL_ID)
+    vigor_record = brewing_menu.index(vigor_id) - 0x6C
+    if vigor_record < 4 or u32(brewing_menu, vigor_record - 4) != 0xFFFFFFFF:
+        raise ValueError("CGBR pre-Vigor Phoenix progress boundary changed")
+    return bytes(brewing_menu[:vigor_record] + display + brewing_menu[vigor_record:])
 
 
 def add_stock_visitors_probe_control(
@@ -825,14 +993,23 @@ def build_text_cam(
     brewing_menu = add_stock_weapon_oil_research_control(
         brewing_menu, research_menu
     )
+    brewing_menu = add_stock_phoenix_phial_research_control(
+        brewing_menu, research_menu
+    )
     brewing_menu = add_stock_weapon_oil_icon_control(
+        brewing_menu, research_menu
+    )
+    brewing_menu = add_stock_phoenix_phial_icon_control(
         brewing_menu, research_menu
     )
     brewing_menu = add_native_weapon_oil_progress_control(
         brewing_menu, rage_menu
     )
-    if brewing_menu.count(b"INSr") != 2:
-        raise ValueError("CGBR must contain exactly two stock Rage progress-art references")
+    brewing_menu = add_native_phoenix_phial_progress_control(
+        brewing_menu, rage_menu
+    )
+    if brewing_menu.count(b"INSr") != 3:
+        raise ValueError("CGBR must contain exactly three stock Rage progress-art references")
     brewing_menu = brewing_menu.replace(b"INSr", b"ALSR")
     brewing_strings = read_cam_entry(
         stock_text_cam, b"STRT", SOURCE_BREWING_DIALOG_ID
@@ -867,8 +1044,8 @@ def build_text_cam(
             1: "Vigor Elixir",
             2: "Invigorate every unit for 30 seconds: faster movement, 20 bonus hit points, and greater confidence.",
             3: "1",
-            4: "Future Brew",
-            5: "This brewing slot is not yet available.",
+            4: "Phoenix Phial",
+            5: "Research Phoenix Phials for sale to heroes.",
             6: "",
             7: "Weapon Oil",
             8: "Research weapon oil for the Laboratory's stock enchanting service.",
@@ -876,6 +1053,7 @@ def build_text_cam(
             13: "Brewing",
             28: "Invigorated",
             29: "Researching Weapon Oil",
+            30: "Researching Phoenix Phial",
         },
     )
     write_cam(
@@ -901,7 +1079,7 @@ def build_text_cam(
 
 
 def build_gpl_text_cam(stock_gpl_text_cam: Path, output_path: Path) -> None:
-    """Append one private AI intent while preserving every stock AITX record."""
+    """Append private Alchemist intents while preserving every stock AITX record."""
     stock_intents = read_cam_entry(stock_gpl_text_cam, b"STRT", b"AITX").data
     stock_count = struct.unpack_from("<H", stock_intents, 0)[0]
     if stock_count != ALCHEMY_OIL_INTENT_INDEX:
@@ -910,7 +1088,10 @@ def build_gpl_text_cam(stock_gpl_text_cam: Path, output_path: Path) -> None:
         )
     patched_intents = patch_strt_by_index(
         stock_intents,
-        {ALCHEMY_OIL_INTENT_INDEX: ALCHEMY_OIL_INTENT_TEXT},
+        {
+            ALCHEMY_OIL_INTENT_INDEX: ALCHEMY_OIL_INTENT_TEXT,
+            PHOENIX_PHIAL_INTENT_INDEX: PHOENIX_PHIAL_INTENT_TEXT,
+        },
     )
     write_cam(
         output_path,
@@ -999,10 +1180,12 @@ def validate_output(
         output_root / "GPL" / "Alchemist.gplproj",
         output_root / "GPL" / "Alchemist_Building_Data.dat",
         output_root / "GPL" / "Alchemist_Hero_Data.dat",
+        output_root / "GPL" / "Alchemist_Phoenix_Phial.dat",
         output_root / "GPL" / "Alchemist_Rogue.gpl",
         output_root / "GPL" / "Alchemist_Brewing.gpl",
         output_root / "GPL" / "Alchemist_Economy.gpl",
         output_root / "GPL" / "Alchemist_Weapon_Oil.gpl",
+        output_root / "GPL" / "Alchemist_Phoenix_Phial.gpl",
     }
     if include_siege_test_fixture:
         expected.add(output_root / "GPL" / "Alchemist_Siege_Test.gpl")
@@ -1011,10 +1194,11 @@ def validate_output(
         raise ValueError(f"Unexpected package files: {sorted(str(p) for p in actual ^ expected)}")
     root = ET.parse(output_root / "Data" / "alchemist_probe_units.xml").getroot()
     descriptions = root.findall("Description")
-    if [item.get("ID") for item in descriptions] != [ALCHEMIST_HERO_ID, *BUILDING_IDS]:
+    if [item.get("ID") for item in descriptions] != [ALCHEMIST_HERO_ID, *BUILDING_IDS, "PXF1"]:
         raise ValueError("Alchemist unit ID sequence is invalid")
     hero = descriptions[0]
-    buildings = descriptions[1:]
+    buildings = descriptions[1:4]
+    phoenix = descriptions[4]
     if hero.get("Name") != ALCHEMIST_HERO_NAME:
         raise ValueError("Private Alchemist hero description is missing")
     if hero.find("./Engine/ImageIDBase").get("value") != ALCHEMIST_HERO_ID:
@@ -1026,14 +1210,20 @@ def validate_output(
         raise ValueError("Alchemist must use the stock Warrior movement class")
     if any(item.find("./Game/DialogID").get("value") != "CGAL" for item in buildings):
         raise ValueError("Every Laboratory level must use CGAL")
+    if phoenix.get("Name") != "PhoenixPhial" or phoenix.find(
+        './Game/Flags[@value="IsInventoryItem"]'
+    ) is None:
+        raise ValueError("Phoenix Phial inventory-item description is missing")
+    if phoenix.find("./Engine/ImageIDBase").get("value") != "PXF1":
+        raise ValueError("Phoenix Phial must use its private inventory-item art")
     if [item.find("./Engine/ImageIDBase").get("value") for item in buildings] != list(BUILDING_IDS):
         raise ValueError("Every Laboratory level must use its private image record")
     text_cam = output_root / "Data" / "alchemist_probe_textdata.cam"
     gpl_text_cam = output_root / "Data" / "alchemist_probe_gpltext.cam"
     intent_strings = read_cam_entry(gpl_text_cam, b"STRT", b"AITX").data
     intent_count = struct.unpack_from("<H", intent_strings, 0)[0]
-    if intent_count != ALCHEMY_OIL_INTENT_INDEX + 1:
-        raise ValueError("Private AITX intent was not appended at the stock boundary")
+    if intent_count != PHOENIX_PHIAL_INTENT_INDEX + 1:
+        raise ValueError("Private AITX intents were not appended at the stock boundary")
     intent_offsets = struct.unpack_from(f"<{intent_count}I", intent_strings, 4)
     intent_offset = intent_offsets[ALCHEMY_OIL_INTENT_INDEX]
     intent_end = intent_strings.index(b"\x00", intent_offset + 4)
@@ -1042,6 +1232,13 @@ def validate_output(
         != ALCHEMY_OIL_INTENT_TEXT
     ):
         raise ValueError("Private Weapon Oil intent text is incorrect")
+    phoenix_intent_offset = intent_offsets[PHOENIX_PHIAL_INTENT_INDEX]
+    phoenix_intent_end = intent_strings.index(b"\x00", phoenix_intent_offset + 4)
+    if (
+        intent_strings[phoenix_intent_offset + 4 : phoenix_intent_end].decode("cp1252")
+        != PHOENIX_PHIAL_INTENT_TEXT
+    ):
+        raise ValueError("Private Phoenix Phial intent text is incorrect")
     menu = read_cam_entry(text_cam, b"SMNU", DIALOG_ID).data
     if menu == b"":
         raise ValueError("CGAL menu is empty")
@@ -1069,14 +1266,24 @@ def validate_output(
             raise ValueError(f"{menu_name} still references stock interface art")
     if b"ALIN" not in brewing_menu or b"INTN" in brewing_menu:
         raise ValueError("CGBR does not use the private Vigor recipe-icon art")
-    if b"ALWI" not in brewing_menu or b"INCr" in brewing_menu:
-        raise ValueError("CGBR does not use the private Weapon Oil icon art")
+    if (
+        b"ALWI" not in brewing_menu
+        or b"ALPI" not in brewing_menu
+        or b"INCr" in brewing_menu
+    ):
+        raise ValueError("CGBR does not use both private research-icon records")
     if b"ALSR" not in brewing_menu or b"INSr" in brewing_menu:
         raise ValueError("CGBR does not use the private full-width progress art")
 
     main_art = output_root / "Data" / "alchemist_maindata.cam"
     interface_art = output_root / "Data" / "alchemist_interfacedata.cam"
-    for name in (b"ALC1Alchemist", b"ALB1Alchemy Lab 1", b"ALB2Alchemy Lab 2", b"ALB3Alchemy Lab 3"):
+    for name in (
+        b"ALC1Alchemist",
+        b"ALB1Alchemy Lab 1",
+        b"ALB2Alchemy Lab 2",
+        b"ALB3Alchemy Lab 3",
+        b"PXF1Phoenix Phial",
+    ):
         if not read_cam_entry(main_art, b"IMAG", name).data:
             raise ValueError(f"Private main art record is empty: {name!r}")
     for name in (
@@ -1085,13 +1292,17 @@ def validate_output(
         b"ALBGbuilding dialog",
         b"ALINrecipe icons",
         b"ALWIweapon oil icon",
+        b"ALPIphial icon",
         b"ALSRalchemy progress",
     ):
         if not read_cam_entry(interface_art, b"IMAG", name).data:
             raise ValueError(f"Private interface art record is empty: {name!r}")
     for art_path, prefixes in (
-        (main_art, (b"ALC1", b"ALB1", b"ALB2", b"ALB3")),
-        (interface_art, (b"ALTI", b"ALBB", b"ALBG", b"ALIN", b"ALWI", b"ALSR")),
+        (main_art, (b"ALC1", b"ALB1", b"ALB2", b"ALB3", b"PXF1")),
+        (
+            interface_art,
+            (b"ALTI", b"ALBB", b"ALBG", b"ALIN", b"ALWI", b"ALPI", b"ALSR"),
+        ),
     ):
         tile_entries = read_cam_entries(art_path, b"TILE")
         first_private = next(
@@ -1111,6 +1322,8 @@ def validate_output(
         raise ValueError("CGBR Vigor Elixir label is missing")
     if b"Invigorated\x00" not in brewing_strings:
         raise ValueError("CGBR active progress label is missing")
+    if b"Phoenix Phial\x00" not in brewing_strings:
+        raise ValueError("CGBR Phoenix Phial label is missing")
     brewing_string_count = struct.unpack_from("<H", brewing_strings, 0)[0]
     if brewing_string_count <= 28:
         raise ValueError("CGBR active progress label is not present at STRT index 28")
@@ -1121,7 +1334,7 @@ def validate_output(
     active_label_end = brewing_strings.index(b"\x00", active_label_offset + 4)
     if brewing_strings[active_label_offset + 4 : active_label_end] != b"Invigorated":
         raise ValueError("CGBR STRT index 28 is not the Invigorated label")
-    if brewing_menu.count(b"ALSR") != 2 or b"INSr" in brewing_menu:
+    if brewing_menu.count(b"ALSR") != 3 or b"INSr" in brewing_menu:
         raise ValueError("CGBR private progress art displays are missing")
     if struct.pack("<I", RAGE_PROGRESS_CONTROL_ID) not in brewing_menu:
         raise ValueError("CGBR native progress control ID is missing")
@@ -1129,6 +1342,8 @@ def validate_output(
         raise ValueError("CGBR native Rage active-display child is missing")
     if brewing_menu.count(struct.pack("<I", BREWING_WEAPON_OIL_CONTROL_ID)) != 1:
         raise ValueError("CGBR native Weapon Oil research row is missing or duplicated")
+    if brewing_menu.count(struct.pack("<I", BREWING_PHOENIX_PHIAL_CONTROL_ID)) != 1:
+        raise ValueError("CGBR native Phoenix Phial research row is missing or duplicated")
     progress_record_offset = (
         brewing_menu.index(struct.pack("<I", RAGE_PROGRESS_CONTROL_ID)) - 0x6C
     )
@@ -1173,6 +1388,27 @@ def validate_output(
         weapon_progress_record_offset + RAGE_ACTIVE_DISPLAY_ID_OFFSET,
     ) != BREWING_WEAPON_OIL_ACTIVE_DISPLAY_CONTROL_ID:
         raise ValueError("CGBR Weapon Oil active label ID changed")
+    phoenix_progress_record_offset = (
+        brewing_menu.index(
+            struct.pack("<I", BREWING_PHOENIX_PHIAL_PROGRESS_CONTROL_ID)
+        )
+        - 0x6C
+    )
+    if u32(brewing_menu, phoenix_progress_record_offset) != 9:
+        raise ValueError("CGBR lost the stock Phoenix Phial progress subtype")
+    if struct.unpack_from(
+        "<4I", brewing_menu, phoenix_progress_record_offset + 0x08
+    ) != PHOENIX_PHIAL_PROGRESS_OUTER_RECT:
+        raise ValueError("CGBR Phoenix Phial progress rectangle changed")
+    if struct.unpack_from(
+        "<4I", brewing_menu, phoenix_progress_record_offset + RAGE_PROGRESS_RECT_OFFSET
+    ) != PHOENIX_PHIAL_PROGRESS_LABEL_RECT:
+        raise ValueError("CGBR Phoenix Phial progress label rectangle changed")
+    if u32(
+        brewing_menu,
+        phoenix_progress_record_offset + RAGE_ACTIVE_DISPLAY_ID_OFFSET,
+    ) != BREWING_PHOENIX_PHIAL_ACTIVE_DISPLAY_CONTROL_ID:
+        raise ValueError("CGBR Phoenix Phial active label ID changed")
     if u32(brewing_menu, BREWING_FIRST_BUTTON_ID_OFFSET) != BREWING_INVIGORATING_CONTROL_ID:
         raise ValueError("CGBR still uses Fervus's first spell control ID")
     bdep = read_cam_entry(
@@ -1200,8 +1436,8 @@ def validate_output(
         raise ValueError(f"Expected all GPL levels to use title {expected_title}")
     if building_data.count("(Alchemist_Brewing True)") != 3:
         raise ValueError("Every Laboratory level must carry its Brewing marker")
-    if building_data.count("(Visited_Script Alchemy_Oil_Enchant_Equipment)") != 3:
-        raise ValueError("Every Laboratory level must use the private Wizard-enchant oil visit")
+    if building_data.count("(Visited_Script Alchemy_Lab_Visited)") != 3:
+        raise ValueError("Every Laboratory level must use the combined stock visit dispatcher")
     for contract in (
         "(birthscript basic_birth)",
         "(birthScript2 Guild_Birth)",
@@ -1222,6 +1458,9 @@ def validate_output(
         b"Alchemy_Oil_Check",
         b"Alchemy_Oil_Enchant_Equipment",
         b"Obtain_Alchemy_Oil",
+        b"Phoenix_Phial_Check",
+        b"Purchase_Phoenix_Phial",
+        b"Phoenix_Phial_Resurrection_End",
     ):
         if symbol not in compiled_symbols:
             raise ValueError(f"Compiled Alchemist bytecode lost oil symbol {symbol!r}")
@@ -1327,9 +1566,11 @@ def build(
         )
     (gpl_dir / "Alchemist_Building_Data.dat").write_bytes(building_data.encode("utf-8"))
     shutil.copy2(GPL_SOURCE_ROOT / "Alchemist_Hero_Data.dat", gpl_dir)
+    shutil.copy2(GPL_SOURCE_ROOT / "Alchemist_Phoenix_Phial.dat", gpl_dir)
     shutil.copy2(GPL_SOURCE_ROOT / "Alchemist_Rogue.gpl", gpl_dir)
     shutil.copy2(GPL_SOURCE_ROOT / "Alchemist_Brewing.gpl", gpl_dir)
     shutil.copy2(GPL_SOURCE_ROOT / "Alchemist_Weapon_Oil.gpl", gpl_dir)
+    shutil.copy2(GPL_SOURCE_ROOT / "Alchemist_Phoenix_Phial.gpl", gpl_dir)
     economy_source = build_alchemist_economy(
         sdk_data.parent
         / "GPL"

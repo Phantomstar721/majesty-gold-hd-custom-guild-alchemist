@@ -22,6 +22,12 @@ removed after repeated live tests showed that Majesty's available enumeration
 paths select them inconsistently across casts. The complete test record is in
 [the Invigorating Elixer research log](docs/invigorating-elixer-research.md).
 
+Phoenix Phial is the third Brewing prototype: a researched, 1,000-gold,
+single-charge hero inventory item with a 70-percent chance to resurrect its
+owner in place and dispatch the revived hero through stock fleeing. Its exact
+research, purchase, inventory, Healer/Agrela resurrection, and escape contract
+is recorded in [the Phoenix Phial stock-clone notes](docs/phoenix-phial-stock-clone.md).
+
 ## Planned dependencies
 
 - **Majesty Gold HD - Expanded Building Slots** for a unique `CGAL` recruitment
@@ -73,5 +79,7 @@ control.
 
 For repeated Brewing development, add `-IncludeSiegeTestFixture`. This copies
 and overrides only the stock `SIEGE()` entry point in the generated probe and
-spawns a completed player-owned Temple to Fervus and Alchemist's Laboratory
-near the Palace. The switch is deliberately off by default.
+spawns completed player-owned Fervus, Krolm, level-3 Wizard, and Alchemy guilds
+near the Palace. It also supplies 100,000 sovereign gold and three funded,
+level-10 purchase-test heroes so Phoenix Phial death/resurrection tests can be
+repeated quickly. The switch is deliberately off by default.

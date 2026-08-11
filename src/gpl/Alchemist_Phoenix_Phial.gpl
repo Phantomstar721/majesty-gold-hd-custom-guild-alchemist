@@ -1,0 +1,125 @@
+///////////////////////////////////////////////////////////////////////////////
+// Phoenix Phial stock-composed lifecycle
+//
+// Purchase selection and service clone Marketplace Teleportation Amulets.
+// Lethal interception clones Healer rebirth, invokes Agrela resurrection at
+// the death location, and hands the restored hero to stock flee behavior.
+///////////////////////////////////////////////////////////////////////////////
+
+expression #Intent_Purchasing_Phoenix_Phial 178
+expression #Phoenix_Phial_Price 1000
+expression #Phoenix_Phial_Revive_Chance 70
+
+Function Phoenix_Phial_Check (agent ThisAgent, list Potentials) is boolean
+Declare
+	integer Intel_Roll;
+Begin
+	// Exact stock Market3 single-item ownership gate.
+	If ($AgentHasInventoryItem ("PhoenixPhial", ThisAgent))
+		return False;
+
+	If ($Total_Gold (ThisAgent) < #Phoenix_Phial_Price)
+		return False;
+
+	If ($ListSize (Potentials) == 0)
+		return False;
+
+	// Preserve the stock Teleportation Amulet purchase-intelligence gate.
+	Intel_Roll = $RandomNumber (30) + 1;
+	If ($GetAttribute (ThisAgent, #ATTRIB_Intelligence) > Intel_Roll)
+		begin
+			ThisAgent's "TaskName" = "Phoenix_Phial";
+			ThisAgent's "Target" = $Loyalty_Mod_Pick_Closest (ThisAgent, Potentials);
+			$SpecifyIntent (ThisAgent, #Intent_Purchasing_Phoenix_Phial);
+			return True;
+		end
+
+	return False;
+End
+
+///////////////////////////////////////////////////////////////////////////////
+// Laboratory visitor dispatcher: preserve Weapon Oil's existing stock Wizard
+// visit, while the private task name selects the stock Marketplace item visit.
+///////////////////////////////////////////////////////////////////////////////
+Function Alchemy_Lab_Visited (agent ThisAgent)
+Declare
+Begin
+	If (ThisAgent's "TaskName" == "Phoenix_Phial")
+		begin
+			$Enter_Building (ThisAgent, ThisAgent's "Target");
+			$SetThreadInterval (ThisAgent's "ActiveScript", #Buy_Market3_Item_Visit_Duration);
+			ThisAgent's "ActiveScript" = $Purchase_Phoenix_Phial;
+		end
+	Else
+		$Alchemy_Oil_Enchant_Equipment (ThisAgent);
+End
+
+Function Purchase_Phoenix_Phial (agent ThisAgent)
+Declare
+Begin
+	// Literal Purchase_Market3_Item transaction with private item and price.
+	$SetThreadInterval (ThisAgent's "ActiveScript", #Normal_Cycle);
+	$Spend_Gold (ThisAgent, ThisAgent's "Target", #Phoenix_Phial_Price);
+	$CreateNewInventoryItem ("PhoenixPhial", ThisAgent, #Allow_Cloned_Quest_Item);
+	ThisAgent's "ActiveScript" = $Done_Purchasing_Market_Stuff;
+End
+
+///////////////////////////////////////////////////////////////////////////////
+// Private resurrection callback. Shared_End_Resurrect owns engine revival,
+// type restoration, HP restoration, action reset, and active-script restart.
+// The explicit gameplay change lowers HP to 25%, then stock flee owns the
+// destination, home-defense exception, intent, building use, and last stand.
+///////////////////////////////////////////////////////////////////////////////
+Function Phoenix_Phial_Resurrection_End (agent ThisAgent)
+Declare
+	integer RevivedHP;
+Begin
+	$Shared_End_Resurrect (ThisAgent);
+	RevivedHP = $GetAttribute (ThisAgent, #ATTRIB_MaxHP) / 4;
+	If (RevivedHP < 1)
+		RevivedHP = 1;
+	$SetAttribute (ThisAgent, #ATTRIB_HP, RevivedHP);
+	$Flee (ThisAgent, #Intent_Flee);
+End
+
+///////////////////////////////////////////////////////////////////////////////
+// Stock gravestone with one approved prelude. A carried Phial is consumed on
+// the first lethal event whether the 70% roll succeeds or fails. Success uses
+// Healer_Death's dead-state preparation and Resurrection_Begin's exact shared
+// engine cleanup, but creates a private callback effector at the death site.
+///////////////////////////////////////////////////////////////////////////////
+function gravestone(agent thisagent)
+declare
+	integer grave_time;
+begin
+	If ($AgentHasInventoryItem ("PhoenixPhial", ThisAgent))
+		begin
+			$DeleteInventoryItem ("PhoenixPhial", ThisAgent);
+			If ($RandomNumber (100) < #Phoenix_Phial_Revive_Chance)
+				begin
+					$ResumeThread (ThisAgent's "ActiveScript");
+					ThisAgent's "Type" = "Dead";
+					$StopMoving (ThisAgent);
+					$SpecifyIntent (ThisAgent, #Intent_Resurrecting);
+					$CreateEffector (ThisAgent, "phoenix_phial_resurrection_effector", 1500);
+					$Shared_Begin_Resurrect (ThisAgent);
+					return;
+				end
+		end
+
+	// Literal stock gravestone failure/no-item lifecycle.
+	grave_time = #gravestone_lifespan * (($getattribute(thisagent,#ATTRIB_experiencelevel) / 3) + 1);
+	if (grave_time > #Gravestone_lifespan_max)
+		grave_time = #Gravestone_lifespan_max;
+
+	thisagent's "type" = "Dead";
+	$SpecifyIntent (ThisAgent, #intent_dead);
+	$MiniMapAnimation( ThisAgent, "hero_death" );
+	$ResumeThread(thisagent's "Activescript");
+	$stopmoving(thisagent);
+	$Hero_Drop_Immediate_Items(thisAgent);
+	thisagent's "Activescript" = $be_dead;
+	$setthreadinterval(thisagent's "ActiveScript",grave_time);
+	$performaction(thisagent,"basic_death",thisagent);
+	$LocalChatMessage( $GetUnitPlayerNumber( ThisAgent  ), #chat_character_died, ThisAgent );
+end

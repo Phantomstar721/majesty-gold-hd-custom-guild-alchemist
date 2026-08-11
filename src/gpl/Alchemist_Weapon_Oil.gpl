@@ -6,11 +6,13 @@
 // the upgraded attribute is stock WeaponPoisoned rather than a magic bonus.
 ///////////////////////////////////////////////////////////////////////////////
 
+expression #Intent_Applying_Weapon_Oil 177
+expression #Alchemy_Weapon_Oil_Price 100
+
 Function Alchemy_Oil_Check (agent ThisAgent, list AlchemyLabs) is boolean
 Declare
 	agent	AlchemyLab;
 	list	Potentials;
-	integer Intel_Roll;
 	integer Gold_Needed;
 
 Begin
@@ -20,7 +22,7 @@ Begin
 			return False;
 		end
 
-	Gold_Needed = #Cost_Per_Magic_Enchantment1;
+	Gold_Needed = #Alchemy_Weapon_Oil_Price;
 
 	If ($Total_Gold (ThisAgent) < Gold_Needed)
 		begin
@@ -46,20 +48,12 @@ Begin
 			return False;
 		end
 
-	Intel_Roll = $RandomNumber (30) + 1;
-
-	If ($GetAttribute (ThisAgent, #ATTRIB_Intelligence) > Intel_Roll)
-		begin
-			ThisAgent's "Task_Number" = #ATTRIB_WeaponPoisoned;
-			ThisAgent's "Target" = $Loyalty_Mod_Pick_Closest (ThisAgent, Potentials);
-			$DebugOut ("I've got an Alchemy Lab to oil my weapon at!");
-			ThisAgent's "TaskName" = "visiting";
-			$SpecifyIntent (ThisAgent, #Intent_Poisoning_Weapon);
-			return True;
-		end
-
-	$DebugOut ("I'm too dumb to go to an Alchemy Lab!");
-	return False;
+	ThisAgent's "Task_Number" = #ATTRIB_WeaponPoisoned;
+	ThisAgent's "Target" = $Loyalty_Mod_Pick_Closest (ThisAgent, Potentials);
+	$DebugOut ("I've got an Alchemy Lab to oil my weapon at!");
+	ThisAgent's "TaskName" = "visiting";
+	$SpecifyIntent (ThisAgent, #Intent_Applying_Weapon_Oil);
+	return True;
 End
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -103,10 +97,10 @@ Begin
 
 	$SetThreadInterval (ThisAgent's "ActiveScript", #Normal_Cycle);
 
-	If ($GetAttribute (ThisAgent, What_To_Upgrade) == 0 && Total_Gold >= #Cost_Per_Magic_Enchantment1)
+	If ($GetAttribute (ThisAgent, What_To_Upgrade) == 0 && Total_Gold >= #Alchemy_Weapon_Oil_Price)
 		begin
-			Total_Gold -= #Cost_Per_Magic_Enchantment1;
-			Gold += #Cost_Per_Magic_Enchantment1;
+			Total_Gold -= #Alchemy_Weapon_Oil_Price;
+			Gold += #Alchemy_Weapon_Oil_Price;
 			Upgrade = 1;
 		end
 

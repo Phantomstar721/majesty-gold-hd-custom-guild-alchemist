@@ -80,7 +80,9 @@ do not resize the masters by hand.
   inactive, active, early construction, late construction, damaged, severely
   damaged, collapsed, and destroyed.
 - `assets/source/interface/` contains the building icon, Brewing button icon,
-  building portrait, main-panel backing, and Brewing-panel backing.
+  Weapon Oil research icon, Vigor icon, building portrait, main-panel backing,
+  and Brewing-panel backing. The Lab and Weapon Oil icons use a medium green
+  field so their copper silhouettes survive the final 25-pixel reduction.
 
 ## Stock sprite contract
 

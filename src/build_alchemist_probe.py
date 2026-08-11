@@ -26,6 +26,7 @@ BREWING_DIALOG_ID = b"CGBR"
 SOURCE_BREWING_DIALOG_ID = b"AP69"
 SOURCE_RAGE_DIALOG_ID = b"AP24"
 SOURCE_RESEARCH_DIALOG_ID = b"APa1"
+SOURCE_VISITORS_DIALOG_ID = b"AP02"
 RAGE_PROGRESS_RECORD_OFFSET = 0x0C28
 RAGE_PROGRESS_INNER_OFFSET = 0x40
 RAGE_PROGRESS_OUTER_RECT_OFFSET = 0x08
@@ -62,6 +63,8 @@ AP69_SECOND_RECIPE_RECORD_START = 0x0478
 AP69_SECOND_RECIPE_RECORD_END = 0x0620
 APA1_ARROWS_RECORD_START = 0x0120
 APA1_ARROWS_RECORD_END = 0x0218
+APA1_ARROWS_ICON_RECORD_START = 0x0480
+APA1_ARROWS_ICON_RECORD_END = 0x04CC
 RESEARCH_ROW_OUTER_Y_OFFSET = 0x000C
 RESEARCH_ROW_OUTER_X_OFFSET = 0x0008
 RESEARCH_ROW_OUTER_WIDTH_OFFSET = 0x0010
@@ -72,10 +75,19 @@ STOCK_ARROWS_RESEARCH_CONTROL_ID = 0x139C
 BREWING_WEAPON_OIL_CONTROL_ID = 0x2A13
 BREWING_WEAPON_OIL_PROGRESS_CONTROL_ID = 0x2A11
 BREWING_WEAPON_OIL_ACTIVE_DISPLAY_CONTROL_ID = 0x2A12
+BREWING_WEAPON_OIL_ICON_CONTROL_ID = 0x2A14
+ALCHEMY_OIL_INTENT_INDEX = 177
+ALCHEMY_OIL_INTENT_TEXT = "Applying weapon oil at the alchemy lab"
 WEAPON_OIL_PROGRESS_OUTER_RECT = (30, 87, 162, 20)
 WEAPON_OIL_PROGRESS_LABEL_RECT = (31, 90, 160, 14)
 AP10_SPELL_BUTTON_RECT_OFFSET = 0x0D34
 AP10_SPELL_BUTTON_RECT = (103, 162, 93, 26)
+BREWING_FINAL_RECT = (7, 217, 93, 26)
+AP10_TERMINAL_MARKER_OFFSET = 0x0DF0
+AP02_VISITORS_RECORD_START = 0x013C
+AP02_VISITORS_RECORD_END = 0x01D4
+VISITORS_CONTROL_ID = 0x1F55
+VISITORS_FINAL_RECT = AP10_SPELL_BUTTON_RECT
 BUILDING_IDS = ("ALB1", "ALB2", "ALB3")
 ALCHEMIST_HERO_ID = "ALC1"
 ALCHEMIST_HERO_NAME = "Alchemist"
@@ -105,6 +117,14 @@ def extract_gpl_function(source: str, function_name: str) -> str:
 def build_siege_test_fixture(stock_quests: Path) -> str:
     source = stock_quests.read_text(encoding="cp1252")
     function = extract_gpl_function(source, "SIEGE")
+    declare_anchor = "\tagent palace, enemypalace;"
+    if function.count(declare_anchor) != 1:
+        raise ValueError("The Siege agent declarations no longer match the SDK fixture")
+    function = function.replace(
+        declare_anchor,
+        "\tagent palace, enemypalace, alchemyLab, oilRogue, oilWarrior, oilAlchemist;",
+        1,
+    )
     anchor = '\tpalace = $GetPlayerOnePalace ();'
     if function.count(anchor) != 1:
         raise ValueError("The Siege Palace initialization no longer matches the SDK fixture")
@@ -114,16 +134,71 @@ def build_siege_test_fixture(stock_quests: Path) -> str:
         '$RandomCoord ( palace, 550, 750 ), "MaxHP" );'
         + '\n\t$SpawnUnit ( palace, "Temple_Krolm", '
         '$RandomCoord ( palace, 700, 900 ), "MaxHP" );'
-        + '\n\t$SpawnUnit ( palace, "AlchemistsLaboratory1", '
+        + '\n\talchemyLab = $SpawnUnit ( palace, "AlchemistsLaboratory1", '
         '$RandomCoord ( palace, 850, 1050 ), "MaxHP" );'
+        + '\n\t$SetAttribute ( alchemyLab, #ATTRIB_ResearchArrows, 1 );'
+        + '\n\toilRogue = $SpawnUnit ( palace, "Rogue", '
+        '$RandomCoord ( alchemyLab, 100, 150 ) );'
+        + '\n\toilWarrior = $SpawnUnit ( palace, "Warrior", '
+        '$RandomCoord ( alchemyLab, 150, 200 ) );'
+        + '\n\toilAlchemist = $SpawnUnit ( palace, "Alchemist", '
+        '$RandomCoord ( alchemyLab, 200, 250 ) );'
     )
-    return function.replace(anchor, spawns, 1) + "\n"
+    setup = ""
+    for buyer in ("oilRogue", "oilWarrior", "oilAlchemist"):
+        setup += (
+            f'\n\t$SetAttribute ( {buyer}, #ATTRIB_Gold, 2000 );'
+            f'\n\t$SetAttribute ( {buyer}, #ATTRIB_Intelligence, 100 );'
+            f'\n\t$SetAttribute ( {buyer}, #ATTRIB_Weapon_Struct_Bonus, 3 );'
+            f'\n\t$SetAttribute ( {buyer}, #ATTRIB_Armor_Struct_Bonus, 3 );'
+            f'\n\t$SetAttribute ( {buyer}, #ATTRIB_Weapon_Magic_Bonus, 3 );'
+            f'\n\t$SetAttribute ( {buyer}, #ATTRIB_Armor_Magic_Bonus, 3 );'
+            f'\n\t$SetThreadInterval ( {buyer}\'s "ActiveScript", 1000 );'
+            f'\n\t{buyer}\'s "ActiveScript" = $Alchemist_Oil_Test_Buyer;'
+        )
+    fixture = function.replace(anchor, spawns + setup, 1)
+    return (
+        fixture
+        + "\n\n"
+        + "Function Alchemist_Oil_Test_Buyer (agent ThisAgent)\n"
+        + "Declare\n\n"
+        + "Begin\n"
+        + "\t$Purchase_Equipment (ThisAgent);\n"
+        + "End\n"
+    )
 
 
 def build_alchemist_economy(stock_purchase_equipment: Path) -> str:
     """Generate the stock-cloned Laboratory oil-purchase gate."""
     source = stock_purchase_equipment.read_text(encoding="cp1252")
     function = extract_gpl_function(source, "Purchase_Equipment")
+    boolean_anchor = "\tboolean \tFlag,Wants_Armor,Wants_Weapon,Wants_Poison;"
+    if function.count(boolean_anchor) != 1:
+        raise ValueError("Stock Purchase_Equipment boolean declaration changed")
+    function = function.replace(
+        boolean_anchor,
+        "\tboolean \tFlag,Wants_Armor,Wants_Weapon,Wants_Poison,Wants_Oil;",
+        1,
+    )
+    weapon_gate_anchor = (
+        "\tIf ($GetAttribute (ThisAgent, #ATTRIB_WeaponTypeIndex) > 0)"
+        "\n\t\tbegin"
+        "\n\t\t\tIf (ThisAgent's \"Upgrade_Weapon_Chance\" > $RandomNumber (100) + 1)"
+        "\n\t\t\t\tWants_Weapon = TRUE;"
+        "\n\t\tend"
+    )
+    if function.count(weapon_gate_anchor) != 1:
+        raise ValueError("Stock Purchase_Equipment weapon gate changed")
+    oil_classification = (
+        weapon_gate_anchor
+        + "\n\t// Weapon Oil is for every ordinary weapon-upgrading combatant."
+        + "\n\t// Upgrade_Weapon_Chance is a stock hero-class capability marker here,"
+        + "\n\t// not a second random purchase roll."
+        + "\n\tIf (($GetAttribute (ThisAgent, #ATTRIB_WeaponTypeIndex) > 0) &&"
+        + "\n\t\t(ThisAgent's \"Upgrade_Weapon_Chance\" > 0))"
+        + "\n\t\tWants_Oil = TRUE;"
+    )
+    function = function.replace(weapon_gate_anchor, oil_classification, 1)
     list_anchor = (
         "\tlist blacksmiths,wizguilds,markets,shops,fairgrounds,buildings;"
     )
@@ -153,7 +228,7 @@ def build_alchemist_economy(stock_purchase_equipment: Path) -> str:
     if function.count(poison_anchor) != 1:
         raise ValueError("Stock Purchase_Equipment poison branch changed")
     oil_then_poison = (
-        "\t\t\t\t\t\tIf (Wants_Poison && $Alchemy_Oil_Check (ThisAgent,alchemyLabs))"
+        "\t\t\t\t\t\tIf (Wants_Oil && $Alchemy_Oil_Check (ThisAgent,alchemyLabs))"
         "\n\t\t\t\t\t\t\tbegin"
         "\n\t\t\t\t\t\t\t\tFlag = TRUE;"
         "\n\t\t\t\t\t\t\tend"
@@ -625,6 +700,80 @@ def add_native_weapon_oil_progress_control(
     )
 
 
+def add_stock_weapon_oil_icon_control(
+    brewing_menu: bytes, research_menu: bytes
+) -> bytes:
+    """Clone APa1's separate Arrows icon control beside Weapon Oil."""
+    source = bytearray(
+        research_menu[APA1_ARROWS_ICON_RECORD_START:APA1_ARROWS_ICON_RECORD_END]
+    )
+    if len(source) != 0x4C or source[-4:] != b"\xff" * 4:
+        raise ValueError("Stock APa1 Arrows icon control boundary changed")
+    if struct.unpack_from("<4I", source, 0x08) != (3, 60, 25, 25):
+        raise ValueError("Stock APa1 Arrows icon rectangle changed")
+    if source.count(b"INCr") != 1 or u32(source, 0x2C) != 1007:
+        raise ValueError("Stock APa1 Arrows icon art contract changed")
+    if u32(source, 0x3C) != 0x1590:
+        raise ValueError("Stock APa1 Arrows icon control ID changed")
+    struct.pack_into("<I", source, 0x0C, 86)
+    source = source.replace(b"INCr", b"ALWI", 1)
+    struct.pack_into("<I", source, 0x3C, BREWING_WEAPON_OIL_ICON_CONTROL_ID)
+
+    rage_art = brewing_menu.find(b"INSr")
+    if rage_art < 0 or brewing_menu.find(b"INSr", rage_art + 1) >= 0:
+        raise ValueError("CGBR Vigor display is missing or ambiguous")
+    vigor_record = rage_art - 4 - RAGE_PROGRESS_INNER_OFFSET
+    if vigor_record < 4 or u32(brewing_menu, vigor_record - 4) != 0xFFFFFFFF:
+        raise ValueError("CGBR pre-Vigor icon insertion boundary changed")
+    return bytes(brewing_menu[:vigor_record] + source + brewing_menu[vigor_record:])
+
+
+def add_stock_visitors_probe_control(
+    laboratory_menu: bytes, blacksmith_menu: bytes
+) -> bytes:
+    """Clone AP02's Visitors button into AP10's former Brewing slot."""
+    if laboratory_menu[AP10_TERMINAL_MARKER_OFFSET - 4 :] != b"\xff" * 8:
+        raise ValueError("Stock AP10 terminal control boundary changed")
+    source = bytearray(
+        blacksmith_menu[AP02_VISITORS_RECORD_START:AP02_VISITORS_RECORD_END]
+    )
+    if len(source) != 0x98 or source[-4:] != b"\xff" * 4:
+        raise ValueError("Stock AP02 Visitors control boundary changed")
+    if struct.unpack_from("<4I", source, 0x08) != (32, 162, 139, 26):
+        raise ValueError("Stock AP02 Visitors rectangle changed")
+    if (
+        u32(source, 0x18) != 7
+        or u32(source, 0x1C) != 2
+        or u32(source, 0x20) != 0x21
+        or u32(source, 0x24) != 3
+    ):
+        raise ValueError("Stock AP02 Visitors string contract changed")
+    if source.count(b"INBb") != 1 or u32(source, 0x64) != VISITORS_CONTROL_ID:
+        raise ValueError("Stock AP02 Visitors command contract changed")
+    struct.pack_into("<4I", source, 0x08, *VISITORS_FINAL_RECT)
+    struct.pack_into("<I", source, 0x1C, 31)
+    struct.pack_into("<I", source, 0x24, 32)
+    source = source.replace(b"INBb", b"ALBB", 1)
+    return bytes(
+        laboratory_menu[:AP10_TERMINAL_MARKER_OFFSET]
+        + source
+        + laboratory_menu[AP10_TERMINAL_MARKER_OFFSET:]
+    )
+
+
+def move_brewing_control_below_recruit(laboratory_menu: bytes) -> bytes:
+    """Move AP10's complete secondary-control parent below Recruit."""
+    output = bytearray(laboratory_menu)
+    actual = struct.unpack_from("<4I", output, AP10_SPELL_BUTTON_RECT_OFFSET)
+    if actual != AP10_SPELL_BUTTON_RECT:
+        raise ValueError(
+            f"Stock AP10 Brewing rectangle changed: expected "
+            f"{AP10_SPELL_BUTTON_RECT}, found {actual}"
+        )
+    struct.pack_into("<4I", output, AP10_SPELL_BUTTON_RECT_OFFSET, *BREWING_FINAL_RECT)
+    return bytes(output)
+
+
 def privateize_cgal_menu(menu: bytes) -> bytes:
     """Clone AP10's visual resources for CGAL without touching stock AP10."""
     if menu.count(b"AVC1") != 1:
@@ -649,8 +798,14 @@ def build_text_cam(
 ) -> None:
     menu = read_cam_entry(stock_text_cam, b"SMNU", SOURCE_DIALOG_ID).data
     menu = privateize_cgal_menu(menu)
-    if not enable_unsafe_brewing_control:
+    if enable_unsafe_brewing_control:
+        menu = move_brewing_control_below_recruit(menu)
+    else:
         menu = disable_ap10_secondary_control(menu)
+    visitors_source = read_cam_entry(
+        stock_text_cam, b"SMNU", SOURCE_VISITORS_DIALOG_ID
+    ).data
+    menu = add_stock_visitors_probe_control(menu, visitors_source)
     strings = read_cam_entry(stock_text_cam, b"STRT", SOURCE_DIALOG_ID).data
     brewing_menu = read_cam_entry(
         stock_text_cam, b"SMNU", SOURCE_BREWING_DIALOG_ID
@@ -668,6 +823,9 @@ def build_text_cam(
         stock_text_cam, b"SMNU", SOURCE_RESEARCH_DIALOG_ID
     ).data
     brewing_menu = add_stock_weapon_oil_research_control(
+        brewing_menu, research_menu
+    )
+    brewing_menu = add_stock_weapon_oil_icon_control(
         brewing_menu, research_menu
     )
     brewing_menu = add_native_weapon_oil_progress_control(
@@ -698,6 +856,8 @@ def build_text_cam(
             3: "Destroy this Alchemist's Laboratory.",
             29: "Brewing",
             30: "Open this Laboratory's experimental Brewing window.",
+            31: "VISITORS",
+            32: "Go to this building's Visitors Window.",
         },
     )
     patched_brewing_strings = patch_strt_by_index(
@@ -740,6 +900,24 @@ def build_text_cam(
     )
 
 
+def build_gpl_text_cam(stock_gpl_text_cam: Path, output_path: Path) -> None:
+    """Append one private AI intent while preserving every stock AITX record."""
+    stock_intents = read_cam_entry(stock_gpl_text_cam, b"STRT", b"AITX").data
+    stock_count = struct.unpack_from("<H", stock_intents, 0)[0]
+    if stock_count != ALCHEMY_OIL_INTENT_INDEX:
+        raise ValueError(
+            f"Stock AITX count changed: expected {ALCHEMY_OIL_INTENT_INDEX}, got {stock_count}"
+        )
+    patched_intents = patch_strt_by_index(
+        stock_intents,
+        {ALCHEMY_OIL_INTENT_INDEX: ALCHEMY_OIL_INTENT_TEXT},
+    )
+    write_cam(
+        output_path,
+        (CamSection(b"STRT", (CamEntry(pad_name(b"AITX"), patched_intents),)),),
+    )
+
+
 def append_bdep_rule(data: bytes, rule: bytes, comment: bytes) -> bytes:
     if rule in data:
         return data
@@ -778,6 +956,7 @@ def build_manifest(use_ap10_title_alias: bool = False) -> str:
 \t\t\t<Dataset base="Any">
 \t\t\t\t<Load>
 \t\t\t\t\t<CAM>Data\\alchemist_probe_textdata.cam</CAM>
+\t\t\t\t\t<CAM>Data\\alchemist_probe_gpltext.cam</CAM>
 \t\t\t\t\t<CAM>Data\\alchemist_probe_miscdata.cam</CAM>
 \t\t\t\t\t<CAM>Data\\alchemist_maindata.cam</CAM>
 \t\t\t\t\t<CAM>Data\\alchemist_interfacedata.cam</CAM>
@@ -812,6 +991,7 @@ def validate_output(
         output_root / "Data" / "alchemist_brewing_overlays.xml",
         output_root / "Data" / "alchemist_brewing_sounds.xml",
         output_root / "Data" / "alchemist_probe_textdata.cam",
+        output_root / "Data" / "alchemist_probe_gpltext.cam",
         output_root / "Data" / "alchemist_probe_miscdata.cam",
         output_root / "Data" / "alchemist_maindata.cam",
         output_root / "Data" / "alchemist_interfacedata.cam",
@@ -849,9 +1029,36 @@ def validate_output(
     if [item.find("./Engine/ImageIDBase").get("value") for item in buildings] != list(BUILDING_IDS):
         raise ValueError("Every Laboratory level must use its private image record")
     text_cam = output_root / "Data" / "alchemist_probe_textdata.cam"
+    gpl_text_cam = output_root / "Data" / "alchemist_probe_gpltext.cam"
+    intent_strings = read_cam_entry(gpl_text_cam, b"STRT", b"AITX").data
+    intent_count = struct.unpack_from("<H", intent_strings, 0)[0]
+    if intent_count != ALCHEMY_OIL_INTENT_INDEX + 1:
+        raise ValueError("Private AITX intent was not appended at the stock boundary")
+    intent_offsets = struct.unpack_from(f"<{intent_count}I", intent_strings, 4)
+    intent_offset = intent_offsets[ALCHEMY_OIL_INTENT_INDEX]
+    intent_end = intent_strings.index(b"\x00", intent_offset + 4)
+    if (
+        intent_strings[intent_offset + 4 : intent_end].decode("cp1252")
+        != ALCHEMY_OIL_INTENT_TEXT
+    ):
+        raise ValueError("Private Weapon Oil intent text is incorrect")
     menu = read_cam_entry(text_cam, b"SMNU", DIALOG_ID).data
     if menu == b"":
         raise ValueError("CGAL menu is empty")
+    if menu.count(struct.pack("<I", VISITORS_CONTROL_ID)) != 1:
+        raise ValueError("CGAL stock Visitors control is missing or duplicated")
+    visitor_marker = menu.index(struct.pack("<I", VISITORS_CONTROL_ID))
+    visitor_record = visitor_marker - 0x64
+    if struct.unpack_from("<4I", menu, visitor_record + 0x08) != VISITORS_FINAL_RECT:
+        raise ValueError("CGAL Visitors final rectangle changed")
+    brewing_rect = struct.unpack_from("<4I", menu, AP10_SPELL_BUTTON_RECT_OFFSET)
+    expected_brewing_rect = (
+        BREWING_FINAL_RECT
+        if enable_unsafe_brewing_control
+        else (103, 162, 0, 0)
+    )
+    if brewing_rect != expected_brewing_rect:
+        raise ValueError(f"Unexpected CGAL Brewing rectangle: {brewing_rect}")
     brewing_menu = read_cam_entry(text_cam, b"SMNU", BREWING_DIALOG_ID).data
     if brewing_menu == b"":
         raise ValueError("CGBR menu is empty")
@@ -862,6 +1069,8 @@ def validate_output(
             raise ValueError(f"{menu_name} still references stock interface art")
     if b"ALIN" not in brewing_menu or b"INTN" in brewing_menu:
         raise ValueError("CGBR does not use the private Vigor recipe-icon art")
+    if b"ALWI" not in brewing_menu or b"INCr" in brewing_menu:
+        raise ValueError("CGBR does not use the private Weapon Oil icon art")
     if b"ALSR" not in brewing_menu or b"INSr" in brewing_menu:
         raise ValueError("CGBR does not use the private full-width progress art")
 
@@ -875,13 +1084,14 @@ def validate_output(
         b"ALBBbuilding frame",
         b"ALBGbuilding dialog",
         b"ALINrecipe icons",
+        b"ALWIweapon oil icon",
         b"ALSRalchemy progress",
     ):
         if not read_cam_entry(interface_art, b"IMAG", name).data:
             raise ValueError(f"Private interface art record is empty: {name!r}")
     for art_path, prefixes in (
         (main_art, (b"ALC1", b"ALB1", b"ALB2", b"ALB3")),
-        (interface_art, (b"ALTI", b"ALBB", b"ALBG", b"ALIN", b"ALSR")),
+        (interface_art, (b"ALTI", b"ALBB", b"ALBG", b"ALIN", b"ALWI", b"ALSR")),
     ):
         tile_entries = read_cam_entries(art_path, b"TILE")
         first_private = next(
@@ -965,10 +1175,6 @@ def validate_output(
         raise ValueError("CGBR Weapon Oil active label ID changed")
     if u32(brewing_menu, BREWING_FIRST_BUTTON_ID_OFFSET) != BREWING_INVIGORATING_CONTROL_ID:
         raise ValueError("CGBR still uses Fervus's first spell control ID")
-    rect = struct.unpack_from("<4I", menu, AP10_SPELL_BUTTON_RECT_OFFSET)
-    expected_rect = AP10_SPELL_BUTTON_RECT if enable_unsafe_brewing_control else (103, 162, 0, 0)
-    if rect != expected_rect:
-        raise ValueError(f"Unexpected CGAL secondary-control rectangle: {rect}")
     bdep = read_cam_entry(
         output_root / "Data" / "alchemist_probe_miscdata.cam", b"DATA", b"BDEP"
     ).data
@@ -1080,6 +1286,10 @@ def build(
         game_data / "textdata.cam",
         data_dir / "alchemist_probe_textdata.cam",
         enable_unsafe_brewing_control,
+    )
+    build_gpl_text_cam(
+        game_data / "gpltext.cam",
+        data_dir / "alchemist_probe_gpltext.cam",
     )
     build_misc_cam(
         game_data / "miscdata.cam",

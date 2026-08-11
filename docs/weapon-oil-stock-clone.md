@@ -30,15 +30,31 @@ clone. Completed, researched `AlchemistsLaboratory` buildings are collected in
 a separate `alchemyLabs` list and are never appended to `wizGuilds`; real
 Wizard's Guild weapon and armor enchanting therefore remain unchanged.
 
-Only after stock calculates `Wants_Poison` from the hero's
-`Poison_Weapon_Chance` does the new branch call `Alchemy_Oil_Check`. That
-function is a private `WizGuild_Check` clone: it preserves the stock completed-
-building search radius, affordability check, Intelligence roll, loyalty-aware
-closest-building selection, visiting task, and `Use_Building` dispatch. The
-only semantic changes are the researched Laboratory candidate list, the
+The clone derives `Wants_Oil` from two existing stock hero-class properties:
+`WeaponTypeIndex > 0` and `Upgrade_Weapon_Chance > 0`. The latter is used only
+as a boolean marker that this hero class participates in ordinary weapon
+upgrades; it is not rolled. This admits weapon-using combatants while excluding
+unarmed Monks and non-weapon casters without maintaining a custom hero list.
+The stock `Wants_Poison` roll remains untouched and is still used only by the
+fallback Rogues Guild `Poison_Check` branch.
+
+`Alchemy_Oil_Check` remains a private `WizGuild_Check` lifecycle clone: it
+preserves the stock completed-building search radius, affordability check,
+loyalty-aware closest-building selection, visiting task, and `Use_Building`
+dispatch. Weapon Oil deliberately omits Wizard enchanting's additional
+Intelligence roll because eligibility is generic to weapon users rather than
+spellcraft aptitude. Its private purchase price is exactly 100 gold. The other
+semantic changes remain the researched Laboratory candidate list, the
 single-tier completion gate, and `Task_Number = #ATTRIB_WeaponPoisoned`.
 Failure falls through to the untouched stock `Poison_Check`, so a level-2
-Rogues Guild remains a valid fallback.
+Rogues Guild remains a valid fallback under its original poison-chance rules.
+
+The Laboratory branch uses private intent index `177`, appended immediately
+after stock `AITX` indices `0..176` in a private `GPLtext.cam` provider. Every
+stock AITX record is copied unchanged; index `177` alone contains `Applying
+weapon oil at the alchemy lab`. `Alchemy_Oil_Check` is the only caller of that
+index. The stock Rogues Guild path continues to call index `10` and display
+`Poisoning weapon`, so no hero decision tree or stock localization is changed.
 
 All three Laboratory levels use `Visited_Script
 Alchemy_Oil_Enchant_Equipment`, a private clone of Wizard
@@ -57,11 +73,12 @@ existing poison combat result before privatizing the effect as Paralytic Oil.
 
 Live proof on 2026-08-11 used a Siege-only QA Rogue beside a pre-researched
 Laboratory. Its ordinary earlier equipment upgrades were marked complete and
-its stock affordability and Intelligence gates were guaranteed. The normal
-`Purchase_Equipment` entry immediately selected the Laboratory; the Rogue
-entered, completed the stock-timed visit, paid, exited, and received stock
-poison. The forced Rogue and pre-research setup were removed immediately after
-that proof and are not part of the gameplay package.
+its affordability was guaranteed. The normal `Purchase_Equipment` entry
+immediately selected the Laboratory; the Rogue entered, completed the stock-
+timed visit, paid, exited, and received stock poison. The development fixture
+now supplies a Rogue, Warrior, and Alchemist for generic-eligibility testing;
+it is enabled only by the explicit Siege QA build switch and is not gameplay
+content.
 
 Because `Purchase_Equipment` is a global GPL symbol, other CAMs that replace it
 must be merged at that symbol. This is a known CAM-merger responsibility, not a
@@ -107,6 +124,14 @@ stream word so the existing Vigor clone remains the owner of the final double
 stock. The runtime feeds this compatible display AP17's native research
 timestamps and exact `[7, elapsed, 0, duration]` progress message; APa1 remains
 the owner of command submission, completion, and disabled row state.
+
+APa1 renders the Arrows glyph with a separate 25-by-25 control at `(3,60)`,
+not as part of the clickable research row. CGBR clones that complete control,
+moves it to `(3,86)`, changes only its control ID to `0x2A14`, and redirects
+`INCr` set `1007` to the private `ALWI` image record. `ALWI` retains the stock
+one-frame research-icon animation and replaces only its TILE with the Weapon
+Oil artwork. Do not bake the icon into the button background or add a custom
+draw hook.
 
 ## Completion alert name
 

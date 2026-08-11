@@ -526,6 +526,12 @@ def generate_interface(repo: Path, out_dir: Path) -> None:
     vigor.resize((32, 32), Image.Resampling.LANCZOS).filter(ImageFilter.SHARPEN).resize(
         (24, 24), Image.Resampling.LANCZOS
     ).save(out_dir / "vigor-elixir-icon-24.png")
+    weapon_oil = Image.open(repo / "assets/source/interface/weapon-oil-icon.png").convert("RGB")
+    weapon_oil.resize((34, 34), Image.Resampling.LANCZOS).filter(
+        ImageFilter.SHARPEN
+    ).resize((25, 25), Image.Resampling.LANCZOS).save(
+        out_dir / "weapon-oil-icon-25.png"
+    )
 
 
 def main() -> int:

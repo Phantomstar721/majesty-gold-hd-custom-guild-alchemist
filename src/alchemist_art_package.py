@@ -28,6 +28,8 @@ BUILDING_DIALOG_SOURCE = b"INBgbuilding dialog"
 BUILDING_DIALOG_CUSTOM = b"ALBGbuilding dialog"
 NAVIGATION_SOURCE = b"INTN"
 NAVIGATION_CUSTOM = b"ALINrecipe icons"
+RESEARCH_ICON_SOURCE = b"INCrresearch icon"
+RESEARCH_ICON_CUSTOM = b"ALWIweapon oil icon"
 PROGRESS_SOURCE = b"INSrreasearch"
 PROGRESS_CUSTOM = b"ALSRalchemy progress"
 BUILDING_PROFILE_TILE = 1509
@@ -46,6 +48,7 @@ RAGE_PROGRESS_TILES = (412, 413)
 CLEAN_PROGRESS_SOURCE_TILES = (414, 415)
 BREWING_PROGRESS_FRAME_SIZE = (162, 20)
 VIGOR_ICON_TILES = (177, 199, 252, 280, 302, 319, 325, 342)
+WEAPON_OIL_ICON_TILE = 162
 VIGOR_ICON_STYLES = {
     177: ((9, 31, 14), (184, 151, 42), 1.00),
     # AP69 first recipe uses INTN set 1013: TILE 199 is its enabled
@@ -602,6 +605,7 @@ def write_interfacedata(repo: Path, game_data: Path, art_dir: Path, output: Path
     frame_imag = stock.read_cam_entry(source, b"IMAG", BUILDING_FRAME_SOURCE).data
     dialog_imag = stock.read_cam_entry(source, b"IMAG", BUILDING_DIALOG_SOURCE).data
     navigation_imag = stock.read_cam_entry(source, b"IMAG", NAVIGATION_SOURCE).data
+    research_icon_imag = stock.read_cam_entry(source, b"IMAG", RESEARCH_ICON_SOURCE).data
     progress_imag = stock.read_cam_entry(source, b"IMAG", PROGRESS_SOURCE).data
     base_max = len(tiles) - 1
     extra: list = []
@@ -665,6 +669,18 @@ def write_interfacedata(repo: Path, game_data: Path, art_dir: Path, output: Path
             art_dir / "interface",
         ),
     )
+    research_icon_imag = privateize_interface_imag_tiles(
+        research_icon_imag,
+        tiles,
+        append,
+        b"ALWI",
+        {
+            WEAPON_OIL_ICON_TILE: stock.tile_v1_embedded_from_rgb(
+                tiles[WEAPON_OIL_ICON_TILE].data,
+                image_rgb(art_dir / "interface/weapon-oil-icon-25.png", (25, 25)),
+            )
+        },
+    )
     progress_imag = privateize_progress_imag(
         stock,
         progress_imag,
@@ -684,6 +700,7 @@ def write_interfacedata(repo: Path, game_data: Path, art_dir: Path, output: Path
                     stock.CamEntry(stock.pad_name(BUILDING_FRAME_CUSTOM), frame_imag),
                     stock.CamEntry(stock.pad_name(BUILDING_DIALOG_CUSTOM), dialog_imag),
                     stock.CamEntry(stock.pad_name(NAVIGATION_CUSTOM), navigation_imag),
+                    stock.CamEntry(stock.pad_name(RESEARCH_ICON_CUSTOM), research_icon_imag),
                     stock.CamEntry(stock.pad_name(PROGRESS_CUSTOM), progress_imag),
                 ),
             ),

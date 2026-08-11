@@ -148,6 +148,8 @@ class AlchemistProbeTests(unittest.TestCase):
 
     def test_siege_fixture_spawns_both_completed_player_buildings(self) -> None:
         source = """function SIEGE ()
+declare
+\tagent palace, enemypalace;
 begin
 \tpalace = $GetPlayerOnePalace ();
 end
@@ -164,6 +166,15 @@ end
         self.assertIn('"Temple_Krolm"', fixture)
         self.assertIn('"AlchemistsLaboratory1"', fixture)
         self.assertEqual(fixture.count('"MaxHP"'), 3)
+        self.assertIn("#ATTRIB_ResearchArrows, 1", fixture)
+        self.assertIn('oilRogue = $SpawnUnit ( palace, "Rogue"', fixture)
+        self.assertIn('oilWarrior = $SpawnUnit ( palace, "Warrior"', fixture)
+        self.assertIn('oilAlchemist = $SpawnUnit ( palace, "Alchemist"', fixture)
+        self.assertEqual(fixture.count("#ATTRIB_Gold, 2000"), 3)
+        self.assertEqual(fixture.count("#ATTRIB_Intelligence, 100"), 3)
+        self.assertEqual(fixture.count("$Alchemist_Oil_Test_Buyer"), 3)
+        self.assertIn("Function Alchemist_Oil_Test_Buyer", fixture)
+        self.assertIn("$Purchase_Equipment (ThisAgent)", fixture)
         self.assertNotIn("function NEXT", fixture)
 
     def test_siege_fixture_is_an_explicit_project_source(self) -> None:
@@ -199,6 +210,17 @@ end
         )
         self.assertNotIn("wizGuilds << AlchemyLab", generated)
         self.assertIn("$Alchemy_Oil_Check (ThisAgent,alchemyLabs)", generated)
+        self.assertIn("Wants_Poison,Wants_Oil", generated)
+        self.assertIn(
+            "ThisAgent's \"Upgrade_Weapon_Chance\" > 0", generated
+        )
+        self.assertIn(
+            "If (Wants_Oil && $Alchemy_Oil_Check (ThisAgent,alchemyLabs))",
+            generated,
+        )
+        self.assertIn(
+            "If (Wants_Poison && $Poison_Check (ThisAgent))", generated
+        )
         self.assertLess(
             generated.index("$Alchemy_Oil_Check"), generated.index("$Poison_Check")
         )
@@ -208,13 +230,39 @@ end
             encoding="utf-8"
         )
         self.assertIn("#ATTRIB_WeaponPoisoned", source)
-        self.assertIn("#Cost_Per_Magic_Enchantment1", source)
+        self.assertIn("expression #Alchemy_Weapon_Oil_Price 100", source)
+        self.assertNotIn("#Cost_Per_Magic_Enchantment1", source)
+        self.assertNotIn("Intel_Roll", source)
+        self.assertNotIn("$RandomNumber (30)", source)
         self.assertIn("#Enchant_Equipment_Visit_Duration", source)
         self.assertIn("$Spend_Gold (ThisAgent, ThisBuilding, Gold)", source)
         self.assertIn("$SetAttribute (ThisAgent, What_To_Upgrade, Upgrade)", source)
         self.assertIn("$Done_Enhancing_Equipment", source)
         self.assertNotIn("#ATTRIB_Weapon_Magic_Bonus", source)
         self.assertNotIn("#ATTRIB_Armor_Magic_Bonus", source)
+        self.assertIn("expression #Intent_Applying_Weapon_Oil 177", source)
+        self.assertIn(
+            "$SpecifyIntent (ThisAgent, #Intent_Applying_Weapon_Oil)", source
+        )
+        self.assertNotIn("#Intent_Poisoning_Weapon", source)
+
+    def test_private_oil_intent_appends_to_stock_aitx(self) -> None:
+        stock = Path(
+            r"C:\Program Files (x86)\Steam\steamapps\common\Majesty HD\Data\gpltext.cam"
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            output = Path(directory) / "oil_gpltext.cam"
+            builder.build_gpl_text_cam(stock, output)
+            intents = builder.read_cam_entry(output, b"STRT", b"AITX").data
+        count = struct.unpack_from("<H", intents, 0)[0]
+        self.assertEqual(count, builder.ALCHEMY_OIL_INTENT_INDEX + 1)
+        offsets = struct.unpack_from(f"<{count}I", intents, 4)
+        offset = offsets[builder.ALCHEMY_OIL_INTENT_INDEX]
+        end = intents.index(b"\x00", offset + 4)
+        self.assertEqual(
+            intents[offset + 4 : end].decode("cp1252"),
+            builder.ALCHEMY_OIL_INTENT_TEXT,
+        )
 
     def test_brewing_source_copies_stock_rage_for_true_heroes(self) -> None:
         source = (builder.GPL_SOURCE_ROOT / "Alchemist_Brewing.gpl").read_text(
@@ -383,6 +431,66 @@ end
             ],
             builder.AP69_TERMINAL_RECORD_HEADER,
         )
+
+    def test_weapon_oil_clones_the_stock_arrows_icon_control(self) -> None:
+        stock = Path(
+            r"C:\Program Files (x86)\Steam\steamapps\common\Majesty HD\Data\textdata.cam"
+        )
+        brewing = builder.read_cam_entry(
+            stock, b"SMNU", builder.SOURCE_BREWING_DIALOG_ID
+        ).data
+        rage = builder.read_cam_entry(
+            stock, b"SMNU", builder.SOURCE_RAGE_DIALOG_ID
+        ).data
+        research = builder.read_cam_entry(
+            stock, b"SMNU", builder.SOURCE_RESEARCH_DIALOG_ID
+        ).data
+        brewing = builder.add_native_rage_progress_control(brewing, rage)
+        output = builder.add_stock_weapon_oil_icon_control(brewing, research)
+        marker = output.index(b"ALWI")
+        record = marker - 0x24
+        self.assertEqual(struct.unpack_from("<4I", output, record + 0x08), (3, 86, 25, 25))
+        self.assertEqual(
+            struct.unpack_from("<I", output, record + 0x3C)[0],
+            builder.BREWING_WEAPON_OIL_ICON_CONTROL_ID,
+        )
+        self.assertNotIn(b"INCr", output)
+
+    def test_cgal_clones_stock_visitors_control_for_layout_probe(self) -> None:
+        stock = Path(
+            r"C:\Program Files (x86)\Steam\steamapps\common\Majesty HD\Data\textdata.cam"
+        )
+        laboratory = builder.privateize_cgal_menu(
+            builder.read_cam_entry(stock, b"SMNU", builder.SOURCE_DIALOG_ID).data
+        )
+        blacksmith = builder.read_cam_entry(
+            stock, b"SMNU", builder.SOURCE_VISITORS_DIALOG_ID
+        ).data
+        output = builder.add_stock_visitors_probe_control(laboratory, blacksmith)
+        marker = output.index(struct.pack("<I", builder.VISITORS_CONTROL_ID))
+        record = marker - 0x64
+        self.assertEqual(
+            struct.unpack_from("<4I", output, record + 0x08),
+            builder.VISITORS_FINAL_RECT,
+        )
+        self.assertEqual(output[record + 0x34 : record + 0x38], b"ALBB")
+        self.assertEqual(output[-8:], b"\xff" * 8)
+
+    def test_brewing_moves_below_recruit_without_resizing(self) -> None:
+        stock = Path(
+            r"C:\Program Files (x86)\Steam\steamapps\common\Majesty HD\Data\textdata.cam"
+        )
+        laboratory = builder.read_cam_entry(
+            stock, b"SMNU", builder.SOURCE_DIALOG_ID
+        ).data
+        output = builder.move_brewing_control_below_recruit(laboratory)
+        self.assertEqual(
+            struct.unpack_from(
+                "<4I", output, builder.AP10_SPELL_BUTTON_RECT_OFFSET
+            ),
+            builder.BREWING_FINAL_RECT,
+        )
+        self.assertEqual(builder.BREWING_FINAL_RECT[2:], builder.AP10_SPELL_BUTTON_RECT[2:])
 
     def test_brewing_action_uses_a_private_control_id(self) -> None:
         menu = bytearray(builder.BREWING_FIRST_BUTTON_ID_OFFSET + 4)

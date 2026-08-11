@@ -25,6 +25,7 @@ SOURCE_DIALOG_ID = b"AP10"
 BREWING_DIALOG_ID = b"CGBR"
 SOURCE_BREWING_DIALOG_ID = b"AP69"
 SOURCE_RAGE_DIALOG_ID = b"AP24"
+SOURCE_RESEARCH_DIALOG_ID = b"APa1"
 RAGE_PROGRESS_RECORD_OFFSET = 0x0C28
 RAGE_PROGRESS_INNER_OFFSET = 0x40
 RAGE_PROGRESS_OUTER_RECT_OFFSET = 0x08
@@ -32,6 +33,8 @@ RAGE_PROGRESS_OUTER_RECT = (7, 219, 140, 21)
 RAGE_PROGRESS_CONTROL_ID = 0x2009
 RAGE_ACTIVE_DISPLAY_CONTROL_ID = 0x227A
 RAGE_ACTIVE_DISPLAY_ID_OFFSET = RAGE_PROGRESS_INNER_OFFSET + 0x90
+RAGE_ACTIVE_DISPLAY_LABEL_OPCODE_OFFSET = 0x94
+RAGE_ACTIVE_DISPLAY_LABEL_INDEX_OFFSET = 0x98
 RAGE_PROGRESS_PREFIX_OFFSET = RAGE_PROGRESS_INNER_OFFSET + 0x40
 RAGE_PROGRESS_PREFIX = 2
 RAGE_PROGRESS_RECT_OFFSET = RAGE_PROGRESS_INNER_OFFSET + 0x44
@@ -55,6 +58,22 @@ BREWING_PROGRESS_OUTER_RECT = AP69_FIRST_BREW_OUTER_RECT
 STOCK_FERVUS_FIRST_SPELL_CONTROL_ID = 0x1140
 BREWING_INVIGORATING_CONTROL_ID = 0x2A10
 BREWING_FIRST_BUTTON_ID_OFFSET = 0x0204
+AP69_SECOND_RECIPE_RECORD_START = 0x0478
+AP69_SECOND_RECIPE_RECORD_END = 0x0620
+APA1_ARROWS_RECORD_START = 0x0120
+APA1_ARROWS_RECORD_END = 0x0218
+RESEARCH_ROW_OUTER_Y_OFFSET = 0x000C
+RESEARCH_ROW_OUTER_X_OFFSET = 0x0008
+RESEARCH_ROW_OUTER_WIDTH_OFFSET = 0x0010
+RESEARCH_ROW_LABEL_INDEX_OFFSET = 0x0030
+RESEARCH_ROW_TOOLTIP_INDEX_OFFSET = 0x0038
+RESEARCH_ROW_CONTROL_ID_OFFSET = 0x0088
+STOCK_ARROWS_RESEARCH_CONTROL_ID = 0x139C
+BREWING_WEAPON_OIL_CONTROL_ID = 0x2A13
+BREWING_WEAPON_OIL_PROGRESS_CONTROL_ID = 0x2A11
+BREWING_WEAPON_OIL_ACTIVE_DISPLAY_CONTROL_ID = 0x2A12
+WEAPON_OIL_PROGRESS_OUTER_RECT = (30, 87, 162, 20)
+WEAPON_OIL_PROGRESS_LABEL_RECT = (31, 90, 160, 14)
 AP10_SPELL_BUTTON_RECT_OFFSET = 0x0D34
 AP10_SPELL_BUTTON_RECT = (103, 162, 93, 26)
 BUILDING_IDS = ("ALB1", "ALB2", "ALB3")
@@ -101,10 +120,41 @@ def build_siege_test_fixture(stock_quests: Path) -> str:
     return function.replace(anchor, spawns, 1) + "\n"
 
 
+def build_alchemist_economy(stock_purchase_equipment: Path) -> str:
+    """Generate the economy gate from the installed stock GPL function."""
+    source = stock_purchase_equipment.read_text(encoding="cp1252")
+    function = extract_gpl_function(source, "Purchase_Equipment")
+    list_anchor = (
+        "\tlist blacksmiths,wizguilds,markets,shops,fairgrounds,buildings;"
+    )
+    if function.count(list_anchor) != 1:
+        raise ValueError("Stock Purchase_Equipment list declaration changed")
+    function = function.replace(
+        list_anchor,
+        "\tlist blacksmiths,wizguilds,markets,shops,fairgrounds,buildings,alchemyLabs;"
+        "\n\tagent AlchemyLab;",
+        1,
+    )
+    wizard_anchor = '\twizGuilds = $listTitles(buildings,"Wizards_Guild");'
+    if function.count(wizard_anchor) != 1:
+        raise ValueError("Stock Purchase_Equipment Wizard list construction changed")
+    gate = (
+        wizard_anchor
+        + '\n\talchemyLabs = $listTitles(buildings,"AlchemistsLaboratory");'
+        + "\n\talchemyLabs = $List_Attribs(alchemyLabs,#ATTRIB_ResearchArrows);"
+        + "\n\tForeach AlchemyLab in alchemyLabs do"
+        + "\n\t\tbegin"
+        + "\n\t\t\twizGuilds << AlchemyLab;"
+        + "\n\t\tend"
+    )
+    return function.replace(wizard_anchor, gate, 1) + "\n"
+
+
 def build_gpl_project(include_siege_test_fixture: bool) -> str:
     sources = [
         'source="Alchemist_Rogue.gpl"',
         'source="Alchemist_Brewing.gpl"',
+        'source="Alchemist_Economy.gpl"',
     ]
     if include_siege_test_fixture:
         sources.append('source="Alchemist_Siege_Test.gpl"')
@@ -445,6 +495,122 @@ def disable_ap10_secondary_control(data: bytes) -> bytes:
     return bytes(output)
 
 
+def add_stock_weapon_oil_research_control(
+    brewing_menu: bytes, research_menu: bytes
+) -> bytes:
+    """Replace AP69's second visual recipe with APa1's native Arrows row.
+
+    This preserves the Guardhouse research control's complete streamed-control
+    shape. Only its private-dialog position and CGBR string indices change.
+    The executable continues to own cost, timing, progress, completion, and
+    disabled-state rendering through the stock ResearchArrows descriptor.
+    """
+    source = bytearray(
+        research_menu[APA1_ARROWS_RECORD_START:APA1_ARROWS_RECORD_END]
+    )
+    if len(source) != 0xF8:
+        raise ValueError("Stock APa1 Arrows research row size changed")
+    if u32(source, RESEARCH_ROW_CONTROL_ID_OFFSET) != STOCK_ARROWS_RESEARCH_CONTROL_ID:
+        raise ValueError("Stock APa1 Arrows research control ID changed")
+    if u32(source, RESEARCH_ROW_LABEL_INDEX_OFFSET) != 1:
+        raise ValueError("Stock APa1 Arrows label index changed")
+    if u32(source, RESEARCH_ROW_TOOLTIP_INDEX_OFFSET) != 2:
+        raise ValueError("Stock APa1 Arrows tooltip index changed")
+    if u32(source, RESEARCH_ROW_OUTER_Y_OFFSET) != 61:
+        raise ValueError("Stock APa1 Arrows row position changed")
+    if (
+        u32(source, RESEARCH_ROW_OUTER_X_OFFSET) != 26
+        or u32(source, RESEARCH_ROW_OUTER_WIDTH_OFFSET) != 172
+    ):
+        raise ValueError("Stock APa1 Arrows row width changed")
+    if u32(brewing_menu, AP69_SECOND_RECIPE_RECORD_START - 4) != 0xFFFFFFFF:
+        raise ValueError("Stock AP69 preceding recipe terminator changed")
+    if u32(brewing_menu, AP69_SECOND_RECIPE_RECORD_END) != 0:
+        raise ValueError("Stock AP69 following recipe boundary changed")
+    if len(brewing_menu[AP69_SECOND_RECIPE_RECORD_START:AP69_SECOND_RECIPE_RECORD_END]) != 0x1A8:
+        raise ValueError("Stock AP69 second recipe record size changed")
+    # CGBR indices 7 and 8 are the private second-row label and tooltip.
+    struct.pack_into("<I", source, RESEARCH_ROW_OUTER_X_OFFSET, 30)
+    struct.pack_into("<I", source, RESEARCH_ROW_OUTER_Y_OFFSET, 87)
+    struct.pack_into("<I", source, RESEARCH_ROW_OUTER_WIDTH_OFFSET, 162)
+    # Preserve APa1's complete compound-control record but privatize its
+    # command key. The runtime resolves 0x2A13 to a byte-for-byte clone of the
+    # stock 0x139C descriptor, so Guardhouse Arrows retains its own identity.
+    struct.pack_into(
+        "<I",
+        source,
+        RESEARCH_ROW_CONTROL_ID_OFFSET,
+        BREWING_WEAPON_OIL_CONTROL_ID,
+    )
+    struct.pack_into("<I", source, RESEARCH_ROW_LABEL_INDEX_OFFSET, 7)
+    struct.pack_into("<I", source, RESEARCH_ROW_TOOLTIP_INDEX_OFFSET, 8)
+    if source.count(b"INBb") != 1:
+        raise ValueError("Stock APa1 Arrows row background reference changed")
+    source = source.replace(b"INBb", b"ALBB")
+    result = bytes(
+        brewing_menu[:AP69_SECOND_RECIPE_RECORD_START]
+        + source
+        + brewing_menu[AP69_SECOND_RECIPE_RECORD_END:]
+    )
+    new_end = AP69_SECOND_RECIPE_RECORD_START + len(source)
+    if (
+        u32(result, AP69_SECOND_RECIPE_RECORD_START - 4) != 0xFFFFFFFF
+        or u32(result, AP69_SECOND_RECIPE_RECORD_START) != 0
+        or u32(result, new_end - 4) != 0xFFFFFFFF
+        or u32(result, new_end) != 0
+    ):
+        raise ValueError("CGBR Weapon Oil splice broke SMNU record boundaries")
+    return result
+
+
+def add_native_weapon_oil_progress_control(
+    brewing_menu: bytes, rage_menu: bytes
+) -> bytes:
+    """Clone AP24's proven display pair for Weapon Oil's research row."""
+    rage_art = brewing_menu.find(b"INSr")
+    if rage_art < 0 or brewing_menu.find(b"INSr", rage_art + 1) >= 0:
+        raise ValueError("CGBR Vigor display is missing or ambiguous")
+    vigor_record = rage_art - 4 - RAGE_PROGRESS_INNER_OFFSET
+    if vigor_record < 4 or u32(brewing_menu, vigor_record) != 9:
+        raise ValueError("CGBR Vigor display boundary changed")
+    if u32(brewing_menu, vigor_record - 4) != 0xFFFFFFFF:
+        raise ValueError("CGBR pre-Vigor terminator changed")
+
+    source = rage_menu[RAGE_PROGRESS_RECORD_OFFSET:]
+    if len(source) != 0xEC or source[-8:] != b"\xff" * 8:
+        raise ValueError("Stock AP24 terminal display layout changed")
+    # The final word is AP24's end-of-stream marker. This private clone is
+    # followed by CGBR's existing AP24 clone, so retain the label terminator
+    # and let the final clone continue to own the stream terminator.
+    display = bytearray(source[:-4])
+    if u32(display, 0x6C) != RAGE_PROGRESS_CONTROL_ID:
+        raise ValueError("Stock AP24 progress display ID changed")
+    if u32(display, RAGE_ACTIVE_DISPLAY_ID_OFFSET) != RAGE_ACTIVE_DISPLAY_CONTROL_ID:
+        raise ValueError("Stock AP24 active label ID changed")
+    if (
+        u32(display, RAGE_ACTIVE_DISPLAY_LABEL_OPCODE_OFFSET) != 7
+        or u32(display, RAGE_ACTIVE_DISPLAY_LABEL_INDEX_OFFSET) != 28
+    ):
+        raise ValueError("Stock AP24 active label string contract changed")
+    struct.pack_into("<4I", display, 0x08, *WEAPON_OIL_PROGRESS_OUTER_RECT)
+    struct.pack_into(
+        "<4I", display, RAGE_PROGRESS_RECT_OFFSET, *WEAPON_OIL_PROGRESS_LABEL_RECT
+    )
+    struct.pack_into(
+        "<I", display, 0x6C, BREWING_WEAPON_OIL_PROGRESS_CONTROL_ID
+    )
+    struct.pack_into(
+        "<I",
+        display,
+        RAGE_ACTIVE_DISPLAY_ID_OFFSET,
+        BREWING_WEAPON_OIL_ACTIVE_DISPLAY_CONTROL_ID,
+    )
+    struct.pack_into("<I", display, RAGE_ACTIVE_DISPLAY_LABEL_INDEX_OFFSET, 29)
+    return bytes(
+        brewing_menu[:vigor_record] + display + brewing_menu[vigor_record:]
+    )
+
+
 def privateize_cgal_menu(menu: bytes) -> bytes:
     """Clone AP10's visual resources for CGAL without touching stock AP10."""
     if menu.count(b"AVC1") != 1:
@@ -484,8 +650,17 @@ def build_text_cam(
     brewing_menu = privateize_brewing_action_control(brewing_menu)
     rage_menu = read_cam_entry(stock_text_cam, b"SMNU", SOURCE_RAGE_DIALOG_ID).data
     brewing_menu = add_native_rage_progress_control(brewing_menu, rage_menu)
-    if brewing_menu.count(b"INSr") != 1:
-        raise ValueError("CGBR must contain exactly one stock Rage progress-art reference")
+    research_menu = read_cam_entry(
+        stock_text_cam, b"SMNU", SOURCE_RESEARCH_DIALOG_ID
+    ).data
+    brewing_menu = add_stock_weapon_oil_research_control(
+        brewing_menu, research_menu
+    )
+    brewing_menu = add_native_weapon_oil_progress_control(
+        brewing_menu, rage_menu
+    )
+    if brewing_menu.count(b"INSr") != 2:
+        raise ValueError("CGBR must contain exactly two stock Rage progress-art references")
     brewing_menu = brewing_menu.replace(b"INSr", b"ALSR")
     brewing_strings = read_cam_entry(
         stock_text_cam, b"STRT", SOURCE_BREWING_DIALOG_ID
@@ -521,11 +696,12 @@ def build_text_cam(
             4: "Future Brew",
             5: "This brewing slot is not yet available.",
             6: "",
-            7: "Future Brew",
-            8: "This brewing slot is not yet available.",
+            7: "Weapon Oil",
+            8: "Research weapon oil for the Laboratory's stock enchanting service.",
             9: "",
             13: "Brewing",
             28: "Invigorated",
+            29: "Researching Weapon Oil",
         },
     )
     write_cam(
@@ -598,6 +774,7 @@ def build_manifest(use_ap10_title_alias: bool = False) -> str:
 \t\t\t\t\t\t<Target>Data\\Alchemist.bcd</Target>
 \t\t\t\t\t\t<Source>GPL\\Alchemist_Building_Data.dat</Source>
 \t\t\t\t\t\t<Source>GPL\\Alchemist_Hero_Data.dat</Source>
+\t\t\t\t\t\t<Source>GPL\\Alchemist_Economy.gpl</Source>
 \t\t\t\t\t</GPL>
 \t\t\t\t</Load>
 \t\t\t</Dataset>
@@ -629,6 +806,7 @@ def validate_output(
         output_root / "GPL" / "Alchemist_Hero_Data.dat",
         output_root / "GPL" / "Alchemist_Rogue.gpl",
         output_root / "GPL" / "Alchemist_Brewing.gpl",
+        output_root / "GPL" / "Alchemist_Economy.gpl",
     }
     if include_siege_test_fixture:
         expected.add(output_root / "GPL" / "Alchemist_Siege_Test.gpl")
@@ -717,14 +895,16 @@ def validate_output(
     active_label_end = brewing_strings.index(b"\x00", active_label_offset + 4)
     if brewing_strings[active_label_offset + 4 : active_label_end] != b"Invigorated":
         raise ValueError("CGBR STRT index 28 is not the Invigorated label")
-    if brewing_menu.count(b"ALSR") != 1 or b"INSr" in brewing_menu:
-        raise ValueError("CGBR private progress art is missing or duplicated")
+    if brewing_menu.count(b"ALSR") != 2 or b"INSr" in brewing_menu:
+        raise ValueError("CGBR private progress art displays are missing")
     if struct.pack("<I", RAGE_PROGRESS_CONTROL_ID) not in brewing_menu:
         raise ValueError("CGBR native progress control ID is missing")
     if struct.pack("<I", RAGE_ACTIVE_DISPLAY_CONTROL_ID) not in brewing_menu:
         raise ValueError("CGBR native Rage active-display child is missing")
+    if brewing_menu.count(struct.pack("<I", BREWING_WEAPON_OIL_CONTROL_ID)) != 1:
+        raise ValueError("CGBR native Weapon Oil research row is missing or duplicated")
     progress_record_offset = (
-        brewing_menu.index(b"ALSR") - 4 - RAGE_PROGRESS_INNER_OFFSET
+        brewing_menu.index(struct.pack("<I", RAGE_PROGRESS_CONTROL_ID)) - 0x6C
     )
     if u32(brewing_menu, progress_record_offset) != 9:
         raise ValueError("CGBR lost the stock Rage progress-control subtype")
@@ -746,6 +926,27 @@ def validate_output(
     )
     if progress_rect != BREWING_PROGRESS_RECT:
         raise ValueError(f"Unexpected CGBR progress-control rectangle: {progress_rect}")
+    weapon_progress_record_offset = (
+        brewing_menu.index(
+            struct.pack("<I", BREWING_WEAPON_OIL_PROGRESS_CONTROL_ID)
+        )
+        - 0x6C
+    )
+    if u32(brewing_menu, weapon_progress_record_offset) != 9:
+        raise ValueError("CGBR lost the stock Weapon Oil progress subtype")
+    if struct.unpack_from(
+        "<4I", brewing_menu, weapon_progress_record_offset + 0x08
+    ) != WEAPON_OIL_PROGRESS_OUTER_RECT:
+        raise ValueError("CGBR Weapon Oil progress rectangle changed")
+    if struct.unpack_from(
+        "<4I", brewing_menu, weapon_progress_record_offset + RAGE_PROGRESS_RECT_OFFSET
+    ) != WEAPON_OIL_PROGRESS_LABEL_RECT:
+        raise ValueError("CGBR Weapon Oil progress label rectangle changed")
+    if u32(
+        brewing_menu,
+        weapon_progress_record_offset + RAGE_ACTIVE_DISPLAY_ID_OFFSET,
+    ) != BREWING_WEAPON_OIL_ACTIVE_DISPLAY_CONTROL_ID:
+        raise ValueError("CGBR Weapon Oil active label ID changed")
     if u32(brewing_menu, BREWING_FIRST_BUTTON_ID_OFFSET) != BREWING_INVIGORATING_CONTROL_ID:
         raise ValueError("CGBR still uses Fervus's first spell control ID")
     rect = struct.unpack_from("<4I", menu, AP10_SPELL_BUTTON_RECT_OFFSET)
@@ -777,6 +978,8 @@ def validate_output(
         raise ValueError(f"Expected all GPL levels to use title {expected_title}")
     if building_data.count("(Alchemist_Brewing True)") != 3:
         raise ValueError("Every Laboratory level must carry its Brewing marker")
+    if building_data.count("(Visited_Script Enchant_Equipment)") != 3:
+        raise ValueError("Every Laboratory level must use stock Wizard enchanting visits")
     for contract in (
         "(birthscript basic_birth)",
         "(birthScript2 Guild_Birth)",
@@ -791,6 +994,8 @@ def validate_output(
     compiled_symbols = compiled.read_bytes()
     if b"Alchemist_DoInvigoratingElixer" not in compiled_symbols:
         raise ValueError("Compiled Alchemist bytecode lost its private Vigor symbol")
+    if b"Purchase_Equipment" not in compiled_symbols:
+        raise ValueError("Compiled Alchemist bytecode lost its stock-derived economy gate")
     if b"DoRageOfKrolm" in compiled_symbols or b"Alchemist_Stock_RageOfKrolm" in compiled_symbols:
         raise ValueError("Alchemist bytecode must not override or reimplement stock Rage")
 
@@ -891,6 +1096,16 @@ def build(
     shutil.copy2(GPL_SOURCE_ROOT / "Alchemist_Hero_Data.dat", gpl_dir)
     shutil.copy2(GPL_SOURCE_ROOT / "Alchemist_Rogue.gpl", gpl_dir)
     shutil.copy2(GPL_SOURCE_ROOT / "Alchemist_Brewing.gpl", gpl_dir)
+    economy_source = build_alchemist_economy(
+        sdk_data.parent
+        / "GPL"
+        / "DecisionTrees"
+        / "Modules"
+        / "Purchase_Equipment.gpl"
+    )
+    (gpl_dir / "Alchemist_Economy.gpl").write_text(
+        economy_source, encoding="utf-8"
+    )
     if include_siege_test_fixture:
         siege_source = build_siege_test_fixture(
             sdk_data.parent / "GPLMx" / "Rules" / "Quests_3.gpl"

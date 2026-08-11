@@ -12,6 +12,17 @@ import alchemist_art_package as art_package
 
 
 class AlchemistProbeTests(unittest.TestCase):
+    def test_cgal_privateizes_stock_cultist_member_icon(self) -> None:
+        stock = b"prefix AVC1 suffix INTI INBb INBg"
+        cloned = builder.privateize_cgal_menu(stock)
+        self.assertIn(b"ALC1", cloned)
+        self.assertNotIn(b"AVC1", cloned)
+        self.assertEqual(stock, b"prefix AVC1 suffix INTI INBb INBg")
+
+    def test_cgal_member_icon_clone_rejects_stock_layout_drift(self) -> None:
+        with self.assertRaisesRegex(ValueError, "expected one AVC1"):
+            builder.privateize_cgal_menu(b"INTI INBb INBg")
+
     def test_vigor_enabled_icon_is_colored_and_disabled_mask_is_grey(self) -> None:
         enabled_background, enabled_border, enabled_brightness = (
             art_package.VIGOR_ICON_STYLES[199]

@@ -445,17 +445,30 @@ def disable_ap10_secondary_control(data: bytes) -> bytes:
     return bytes(output)
 
 
+def privateize_cgal_menu(menu: bytes) -> bytes:
+    """Clone AP10's visual resources for CGAL without touching stock AP10."""
+    if menu.count(b"AVC1") != 1:
+        raise ValueError(
+            "Stock AP10 Cultist member/count icon contract changed: expected one AVC1"
+        )
+    return (
+        # AP10 embeds AVC1 for the Cultist guild member/count portrait.
+        # Privatize that reference in the cloned CGAL resource exactly as the
+        # proven Haunt panel does; never alter AP10 or the stock AVC1 IMAG.
+        menu.replace(b"AVC1", b"ALC1")
+        .replace(b"INTI", b"ALTI")
+        .replace(b"INBb", b"ALBB")
+        .replace(b"INBg", b"ALBG")
+    )
+
+
 def build_text_cam(
     stock_text_cam: Path,
     output_path: Path,
     enable_unsafe_brewing_control: bool = False,
 ) -> None:
     menu = read_cam_entry(stock_text_cam, b"SMNU", SOURCE_DIALOG_ID).data
-    menu = (
-        menu.replace(b"INTI", b"ALTI")
-        .replace(b"INBb", b"ALBB")
-        .replace(b"INBg", b"ALBG")
-    )
+    menu = privateize_cgal_menu(menu)
     if not enable_unsafe_brewing_control:
         menu = disable_ap10_secondary_control(menu)
     strings = read_cam_entry(stock_text_cam, b"STRT", SOURCE_DIALOG_ID).data

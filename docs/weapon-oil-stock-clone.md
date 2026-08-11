@@ -19,14 +19,49 @@ The completed `#ATTRIB_ResearchArrows` flag is scoped to the Laboratory. It is
 used only as the eligibility gate for the economy service; the Laboratory does
 not run `Building_Guard`, so it does not acquire the Guardhouse arrow behavior.
 
-All three Laboratory levels use the stock Wizard's Guild
-`Visited_Script Enchant_Equipment`. The Alchemist BCD overrides stock
-`Purchase_Equipment` with a literal stock clone whose only addition is to add
-completed, researched `AlchemistsLaboratory` buildings to the existing
-`wizGuilds` candidate list. After that insertion the untouched stock
-`WizGuild_Check -> Use_Building -> Enchant_Equipment -> Obtain_Enchantment ->
-Done_Enhancing_Equipment` lifecycle owns hero selection, travel, visit timing,
-payment, equipment bonus, completion, and cleanup.
+## First hero-purchase proof: literal poison
+
+The first Weapon Oil economy proof deliberately stops at stock poison. It does
+not yet contain Paralytic Oil, Greed selection, diminishing returns, or a
+private combat effector.
+
+The Alchemist BCD overrides stock `Purchase_Equipment` with a literal stock
+clone. Completed, researched `AlchemistsLaboratory` buildings are collected in
+a separate `alchemyLabs` list and are never appended to `wizGuilds`; real
+Wizard's Guild weapon and armor enchanting therefore remain unchanged.
+
+Only after stock calculates `Wants_Poison` from the hero's
+`Poison_Weapon_Chance` does the new branch call `Alchemy_Oil_Check`. That
+function is a private `WizGuild_Check` clone: it preserves the stock completed-
+building search radius, affordability check, Intelligence roll, loyalty-aware
+closest-building selection, visiting task, and `Use_Building` dispatch. The
+only semantic changes are the researched Laboratory candidate list, the
+single-tier completion gate, and `Task_Number = #ATTRIB_WeaponPoisoned`.
+Failure falls through to the untouched stock `Poison_Check`, so a level-2
+Rogues Guild remains a valid fallback.
+
+All three Laboratory levels use `Visited_Script
+Alchemy_Oil_Enchant_Equipment`, a private clone of Wizard
+`Enchant_Equipment`. It retains stock entry, the 17-second visit interval,
+payment to the target building, and `Done_Enhancing_Equipment` cleanup.
+`Obtain_Alchemy_Oil` copies the level-1 `Obtain_Enchantment` transaction and
+sets the stock `WeaponPoisoned` attribute to exactly `1`. The explicit
+single-tier clamp is required because stock combat tests `WeaponPoisoned == 1`;
+letting a level-2 or level-3 Laboratory apply Wizard enchantment tiers would
+produce invalid poison values `2` or `3`.
+
+After purchase, the untouched stock `make_attack -> Poison_begin` path owns
+the on-hit effect. This checkpoint exists solely to prove autonomous hero
+selection, travel, payment, building revenue, persistent coating, and the
+existing poison combat result before privatizing the effect as Paralytic Oil.
+
+Live proof on 2026-08-11 used a Siege-only QA Rogue beside a pre-researched
+Laboratory. Its ordinary earlier equipment upgrades were marked complete and
+its stock affordability and Intelligence gates were guaranteed. The normal
+`Purchase_Equipment` entry immediately selected the Laboratory; the Rogue
+entered, completed the stock-timed visit, paid, exited, and received stock
+poison. The forced Rogue and pre-research setup were removed immediately after
+that proof and are not part of the gameplay package.
 
 Because `Purchase_Equipment` is a global GPL symbol, other CAMs that replace it
 must be merged at that symbol. This is a known CAM-merger responsibility, not a

@@ -172,11 +172,49 @@ end
             'data="Alchemist_Building_Data.dat"\n'
             'data="Alchemist_Hero_Data.dat"\n'
             'source="Alchemist_Rogue.gpl"\n'
-            'source="Alchemist_Brewing.gpl"\n',
+            'source="Alchemist_Brewing.gpl"\n'
+            'source="Alchemist_Economy.gpl"\n'
+            'source="Alchemist_Weapon_Oil.gpl"\n',
         )
         self.assertIn(
             'source="Alchemist_Siege_Test.gpl"', builder.build_gpl_project(True)
         )
+
+    def test_economy_keeps_labs_out_of_stock_wizard_candidates(self) -> None:
+        stock = (
+            builder.SOURCE_ROOT.parents[1]
+            / "external"
+            / "BrandonWill-Majesty"
+            / "SDK"
+            / "OriginalQuests"
+            / "GPL"
+            / "DecisionTrees"
+            / "Modules"
+            / "Purchase_Equipment.gpl"
+        )
+        generated = builder.build_alchemist_economy(stock)
+        self.assertIn(
+            'alchemyLabs = $List_Attribs(alchemyLabs,#ATTRIB_ResearchArrows);',
+            generated,
+        )
+        self.assertNotIn("wizGuilds << AlchemyLab", generated)
+        self.assertIn("$Alchemy_Oil_Check (ThisAgent,alchemyLabs)", generated)
+        self.assertLess(
+            generated.index("$Alchemy_Oil_Check"), generated.index("$Poison_Check")
+        )
+
+    def test_weapon_oil_is_a_single_stock_poison_purchase(self) -> None:
+        source = (builder.GPL_SOURCE_ROOT / "Alchemist_Weapon_Oil.gpl").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn("#ATTRIB_WeaponPoisoned", source)
+        self.assertIn("#Cost_Per_Magic_Enchantment1", source)
+        self.assertIn("#Enchant_Equipment_Visit_Duration", source)
+        self.assertIn("$Spend_Gold (ThisAgent, ThisBuilding, Gold)", source)
+        self.assertIn("$SetAttribute (ThisAgent, What_To_Upgrade, Upgrade)", source)
+        self.assertIn("$Done_Enhancing_Equipment", source)
+        self.assertNotIn("#ATTRIB_Weapon_Magic_Bonus", source)
+        self.assertNotIn("#ATTRIB_Armor_Magic_Bonus", source)
 
     def test_brewing_source_copies_stock_rage_for_true_heroes(self) -> None:
         source = (builder.GPL_SOURCE_ROOT / "Alchemist_Brewing.gpl").read_text(

@@ -121,7 +121,7 @@ def build_siege_test_fixture(stock_quests: Path) -> str:
 
 
 def build_alchemist_economy(stock_purchase_equipment: Path) -> str:
-    """Generate the economy gate from the installed stock GPL function."""
+    """Generate the stock-cloned Laboratory oil-purchase gate."""
     source = stock_purchase_equipment.read_text(encoding="cp1252")
     function = extract_gpl_function(source, "Purchase_Equipment")
     list_anchor = (
@@ -131,8 +131,7 @@ def build_alchemist_economy(stock_purchase_equipment: Path) -> str:
         raise ValueError("Stock Purchase_Equipment list declaration changed")
     function = function.replace(
         list_anchor,
-        "\tlist blacksmiths,wizguilds,markets,shops,fairgrounds,buildings,alchemyLabs;"
-        "\n\tagent AlchemyLab;",
+        "\tlist blacksmiths,wizguilds,markets,shops,fairgrounds,buildings,alchemyLabs;",
         1,
     )
     wizard_anchor = '\twizGuilds = $listTitles(buildings,"Wizards_Guild");'
@@ -142,12 +141,26 @@ def build_alchemist_economy(stock_purchase_equipment: Path) -> str:
         wizard_anchor
         + '\n\talchemyLabs = $listTitles(buildings,"AlchemistsLaboratory");'
         + "\n\talchemyLabs = $List_Attribs(alchemyLabs,#ATTRIB_ResearchArrows);"
-        + "\n\tForeach AlchemyLab in alchemyLabs do"
-        + "\n\t\tbegin"
-        + "\n\t\t\twizGuilds << AlchemyLab;"
-        + "\n\t\tend"
     )
-    return function.replace(wizard_anchor, gate, 1) + "\n"
+    function = function.replace(wizard_anchor, gate, 1)
+
+    poison_anchor = (
+        "\t\t\t\t\t\tIf (Wants_Poison && $Poison_Check (ThisAgent))"
+        "\n\t\t\t\t\t\t\tbegin"
+        "\n\t\t\t\t\t\t\t\tFlag = TRUE;"
+        "\n\t\t\t\t\t\t\tend"
+    )
+    if function.count(poison_anchor) != 1:
+        raise ValueError("Stock Purchase_Equipment poison branch changed")
+    oil_then_poison = (
+        "\t\t\t\t\t\tIf (Wants_Poison && $Alchemy_Oil_Check (ThisAgent,alchemyLabs))"
+        "\n\t\t\t\t\t\t\tbegin"
+        "\n\t\t\t\t\t\t\t\tFlag = TRUE;"
+        "\n\t\t\t\t\t\t\tend"
+        "\n\t\t\t\t\t\tElse"
+        "\n" + poison_anchor
+    )
+    return function.replace(poison_anchor, oil_then_poison, 1) + "\n"
 
 
 def build_gpl_project(include_siege_test_fixture: bool) -> str:
@@ -155,6 +168,7 @@ def build_gpl_project(include_siege_test_fixture: bool) -> str:
         'source="Alchemist_Rogue.gpl"',
         'source="Alchemist_Brewing.gpl"',
         'source="Alchemist_Economy.gpl"',
+        'source="Alchemist_Weapon_Oil.gpl"',
     ]
     if include_siege_test_fixture:
         sources.append('source="Alchemist_Siege_Test.gpl"')
@@ -775,6 +789,7 @@ def build_manifest(use_ap10_title_alias: bool = False) -> str:
 \t\t\t\t\t\t<Source>GPL\\Alchemist_Building_Data.dat</Source>
 \t\t\t\t\t\t<Source>GPL\\Alchemist_Hero_Data.dat</Source>
 \t\t\t\t\t\t<Source>GPL\\Alchemist_Economy.gpl</Source>
+\t\t\t\t\t\t<Source>GPL\\Alchemist_Weapon_Oil.gpl</Source>
 \t\t\t\t\t</GPL>
 \t\t\t\t</Load>
 \t\t\t</Dataset>
@@ -807,6 +822,7 @@ def validate_output(
         output_root / "GPL" / "Alchemist_Rogue.gpl",
         output_root / "GPL" / "Alchemist_Brewing.gpl",
         output_root / "GPL" / "Alchemist_Economy.gpl",
+        output_root / "GPL" / "Alchemist_Weapon_Oil.gpl",
     }
     if include_siege_test_fixture:
         expected.add(output_root / "GPL" / "Alchemist_Siege_Test.gpl")
@@ -978,8 +994,8 @@ def validate_output(
         raise ValueError(f"Expected all GPL levels to use title {expected_title}")
     if building_data.count("(Alchemist_Brewing True)") != 3:
         raise ValueError("Every Laboratory level must carry its Brewing marker")
-    if building_data.count("(Visited_Script Enchant_Equipment)") != 3:
-        raise ValueError("Every Laboratory level must use stock Wizard enchanting visits")
+    if building_data.count("(Visited_Script Alchemy_Oil_Enchant_Equipment)") != 3:
+        raise ValueError("Every Laboratory level must use the private Wizard-enchant oil visit")
     for contract in (
         "(birthscript basic_birth)",
         "(birthScript2 Guild_Birth)",
@@ -996,6 +1012,13 @@ def validate_output(
         raise ValueError("Compiled Alchemist bytecode lost its private Vigor symbol")
     if b"Purchase_Equipment" not in compiled_symbols:
         raise ValueError("Compiled Alchemist bytecode lost its stock-derived economy gate")
+    for symbol in (
+        b"Alchemy_Oil_Check",
+        b"Alchemy_Oil_Enchant_Equipment",
+        b"Obtain_Alchemy_Oil",
+    ):
+        if symbol not in compiled_symbols:
+            raise ValueError(f"Compiled Alchemist bytecode lost oil symbol {symbol!r}")
     if b"DoRageOfKrolm" in compiled_symbols or b"Alchemist_Stock_RageOfKrolm" in compiled_symbols:
         raise ValueError("Alchemist bytecode must not override or reimplement stock Rage")
 
@@ -1096,6 +1119,7 @@ def build(
     shutil.copy2(GPL_SOURCE_ROOT / "Alchemist_Hero_Data.dat", gpl_dir)
     shutil.copy2(GPL_SOURCE_ROOT / "Alchemist_Rogue.gpl", gpl_dir)
     shutil.copy2(GPL_SOURCE_ROOT / "Alchemist_Brewing.gpl", gpl_dir)
+    shutil.copy2(GPL_SOURCE_ROOT / "Alchemist_Weapon_Oil.gpl", gpl_dir)
     economy_source = build_alchemist_economy(
         sdk_data.parent
         / "GPL"

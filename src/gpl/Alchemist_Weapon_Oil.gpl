@@ -1,0 +1,121 @@
+///////////////////////////////////////////////////////////////////////////////
+// Alchemist Weapon Oil stock-mechanism proof
+//
+// Alchemy_Oil_Check is a private clone of stock WizGuild_Check. The candidate
+// list is limited to completed Laboratories with Weapon Oil researched, and
+// the upgraded attribute is stock WeaponPoisoned rather than a magic bonus.
+///////////////////////////////////////////////////////////////////////////////
+
+Function Alchemy_Oil_Check (agent ThisAgent, list AlchemyLabs) is boolean
+Declare
+	agent	AlchemyLab;
+	list	Potentials;
+	integer Intel_Roll;
+	integer Gold_Needed;
+
+Begin
+	If ($GetAttribute (ThisAgent, #ATTRIB_WeaponPoisoned) >= 1)
+		begin
+			$DebugOut ("My weapon already has an alchemical oil!");
+			return False;
+		end
+
+	Gold_Needed = #Cost_Per_Magic_Enchantment1;
+
+	If ($Total_Gold (ThisAgent) < Gold_Needed)
+		begin
+			$DebugOut ("I can't afford an alchemical weapon oil!");
+			return False;
+		end
+
+	If ($ListSize (AlchemyLabs) == 0)
+		begin
+			$DebugOut ("No researched Alchemy Labs within an Intel modified sightrange!");
+			return False;
+		end
+
+	Foreach AlchemyLab in AlchemyLabs do
+		begin
+			If (AlchemyLab's "Level" > 0)
+				Potentials << AlchemyLab;
+		end
+
+	If ($ListSize (Potentials) == 0)
+		begin
+			$DebugOut ("No Alchemy Labs can prepare weapon oil!");
+			return False;
+		end
+
+	Intel_Roll = $RandomNumber (30) + 1;
+
+	If ($GetAttribute (ThisAgent, #ATTRIB_Intelligence) > Intel_Roll)
+		begin
+			ThisAgent's "Task_Number" = #ATTRIB_WeaponPoisoned;
+			ThisAgent's "Target" = $Loyalty_Mod_Pick_Closest (ThisAgent, Potentials);
+			$DebugOut ("I've got an Alchemy Lab to oil my weapon at!");
+			ThisAgent's "TaskName" = "visiting";
+			$SpecifyIntent (ThisAgent, #Intent_Poisoning_Weapon);
+			return True;
+		end
+
+	$DebugOut ("I'm too dumb to go to an Alchemy Lab!");
+	return False;
+End
+
+///////////////////////////////////////////////////////////////////////////////
+// Literal stock Enchant_Equipment entry lifecycle with a private callback.
+///////////////////////////////////////////////////////////////////////////////
+
+Function Alchemy_Oil_Enchant_Equipment (agent ThisAgent)
+Declare
+
+Begin
+	$Enter_Building (ThisAgent, ThisAgent's "Target");
+
+	$SetThreadInterval (ThisAgent's "ActiveScript", #Enchant_Equipment_Visit_Duration);
+
+	ThisAgent's "ActiveScript" = $Obtain_Alchemy_Oil;
+
+End
+
+///////////////////////////////////////////////////////////////////////////////
+// Stock Obtain_Enchantment's single level-1 purchase. WeaponPoisoned is a
+// boolean stock attribute, so higher Laboratory levels must not upgrade it to
+// the stock magic-enchantment tier values 2 or 3.
+///////////////////////////////////////////////////////////////////////////////
+
+Function Obtain_Alchemy_Oil (agent ThisAgent)
+Declare
+	agent	ThisBuilding;
+	integer	What_To_Upgrade;
+	integer	Total_Gold;
+	integer	Gold;
+	integer	Upgrade;
+
+Begin
+	ThisBuilding = ThisAgent's "Target";
+
+	Total_Gold = $Total_Gold (ThisAgent);
+
+	What_To_Upgrade = ThisAgent's "Task_Number";
+
+	ThisAgent's "Task_Number" = 0;
+
+	$SetThreadInterval (ThisAgent's "ActiveScript", #Normal_Cycle);
+
+	If ($GetAttribute (ThisAgent, What_To_Upgrade) == 0 && Total_Gold >= #Cost_Per_Magic_Enchantment1)
+		begin
+			Total_Gold -= #Cost_Per_Magic_Enchantment1;
+			Gold += #Cost_Per_Magic_Enchantment1;
+			Upgrade = 1;
+		end
+
+	If (Upgrade > 0)
+		begin
+			$Spend_Gold (ThisAgent, ThisBuilding, Gold);
+			$SetAttribute (ThisAgent, What_To_Upgrade, Upgrade);
+			$DebugOut (ThisAgent's "Title","purchased alchemical weapon oil!");
+		end
+
+	ThisAgent's "ActiveScript" = $Done_Enhancing_Equipment;
+End

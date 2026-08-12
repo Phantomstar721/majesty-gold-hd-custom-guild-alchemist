@@ -15,7 +15,14 @@ level 1, then copies only APa3 Teleportation Amulets'
 `ResearchPowerfulItem` completion attribute. This deliberately defers the
 final Laboratory-level requirement.
 
-Native research continues to own validation, treasury payment, timestamp and
+Its icon and price window retain the same APa1 derived-ID contract as Weapon
+Oil. The separate stock price control is cloned to `(151,117,40,17)` with ID
+`0x2A16 + 1000`; this lets the unchanged native presenter render the private
+descriptor price inside the normal gold-cost window.
+
+The private Phoenix descriptor changes Arrows' `+0x08` base-price field to the
+same explicit one-gold testing price used by the other brews. Native research
+continues to own validation, displayed cost, treasury payment, timestamp and
 duration creation, completion attributes, the one-time completed state, and
 the green alert. The dedicated Laboratory owner documented in
 `weapon-oil-stock-clone.md` holds the stock-created tuple so Phoenix research

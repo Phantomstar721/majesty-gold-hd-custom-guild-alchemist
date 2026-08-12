@@ -66,6 +66,8 @@ APA1_ARROWS_RECORD_START = 0x0120
 APA1_ARROWS_RECORD_END = 0x0218
 APA1_ARROWS_ICON_RECORD_START = 0x0480
 APA1_ARROWS_ICON_RECORD_END = 0x04CC
+APA1_ARROWS_PRICE_RECORD_START = 0x0518
+APA1_ARROWS_PRICE_RECORD_END = 0x05B0
 RESEARCH_ROW_OUTER_Y_OFFSET = 0x000C
 RESEARCH_ROW_OUTER_X_OFFSET = 0x0008
 RESEARCH_ROW_OUTER_WIDTH_OFFSET = 0x0010
@@ -76,11 +78,13 @@ STOCK_ARROWS_RESEARCH_CONTROL_ID = 0x139C
 BREWING_WEAPON_OIL_CONTROL_ID = 0x2A13
 BREWING_WEAPON_OIL_PROGRESS_CONTROL_ID = 0x2A11
 BREWING_WEAPON_OIL_ACTIVE_DISPLAY_CONTROL_ID = 0x2A12
-BREWING_WEAPON_OIL_ICON_CONTROL_ID = 0x2A14
+BREWING_WEAPON_OIL_ICON_CONTROL_ID = BREWING_WEAPON_OIL_CONTROL_ID + 500
+BREWING_WEAPON_OIL_PRICE_CONTROL_ID = BREWING_WEAPON_OIL_CONTROL_ID + 1000
 BREWING_PHOENIX_PHIAL_CONTROL_ID = 0x2A16
 BREWING_PHOENIX_PHIAL_PROGRESS_CONTROL_ID = 0x2A17
 BREWING_PHOENIX_PHIAL_ACTIVE_DISPLAY_CONTROL_ID = 0x2A18
-BREWING_PHOENIX_PHIAL_ICON_CONTROL_ID = 0x2A19
+BREWING_PHOENIX_PHIAL_ICON_CONTROL_ID = BREWING_PHOENIX_PHIAL_CONTROL_ID + 500
+BREWING_PHOENIX_PHIAL_PRICE_CONTROL_ID = BREWING_PHOENIX_PHIAL_CONTROL_ID + 1000
 ALCHEMY_OIL_INTENT_INDEX = 177
 ALCHEMY_OIL_INTENT_TEXT = "Applying weapon oil at the alchemy lab"
 PHOENIX_PHIAL_INTENT_INDEX = 178
@@ -89,6 +93,8 @@ WEAPON_OIL_PROGRESS_OUTER_RECT = (30, 87, 162, 20)
 WEAPON_OIL_PROGRESS_LABEL_RECT = (31, 90, 160, 14)
 PHOENIX_PHIAL_PROGRESS_OUTER_RECT = (30, 114, 162, 20)
 PHOENIX_PHIAL_PROGRESS_LABEL_RECT = (31, 117, 160, 14)
+WEAPON_OIL_PRICE_RECT = (151, 90, 40, 17)
+PHOENIX_PHIAL_PRICE_RECT = (151, 117, 40, 17)
 AP10_SPELL_BUTTON_RECT_OFFSET = 0x0D34
 AP10_SPELL_BUTTON_RECT = (103, 162, 93, 26)
 BREWING_FINAL_RECT = (7, 217, 93, 26)
@@ -606,6 +612,8 @@ def add_native_rage_progress_control(brewing_menu: bytes, rage_menu: bytes) -> b
     if rage_menu[inner_offset : inner_offset + 8] != struct.pack("<I4s", 12, b"INSr"):
         raise ValueError("Stock AP24 progress-control layout changed")
     progress_record = bytearray(rage_menu[RAGE_PROGRESS_RECORD_OFFSET:])
+    if progress_record[-8:] != b"\xff" * 8:
+        raise ValueError("Stock AP24 progress stream terminator changed")
     if struct.pack("<I", RAGE_PROGRESS_CONTROL_ID) not in progress_record:
         raise ValueError("Stock AP24 progress control ID is missing")
     if u32(progress_record, RAGE_ACTIVE_DISPLAY_ID_OFFSET) != RAGE_ACTIVE_DISPLAY_CONTROL_ID:
@@ -628,6 +636,13 @@ def add_native_rage_progress_control(brewing_menu: bytes, rage_menu: bytes) -> b
     # AP69's final INTG is the menu's terminal/root ornament control. Keep it
     # last, as stock AP69 does. AP31 demonstrates that INSr is a normal member
     # of the streamed control sequence and may be followed by later controls.
+    # AP24 owns the end of its own dialog and therefore ends this record with
+    # both a record terminator and an end-of-stream terminator. CGBR still has
+    # AP69's stock title and terminal controls after this insertion, so retain
+    # the record terminator and let AP69 continue to own the stream terminator.
+    # Keeping both AP24 words here makes Majesty stop before it constructs the
+    # stock GUILD SPELLS/Brewing title control.
+    progress_record = progress_record[:-4]
     return bytes(
         brewing_menu[:AP69_TERMINAL_RECORD_OFFSET]
         + progress_record
@@ -863,6 +878,35 @@ def add_stock_phoenix_phial_icon_control(
     return bytes(brewing_menu[:vigor_record] + source + brewing_menu[vigor_record:])
 
 
+def add_stock_research_price_control(
+    brewing_menu: bytes,
+    research_menu: bytes,
+    control_id: int,
+    rectangle: tuple[int, int, int, int],
+) -> bytes:
+    """Clone APa1's separate gold-cost display beside a private research row."""
+    source = bytearray(
+        research_menu[APA1_ARROWS_PRICE_RECORD_START:APA1_ARROWS_PRICE_RECORD_END]
+    )
+    if len(source) != 0x98 or source[-4:] != b"\xff" * 4:
+        raise ValueError("Stock APa1 Arrows price-control boundary changed")
+    if struct.unpack_from("<4I", source, 0x08) != (154, 64, 40, 17):
+        raise ValueError("Stock APa1 Arrows price rectangle changed")
+    if u32(source, 0x1C) != 9 or u32(source, 0x6C) != 0x1784:
+        raise ValueError("Stock APa1 Arrows price string/control contract changed")
+    if source.count(b"INTI") != 1:
+        raise ValueError("Stock APa1 Arrows price art contract changed")
+    struct.pack_into("<4I", source, 0x08, *rectangle)
+    struct.pack_into("<I", source, 0x6C, control_id)
+    source = source.replace(b"INTI", b"ALTI", 1)
+
+    vigor_id = struct.pack("<I", RAGE_PROGRESS_CONTROL_ID)
+    vigor_record = brewing_menu.index(vigor_id) - 0x6C
+    if vigor_record < 4 or u32(brewing_menu, vigor_record - 4) != 0xFFFFFFFF:
+        raise ValueError("CGBR pre-Vigor research-price insertion boundary changed")
+    return bytes(brewing_menu[:vigor_record] + source + brewing_menu[vigor_record:])
+
+
 def add_native_phoenix_phial_progress_control(
     brewing_menu: bytes, rage_menu: bytes
 ) -> bytes:
@@ -1001,6 +1045,18 @@ def build_text_cam(
     brewing_menu = add_stock_phoenix_phial_icon_control(
         brewing_menu, research_menu
     )
+    brewing_menu = add_stock_research_price_control(
+        brewing_menu,
+        research_menu,
+        BREWING_WEAPON_OIL_PRICE_CONTROL_ID,
+        WEAPON_OIL_PRICE_RECT,
+    )
+    brewing_menu = add_stock_research_price_control(
+        brewing_menu,
+        research_menu,
+        BREWING_PHOENIX_PHIAL_PRICE_CONTROL_ID,
+        PHOENIX_PHIAL_PRICE_RECT,
+    )
     brewing_menu = add_native_weapon_oil_progress_control(
         brewing_menu, rage_menu
     )
@@ -1048,7 +1104,10 @@ def build_text_cam(
             6: "",
             7: "Weapon Oil",
             8: "Research weapon oil for the Laboratory's stock enchanting service.",
-            9: "",
+            # The live price is formatted by APa1's stock row presenter from
+            # each private descriptor. Keep the inherited fallback slot aligned
+            # with the current one-gold testing price as well.
+            9: "1",
             13: "Brewing",
             28: "Invigorated",
             29: "Researching Weapon Oil",
@@ -1343,6 +1402,24 @@ def validate_output(
         raise ValueError("CGBR native Weapon Oil research row is missing or duplicated")
     if brewing_menu.count(struct.pack("<I", BREWING_PHOENIX_PHIAL_CONTROL_ID)) != 1:
         raise ValueError("CGBR native Phoenix Phial research row is missing or duplicated")
+    for control_id, rectangle, label in (
+        (
+            BREWING_WEAPON_OIL_PRICE_CONTROL_ID,
+            WEAPON_OIL_PRICE_RECT,
+            "Weapon Oil",
+        ),
+        (
+            BREWING_PHOENIX_PHIAL_PRICE_CONTROL_ID,
+            PHOENIX_PHIAL_PRICE_RECT,
+            "Phoenix Phial",
+        ),
+    ):
+        marker = struct.pack("<I", control_id)
+        if brewing_menu.count(marker) != 1:
+            raise ValueError(f"CGBR {label} stock price control is missing or duplicated")
+        price_record = brewing_menu.index(marker) - 0x6C
+        if struct.unpack_from("<4I", brewing_menu, price_record + 0x08) != rectangle:
+            raise ValueError(f"CGBR {label} stock price rectangle changed")
     progress_record_offset = (
         brewing_menu.index(struct.pack("<I", RAGE_PROGRESS_CONTROL_ID)) - 0x6C
     )

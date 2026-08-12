@@ -385,7 +385,7 @@ end
             + len(builder.AP69_TERMINAL_RECORD_HEADER)
         ] = builder.AP69_TERMINAL_RECORD_HEADER
         rage = bytearray(builder.RAGE_PROGRESS_RECORD_OFFSET)
-        record = bytearray(builder.RAGE_ACTIVE_DISPLAY_ID_OFFSET + 4)
+        record = bytearray(0xEC)
         struct.pack_into("<I", record, 0, 9)
         struct.pack_into(
             "<4I",
@@ -420,6 +420,7 @@ end
             builder.RAGE_ACTIVE_DISPLAY_ID_OFFSET,
             builder.RAGE_ACTIVE_DISPLAY_CONTROL_ID,
         )
+        record[-8:] = b"\xff" * 8
         rage += record
         output = builder.add_native_rage_progress_control(bytes(brewing), bytes(rage))
         self.assertEqual(struct.unpack_from("<I", output, 0x28)[0], 12)
@@ -456,12 +457,19 @@ end
         )
         self.assertEqual(
             output[
-                builder.AP69_TERMINAL_RECORD_OFFSET + len(record) :
+                builder.AP69_TERMINAL_RECORD_OFFSET + len(record) - 4 :
                 builder.AP69_TERMINAL_RECORD_OFFSET
-                + len(record)
+                + len(record) - 4
                 + len(builder.AP69_TERMINAL_RECORD_HEADER)
             ],
             builder.AP69_TERMINAL_RECORD_HEADER,
+        )
+        self.assertEqual(
+            output[
+                builder.AP69_TERMINAL_RECORD_OFFSET + len(record) - 8 :
+                builder.AP69_TERMINAL_RECORD_OFFSET + len(record) - 4
+            ],
+            b"\xff" * 4,
         )
 
     def test_weapon_oil_clones_the_stock_arrows_icon_control(self) -> None:
@@ -524,6 +532,42 @@ end
             builder.BREWING_PHOENIX_PHIAL_ICON_CONTROL_ID,
         )
 
+    def test_research_rows_clone_stock_arrows_gold_price_controls(self) -> None:
+        stock = Path(
+            r"C:\Program Files (x86)\Steam\steamapps\common\Majesty HD\Data\textdata.cam"
+        )
+        brewing = builder.read_cam_entry(
+            stock, b"SMNU", builder.SOURCE_BREWING_DIALOG_ID
+        ).data
+        research = builder.read_cam_entry(
+            stock, b"SMNU", builder.SOURCE_RESEARCH_DIALOG_ID
+        ).data
+        rage = builder.read_cam_entry(
+            stock, b"SMNU", builder.SOURCE_RAGE_DIALOG_ID
+        ).data
+        output = builder.add_native_rage_progress_control(brewing, rage)
+        for control_id, rectangle in (
+            (builder.BREWING_WEAPON_OIL_PRICE_CONTROL_ID, builder.WEAPON_OIL_PRICE_RECT),
+            (builder.BREWING_PHOENIX_PHIAL_PRICE_CONTROL_ID, builder.PHOENIX_PHIAL_PRICE_RECT),
+        ):
+            output = builder.add_stock_research_price_control(
+                output, research, control_id, rectangle
+            )
+            marker = output.index(struct.pack("<I", control_id))
+            record = marker - 0x6C
+            self.assertEqual(struct.unpack_from("<4I", output, record + 0x08), rectangle)
+            self.assertEqual(struct.unpack_from("<I", output, record + 0x1C)[0], 9)
+            self.assertEqual(output[record + 0x3C : record + 0x40], b"ALTI")
+
+        self.assertEqual(
+            builder.BREWING_WEAPON_OIL_ICON_CONTROL_ID,
+            builder.BREWING_WEAPON_OIL_CONTROL_ID + 500,
+        )
+        self.assertEqual(
+            builder.BREWING_WEAPON_OIL_PRICE_CONTROL_ID,
+            builder.BREWING_WEAPON_OIL_CONTROL_ID + 1000,
+        )
+
     def test_cgal_clones_stock_visitors_control_for_layout_probe(self) -> None:
         stock = Path(
             r"C:\Program Files (x86)\Steam\steamapps\common\Majesty HD\Data\textdata.cam"
@@ -582,6 +626,7 @@ end
         self.assertIn('1: "Vigor Elixir"', source)
         self.assertIn('29: "Brewing"', source)
         self.assertIn('13: "Brewing"', source)
+        self.assertIn('9: "1"', source)
         self.assertIn('28: "Invigorated"', source)
         self.assertNotIn('29: "BREWING"', source)
         self.assertEqual(source.count('fourcc_id("ALB1"): "Alchemy Lab"'), 1)

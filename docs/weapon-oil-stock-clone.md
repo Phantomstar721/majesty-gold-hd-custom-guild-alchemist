@@ -127,13 +127,29 @@ the owner of command submission, completion, and disabled row state.
 
 APa1 renders the Arrows glyph with a separate 25-by-25 control at `(3,60)`,
 not as part of the clickable research row. CGBR clones that complete control,
-moves it to `(3,86)`, changes only its control ID to `0x2A14`, and redirects
+moves it to `(3,86)`, changes only its control ID to command-plus-500
+(`0x2C07`), and redirects
 `INCr` set `1007` to the private `ALWI` image record. `ALWI` retains the stock
 one-frame research-icon animation and replaces only its TILE with the Weapon
 Oil artwork. Do not bake the icon into the button background or add a custom
 draw hook.
 
+APa1 likewise renders the gold research cost through a separate `0x98`-byte
+control at `(154,64,40,17)`. It is not embedded in the clickable Arrows row.
+CGBR clones that complete control, moves it to `(151,90,40,17)`, and preserves
+APa1's derived-ID contract: the icon is `command + 500` and the price field is
+`command + 1000`. The native row presenter at `0x004A8870` targets those exact
+children when it applies state and formats the descriptor's live cost. Merely
+cloning the clickable row leaves the price window absent.
+
 ## Completion alert name
+
+The private descriptor preserves Arrows' duration, level gate, name plumbing,
+and completion attribute, but replaces descriptor field `+0x08` with the
+explicit one-gold testing price. Stock `0x004A65A0` consumes that same field for
+the affordability check, row price text, treasury deduction, and research
+submission, so the displayed and charged values cannot diverge. Real
+Guardhouse Arrows retains its stock 250-gold descriptor.
 
 The stock completion callback begins at `0x004DFE20`. It reads
 `#ATTRIB_CurrentResearch`, resolves the native research descriptor through
@@ -213,6 +229,33 @@ The runtime keeps the customization as narrow as possible:
 7. Stock applies the cloned completion attribute, formats and posts the green
    completion alert, and clears its tuple. After the stock update returns, the
    runtime observes that cleanup and restores the AP10 activity byte-for-byte.
+   AP17 never invokes AP10's guild-activity renderer during this lifecycle, so
+   the Laboratory clone preserves that class boundary for the entire staged
+   stock update. Guarding only while `CurrentResearch` contains the private
+   recipe is insufficient because stock clears that attribute partway through
+   the same update; allowing a later AP10 activity pass dereferences incomplete
+   guild state at `MajestyHD.exe+0x9643D`. An upgrade can replace the live CGAL
+   panel context before research completes, so this one-update boundary is
+   scoped by the private CGAL vtable itself rather than the context pointer
+   captured when research began.
+8. CGBR inherits AP69 only as its streamed-panel controller. During that same
+   staged completion update, it suppresses AP69's Fervus spell-event renderer;
+   stock AP17 research never enters that renderer. The normal post-update APa1
+   refresh then restores the completed private row. The completion guard begins
+   only after the research tuple has been staged; moving it ahead of those
+   writes perturbs ordinary AP10 recruitment-completion ordering and crashes at
+   `MajestyHD.exe+0x9643D`. A brief underlying Fervus-icon flash remains a
+   cosmetic issue and must not be fixed by changing this proven lifecycle.
+   The AP10 guard remains active through restoration of the saved Laboratory
+   activity tuple and is cleared only afterward. Those restoration setters also
+   synchronously dispatch activity; clearing sooner exposes half-restored
+   recruitment state to AP10 at `MajestyHD.exe+0x9643D` when both operations
+   complete together.
+
+Stock also rejects starting research after an upgrade has claimed the building
+activity tuple. This native eligibility rule remains intact. Allowing that
+additional combination has no stock analogue and would require a separately
+approved custom ownership exception.
 
 The owner is shared by Weapon Oil and Phoenix Phial, so those recipes are
 mutually exclusive. It does not own or inspect Vigor's Palace/Rage state and it

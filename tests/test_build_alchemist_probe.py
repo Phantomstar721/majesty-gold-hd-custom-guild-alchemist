@@ -25,7 +25,7 @@ class AlchemistProbeTests(unittest.TestCase):
 
     def test_vigor_enabled_icon_is_colored_and_disabled_mask_is_grey(self) -> None:
         enabled_background, enabled_border, enabled_brightness = (
-            art_package.VIGOR_ICON_STYLES[199]
+            art_package.VIGOR_ICON_STYLES[212]
         )
         _disabled_background, _disabled_border, disabled_brightness = (
             art_package.VIGOR_ICON_STYLES[342]

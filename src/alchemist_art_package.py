@@ -50,21 +50,21 @@ BREWING_DIALOG_FRAME_TILE = 594
 RAGE_PROGRESS_TILES = (412, 413)
 CLEAN_PROGRESS_SOURCE_TILES = (414, 415)
 BREWING_PROGRESS_FRAME_SIZE = (162, 20)
-VIGOR_ICON_TILES = (177, 199, 252, 280, 302, 319, 325, 342)
+VIGOR_ICON_TILES = (190, 212, 252, 293, 315, 319, 338, 342)
 WEAPON_OIL_ICON_TILE = 162
 PHOENIX_ITEM_TILES = tuple(range(8282, 8291))
 PHOENIX_ITEM_INTERFACE_TILE = 8285
 VIGOR_ICON_STYLES = {
-    177: ((9, 31, 14), (184, 151, 42), 1.00),
-    # AP69 first recipe uses INTN set 1013: TILE 199 is its enabled
-    # artwork and TILE 342 is the shared disabled mask. Keep 199 fully
-    # colored; desaturating it makes an available Vigor look locked.
-    199: ((9, 31, 14), (184, 151, 42), 1.00),
+    190: ((9, 31, 14), (184, 151, 42), 1.00),
+    # Vines is AP69 interface set 1014: TILE 212 is its enabled artwork and
+    # TILE 342 is the shared disabled mask. Earlier work patched set 1013,
+    # which is Fervus Healing and therefore never affected the Vigor row.
+    212: ((9, 31, 14), (184, 151, 42), 1.00),
     252: ((26, 27, 24), (104, 101, 83), 0.50),
-    280: ((67, 68, 62), (139, 135, 111), 0.62),
-    302: ((10, 45, 19), (231, 198, 62), 1.18),
+    293: ((67, 68, 62), (139, 135, 111), 0.62),
+    315: ((10, 45, 19), (231, 198, 62), 1.18),
     319: ((35, 29, 8), (247, 205, 58), 1.12),
-    325: ((18, 58, 25), (170, 142, 37), 0.86),
+    338: ((18, 58, 25), (170, 142, 37), 0.86),
     342: ((8, 12, 9), (72, 72, 65), 0.38),
 }
 HERO_SPRITE_RANGES = ((5919, 6053), (6055, 6119))

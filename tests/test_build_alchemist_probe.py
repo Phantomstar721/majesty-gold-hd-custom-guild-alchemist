@@ -169,7 +169,7 @@ end
         self.assertIn('"AlchemistsLaboratory1"', fixture)
         self.assertEqual(fixture.count('"MaxHP"'), 4)
         self.assertIn('$AdjustPlayerData ( palace, "gold", 100000 )', fixture)
-        self.assertIn("#ATTRIB_ResearchArrows, 1", fixture)
+        self.assertNotIn("#ATTRIB_ResearchArrows, 1", fixture)
         self.assertIn('oilRogue = $SpawnUnit ( palace, "Rogue"', fixture)
         self.assertIn('oilWarrior = $SpawnUnit ( palace, "Warrior"', fixture)
         self.assertIn('oilAlchemist = $SpawnUnit ( palace, "Alchemist"', fixture)

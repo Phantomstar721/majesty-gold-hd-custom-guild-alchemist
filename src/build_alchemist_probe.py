@@ -148,7 +148,6 @@ def build_siege_test_fixture(stock_quests: Path) -> str:
         '$RandomCoord ( palace, 700, 900 ), "MaxHP" );'
         + '\n\talchemyLab = $SpawnUnit ( palace, "AlchemistsLaboratory1", '
         '$RandomCoord ( palace, 850, 1050 ), "MaxHP" );'
-        + '\n\t$SetAttribute ( alchemyLab, #ATTRIB_ResearchArrows, 1 );'
         + '\n\toilRogue = $SpawnUnit ( palace, "Rogue", '
         '$RandomCoord ( alchemyLab, 100, 150 ) );'
         + '\n\toilWarrior = $SpawnUnit ( palace, "Warrior", '

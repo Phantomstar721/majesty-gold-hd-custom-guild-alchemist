@@ -15,11 +15,13 @@ level 1, then copies only APa3 Teleportation Amulets'
 `ResearchPowerfulItem` completion attribute. This deliberately defers the
 final Laboratory-level requirement.
 
-Native research continues to own validation, treasury payment, timestamps,
-completion, cancellation, the one-time completed state, and the green alert.
-The progress display is the already-proven AP24 display pair fed with those
-native timestamps. The completion alert substitutes `Phoenix Phial` only for
-the private descriptor.
+Native research continues to own validation, treasury payment, timestamp and
+duration creation, completion attributes, the one-time completed state, and
+the green alert. The dedicated Laboratory owner documented in
+`weapon-oil-stock-clone.md` holds the stock-created tuple so Phoenix research
+does not occupy AP10 recruitment's activity channel. The progress display is
+the already-proven AP24 display pair fed with that untouched stock timing. The
+completion alert substitutes `Phoenix Phial` only for the private descriptor.
 
 ## Purchase and ownership
 

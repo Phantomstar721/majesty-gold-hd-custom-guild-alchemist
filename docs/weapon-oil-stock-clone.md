@@ -175,14 +175,46 @@ that call before `0x004C2C60`; this makes completion a hard one-time gate even
 if a stale click event reaches the row before its disabled presentation has
 repainted.
 
-## Deferred stock-channel collision
+## Dedicated Laboratory research owner
 
-If the Laboratory is recruiting an Alchemist when Weapon Oil research starts,
-the research progress currently completes immediately when recruitment
-finishes. This indicates that AP10 recruitment and APa1 research are sharing an
-activity/completion channel on the combined custom building controller. Do not
-paper over this with a private timer or independent research state. Before
-changing it, trace both stock lifecycles through their activity ownership,
-completion callback, attributes, and controller refresh, then determine the
-smallest stock-compatible separation. This is deliberately deferred while the
-basic Weapon Oil research path is completed.
+Live testing proved that AP10 recruitment and APa1/APa3 research share the
+same three-field building activity tuple:
+
+- `#ATTRIB_CurrentResearch` (`APB,`);
+- the activity start tick (`APB8`);
+- the activity duration (`APB\r`).
+
+That stock tuple cannot represent recruitment and research simultaneously.
+Recruit completion could therefore complete research early, while active
+research could make the Recruit button inert. There is no stock building that
+runs those two activities concurrently, so the user explicitly approved one
+custom owner for this combined Laboratory surface.
+
+The runtime keeps the customization as narrow as possible:
+
+1. Snapshot the Laboratory's complete native activity tuple, including an
+   active Alchemist recruitment.
+2. Clear the tuple only across the synchronous stock APa1/APa3 eligibility and
+   command-queue submission calls, then restore it immediately.
+3. Let stock validate level, gold, completed flags, charge the player, select
+   duration, and construct the recipe activity.
+4. On the stock game update that applies the queued command, snapshot AP10's
+   live tuple before the update, capture the exact recipe/start/duration values
+   stock produces, then restore the pre-update AP10 tuple byte-for-byte.
+5. Advance the captured recipe with Majesty's simulation clock on the existing
+   state-3 update dispatch. No OS timer, worker, watcher, or GPL polling thread
+   is introduced.
+6. Stock submission has already scheduled native event `0x2009`, whose handler
+   is the complete research callback at `0x004DFE20`. During the final
+   simulation second, snapshot the then-current AP10 activity and stage the
+   captured recipe tuple only around each stock game update. This lets the
+   already-scheduled event invoke its handler through Majesty's native event
+   dispatcher; the DLL must never call the handler directly.
+7. Stock applies the cloned completion attribute, formats and posts the green
+   completion alert, and clears its tuple. After the stock update returns, the
+   runtime observes that cleanup and restores the AP10 activity byte-for-byte.
+
+The owner is shared by Weapon Oil and Phoenix Phial, so those recipes are
+mutually exclusive. It does not own or inspect Vigor's Palace/Rage state and it
+does not retain the Laboratory activity tuple, so one research, Vigor, and one
+Alchemist recruitment can run concurrently.

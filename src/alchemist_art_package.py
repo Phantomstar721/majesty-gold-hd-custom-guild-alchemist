@@ -336,7 +336,10 @@ def vigor_icon_overrides(stock, tiles, icon_path: Path, output_dir: Path) -> dic
         draw.rectangle((0, 0, width - 1, height - 1), outline=border)
         if width >= 6 and height >= 6:
             draw.rectangle((1, 1, width - 2, height - 2), outline=(4, 9, 5))
-        icon = master.resize((max(1, width - 6), max(1, height - 6)), Image.Resampling.LANCZOS)
+        # The prepared Vigor master already includes the same one-pixel gold
+        # recipe frame as the other Brewing icons.  Keep only the stock tile's
+        # outer safety pixel instead of shrinking the artwork a second time.
+        icon = master.resize((max(1, width - 2), max(1, height - 2)), Image.Resampling.LANCZOS)
         if brightness != 1.0:
             from PIL import ImageEnhance
 

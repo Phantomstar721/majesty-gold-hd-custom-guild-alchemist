@@ -126,8 +126,8 @@ timestamps and exact `[7, elapsed, 0, duration]` progress message; APa1 remains
 the owner of command submission, completion, and disabled row state.
 
 APa1 renders the Arrows glyph with a separate 25-by-25 control at `(3,60)`,
-not as part of the clickable research row. CGBR clones that complete control,
-moves it to `(3,86)`, changes only its control ID to command-plus-500
+not as part of the clickable research row. CGBR clones that complete control
+in the first brew row and changes only its control ID to command-plus-500
 (`0x2C07`), and redirects
 `INCr` set `1007` to the private `ALWI` image record. `ALWI` retains the stock
 one-frame research-icon animation and replaces only its TILE with the Weapon
@@ -136,7 +136,7 @@ draw hook.
 
 APa1 likewise renders the gold research cost through a separate `0x98`-byte
 control at `(154,64,40,17)`. It is not embedded in the clickable Arrows row.
-CGBR clones that complete control, moves it to `(151,90,40,17)`, and preserves
+CGBR clones that complete control at `(151,63,40,17)` and preserves
 APa1's derived-ID contract: the icon is `command + 500` and the price field is
 `command + 1000`. The native row presenter at `0x004A8870` targets those exact
 children when it applies state and formats the descriptor's live cost. Merely
@@ -144,9 +144,9 @@ cloning the clickable row leaves the price window absent.
 
 ## Completion alert name
 
-The private descriptor preserves Arrows' duration, level gate, name plumbing,
-and completion attribute, but replaces descriptor field `+0x08` with the
-explicit one-gold testing price. Stock `0x004A65A0` consumes that same field for
+The private descriptor preserves Arrows' duration, level-1 gate, name plumbing,
+and completion attribute, with descriptor field `+0x08` set to the final
+250-gold research price. Stock `0x004A65A0` consumes that same field for
 the affordability check, row price text, treasury deduction, and research
 submission, so the displayed and charged values cannot diverge. Real
 Guardhouse Arrows retains its stock 250-gold descriptor.

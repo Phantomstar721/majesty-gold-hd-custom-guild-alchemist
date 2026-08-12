@@ -196,6 +196,14 @@ end
         self.assertIn(
             'source="Alchemist_Siege_Test.gpl"', builder.build_gpl_project(True)
         )
+        fixture_manifest = builder.build_manifest(include_siege_test_fixture=True)
+        self.assertIn(
+            "<Source>GPL\\Alchemist_Siege_Test.gpl</Source>", fixture_manifest
+        )
+        self.assertNotIn(
+            "<Source>GPL\\Alchemist_Siege_Test.gpl</Source>",
+            builder.build_manifest(),
+        )
 
     def test_economy_keeps_labs_out_of_stock_wizard_candidates(self) -> None:
         stock = (
@@ -295,7 +303,7 @@ end
         self.assertIn("#ATTRIB_MovementRateModifier, -200", source)
         self.assertIn("#ATTRIB_MovementRateModifier, 200", source)
         self.assertIn("30000", source)
-        self.assertIn('$AdjustPlayerData(Palace, "Gold", -1)', source)
+        self.assertIn('$AdjustPlayerData(Palace, "Gold", -1500)', source)
         self.assertIn("#ATTRIB_MaxHP, 20", source)
         self.assertIn("#ATTRIB_HP, 20", source)
         self.assertIn('Hero\'s "Self_Estimation" += 1', source)
@@ -378,6 +386,12 @@ end
             brewing,
             builder.AP69_FIRST_BREW_OUTER_RECT_OFFSET,
             *builder.AP69_FIRST_BREW_OUTER_RECT,
+        )
+        struct.pack_into(
+            "<4I",
+            brewing,
+            builder.AP69_FIRST_BREW_ICON_RECT_OFFSET,
+            *builder.AP69_FIRST_BREW_ICON_RECT,
         )
         brewing[
             builder.AP69_TERMINAL_RECORD_OFFSET :
@@ -489,7 +503,7 @@ end
         output = builder.add_stock_weapon_oil_icon_control(brewing, research)
         marker = output.index(b"ALWI")
         record = marker - 0x24
-        self.assertEqual(struct.unpack_from("<4I", output, record + 0x08), (3, 86, 25, 25))
+        self.assertEqual(struct.unpack_from("<4I", output, record + 0x08), (3, 60, 25, 25))
         self.assertEqual(
             struct.unpack_from("<I", output, record + 0x3C)[0],
             builder.BREWING_WEAPON_OIL_ICON_CONTROL_ID,
@@ -517,7 +531,7 @@ end
         record = control_id_offset - builder.RESEARCH_ROW_CONTROL_ID_OFFSET
         self.assertEqual(
             struct.unpack_from("<3I", output, record + 0x08),
-            (30, 114, 162),
+            (30, 87, 162),
         )
 
         output = builder.add_stock_phoenix_phial_icon_control(output, research)
@@ -525,7 +539,7 @@ end
         icon_record = marker - 0x24
         self.assertEqual(
             struct.unpack_from("<4I", output, icon_record + 0x08),
-            (3, 113, 25, 25),
+            (3, 86, 25, 25),
         )
         self.assertEqual(
             struct.unpack_from("<I", output, icon_record + 0x3C)[0],
@@ -605,12 +619,45 @@ end
         self.assertEqual(builder.BREWING_FINAL_RECT[2:], builder.AP10_SPELL_BUTTON_RECT[2:])
 
     def test_brewing_action_uses_a_private_control_id(self) -> None:
-        menu = bytearray(builder.BREWING_FIRST_BUTTON_ID_OFFSET + 4)
+        menu = bytearray(
+            max(
+                builder.BREWING_FIRST_BUTTON_ID_OFFSET + 4,
+                builder.BREWING_FIRST_ICON_ID_OFFSET + 4,
+                builder.BREWING_FIRST_PRICE_ID_OFFSET + 4,
+                builder.AP69_FIRST_BREW_RECT_OFFSET + 16,
+                builder.AP69_FIRST_BREW_OUTER_RECT_OFFSET + 16,
+                builder.AP69_FIRST_BREW_ICON_RECT_OFFSET + 16,
+            )
+        )
         struct.pack_into(
             "<I",
             menu,
             builder.BREWING_FIRST_BUTTON_ID_OFFSET,
             builder.STOCK_FERVUS_FIRST_SPELL_CONTROL_ID,
+        )
+        struct.pack_into(
+            "<I",
+            menu,
+            builder.BREWING_FIRST_ICON_ID_OFFSET,
+            builder.STOCK_FERVUS_FIRST_SPELL_CONTROL_ID + 1000,
+        )
+        struct.pack_into(
+            "<I",
+            menu,
+            builder.BREWING_FIRST_PRICE_ID_OFFSET,
+            builder.STOCK_FERVUS_FIRST_SPELL_CONTROL_ID - 1000,
+        )
+        struct.pack_into(
+            "<4I", menu, builder.AP69_FIRST_BREW_RECT_OFFSET,
+            *builder.AP69_FIRST_BREW_RECT,
+        )
+        struct.pack_into(
+            "<4I", menu, builder.AP69_FIRST_BREW_OUTER_RECT_OFFSET,
+            *builder.AP69_FIRST_BREW_OUTER_RECT,
+        )
+        struct.pack_into(
+            "<4I", menu, builder.AP69_FIRST_BREW_ICON_RECT_OFFSET,
+            *builder.AP69_FIRST_BREW_ICON_RECT,
         )
         output = builder.privateize_brewing_action_control(bytes(menu))
         self.assertEqual(
@@ -619,6 +666,18 @@ end
             )[0],
             builder.BREWING_INVIGORATING_CONTROL_ID,
         )
+        self.assertEqual(
+            struct.unpack_from(
+                "<I", output, builder.BREWING_FIRST_ICON_ID_OFFSET
+            )[0],
+            builder.BREWING_INVIGORATING_ICON_CONTROL_ID,
+        )
+        self.assertEqual(
+            struct.unpack_from(
+                "<I", output, builder.BREWING_FIRST_PRICE_ID_OFFSET
+            )[0],
+            builder.BREWING_INVIGORATING_PRICE_CONTROL_ID,
+        )
 
     def test_panel_uses_stock_length_display_labels(self) -> None:
         source = Path(builder.__file__).read_text(encoding="utf-8")
@@ -626,7 +685,8 @@ end
         self.assertIn('1: "Vigor Elixir"', source)
         self.assertIn('29: "Brewing"', source)
         self.assertIn('13: "Brewing"', source)
-        self.assertIn('9: "1"', source)
+        self.assertIn('3: "1500"', source)
+        self.assertIn('9: "250"', source)
         self.assertIn('28: "Invigorated"', source)
         self.assertNotIn('29: "BREWING"', source)
         self.assertEqual(source.count('fourcc_id("ALB1"): "Alchemy Lab"'), 1)

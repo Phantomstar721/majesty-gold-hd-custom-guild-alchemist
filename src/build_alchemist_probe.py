@@ -45,21 +45,25 @@ AP69_FIRST_BREW_RECT_OFFSET = 0x0240
 AP69_FIRST_BREW_RECT = (150, 63, 40, 17)
 AP69_FIRST_BREW_OUTER_RECT_OFFSET = 0x0184
 AP69_FIRST_BREW_OUTER_RECT = (30, 62, 162, 20)
+AP69_FIRST_BREW_ICON_RECT_OFFSET = 0x0128
+AP69_FIRST_BREW_ICON_RECT = (3, 60, 25, 25)
 AP69_TERMINAL_RECORD_OFFSET = 0x06D8
 AP69_TERMINAL_INNER_OFFSET = 0x28
 AP69_TERMINAL_RECORD_HEADER = struct.pack(
     "<11I4s", 0, 2, 3, 0xDF, 0x19, 0x14, 0x21, 0x0C, 0x0A, 2, 12, b"INTG"
 )
-BREWING_PROGRESS_RECT = (
-    AP69_FIRST_BREW_OUTER_RECT[0] + 1,
-    AP69_FIRST_BREW_OUTER_RECT[1] + 3,
-    AP69_FIRST_BREW_OUTER_RECT[2] - 2,
-    AP69_FIRST_BREW_OUTER_RECT[3] - 6,
-)
-BREWING_PROGRESS_OUTER_RECT = AP69_FIRST_BREW_OUTER_RECT
+VIGOR_ROW_OUTER_RECT = (30, 114, 162, 20)
+VIGOR_ROW_PRICE_RECT = (151, 117, 40, 17)
+VIGOR_ROW_ICON_RECT = (3, 113, 25, 25)
+BREWING_PROGRESS_RECT = (31, 117, 160, 14)
+BREWING_PROGRESS_OUTER_RECT = VIGOR_ROW_OUTER_RECT
 STOCK_FERVUS_FIRST_SPELL_CONTROL_ID = 0x1140
 BREWING_INVIGORATING_CONTROL_ID = 0x2A10
+BREWING_INVIGORATING_ICON_CONTROL_ID = BREWING_INVIGORATING_CONTROL_ID + 1000
+BREWING_INVIGORATING_PRICE_CONTROL_ID = BREWING_INVIGORATING_CONTROL_ID - 1000
 BREWING_FIRST_BUTTON_ID_OFFSET = 0x0204
+BREWING_FIRST_ICON_ID_OFFSET = 0x0174
+BREWING_FIRST_PRICE_ID_OFFSET = 0x02A4
 AP69_SECOND_RECIPE_RECORD_START = 0x0478
 AP69_SECOND_RECIPE_RECORD_END = 0x0620
 APA1_ARROWS_RECORD_START = 0x0120
@@ -89,12 +93,12 @@ ALCHEMY_OIL_INTENT_INDEX = 177
 ALCHEMY_OIL_INTENT_TEXT = "Applying weapon oil at the alchemy lab"
 PHOENIX_PHIAL_INTENT_INDEX = 178
 PHOENIX_PHIAL_INTENT_TEXT = "Purchasing a Phoenix Phial at the alchemy lab"
-WEAPON_OIL_PROGRESS_OUTER_RECT = (30, 87, 162, 20)
-WEAPON_OIL_PROGRESS_LABEL_RECT = (31, 90, 160, 14)
-PHOENIX_PHIAL_PROGRESS_OUTER_RECT = (30, 114, 162, 20)
-PHOENIX_PHIAL_PROGRESS_LABEL_RECT = (31, 117, 160, 14)
-WEAPON_OIL_PRICE_RECT = (151, 90, 40, 17)
-PHOENIX_PHIAL_PRICE_RECT = (151, 117, 40, 17)
+WEAPON_OIL_PROGRESS_OUTER_RECT = (30, 62, 162, 20)
+WEAPON_OIL_PROGRESS_LABEL_RECT = (31, 65, 160, 14)
+PHOENIX_PHIAL_PROGRESS_OUTER_RECT = (30, 87, 162, 20)
+PHOENIX_PHIAL_PROGRESS_LABEL_RECT = (31, 90, 160, 14)
+WEAPON_OIL_PRICE_RECT = (151, 63, 40, 17)
+PHOENIX_PHIAL_PRICE_RECT = (151, 90, 40, 17)
 AP10_SPELL_BUTTON_RECT_OFFSET = 0x0D34
 AP10_SPELL_BUTTON_RECT = (103, 162, 93, 26)
 BREWING_FINAL_RECT = (7, 217, 93, 26)
@@ -592,6 +596,10 @@ def add_native_rage_progress_control(brewing_menu: bytes, rage_menu: bytes) -> b
         "<4I", brewing_menu, AP69_FIRST_BREW_OUTER_RECT_OFFSET
     ) != AP69_FIRST_BREW_OUTER_RECT:
         raise ValueError("Stock AP69 first-recipe outer rectangle changed")
+    if struct.unpack_from(
+        "<4I", brewing_menu, AP69_FIRST_BREW_ICON_RECT_OFFSET
+    ) != AP69_FIRST_BREW_ICON_RECT:
+        raise ValueError("Stock AP69 first-recipe icon rectangle changed")
     if (
         brewing_menu[
             AP69_TERMINAL_RECORD_OFFSET :
@@ -611,6 +619,11 @@ def add_native_rage_progress_control(brewing_menu: bytes, rage_menu: bytes) -> b
     inner_offset = RAGE_PROGRESS_RECORD_OFFSET + RAGE_PROGRESS_INNER_OFFSET
     if rage_menu[inner_offset : inner_offset + 8] != struct.pack("<I4s", 12, b"INSr"):
         raise ValueError("Stock AP24 progress-control layout changed")
+    output = bytearray(brewing_menu)
+    struct.pack_into("<4I", output, AP69_FIRST_BREW_RECT_OFFSET, *VIGOR_ROW_PRICE_RECT)
+    struct.pack_into("<4I", output, AP69_FIRST_BREW_OUTER_RECT_OFFSET, *VIGOR_ROW_OUTER_RECT)
+    struct.pack_into("<4I", output, AP69_FIRST_BREW_ICON_RECT_OFFSET, *VIGOR_ROW_ICON_RECT)
+    brewing_menu = bytes(output)
     progress_record = bytearray(rage_menu[RAGE_PROGRESS_RECORD_OFFSET:])
     if progress_record[-8:] != b"\xff" * 8:
         raise ValueError("Stock AP24 progress stream terminator changed")
@@ -651,15 +664,37 @@ def add_native_rage_progress_control(brewing_menu: bytes, rage_menu: bytes) -> b
 
 
 def privateize_brewing_action_control(brewing_menu: bytes) -> bytes:
-    """Detach the first recipe from AP69's built-in Fervus spell metadata."""
+    """Privatize AP69's complete first-row control family for Vigor."""
     output = bytearray(brewing_menu)
-    actual = u32(output, BREWING_FIRST_BUTTON_ID_OFFSET)
-    if actual != STOCK_FERVUS_FIRST_SPELL_CONTROL_ID:
+    actual_action = u32(output, BREWING_FIRST_BUTTON_ID_OFFSET)
+    actual_icon = u32(output, BREWING_FIRST_ICON_ID_OFFSET)
+    actual_price = u32(output, BREWING_FIRST_PRICE_ID_OFFSET)
+    if actual_action != STOCK_FERVUS_FIRST_SPELL_CONTROL_ID:
         raise ValueError(
-            f"Stock AP69 first spell control changed: 0x{actual:04X}"
+            f"Stock AP69 first spell control changed: 0x{actual_action:04X}"
         )
+    if actual_icon != STOCK_FERVUS_FIRST_SPELL_CONTROL_ID + 1000:
+        raise ValueError(
+            f"Stock AP69 first spell icon changed: 0x{actual_icon:04X}"
+        )
+    if actual_price != STOCK_FERVUS_FIRST_SPELL_CONTROL_ID - 1000:
+        raise ValueError(
+            f"Stock AP69 first spell price changed: 0x{actual_price:04X}"
+        )
+    # AP69's stock row presenter derives the two children directly from the
+    # action ID: price = action - 1000 and icon = action + 1000. Move exactly
+    # those three controls together so no Fervus/Vines identity remains.
     struct.pack_into(
-        "<I", output, BREWING_FIRST_BUTTON_ID_OFFSET, BREWING_INVIGORATING_CONTROL_ID
+        "<I", output, BREWING_FIRST_BUTTON_ID_OFFSET,
+        BREWING_INVIGORATING_CONTROL_ID,
+    )
+    struct.pack_into(
+        "<I", output, BREWING_FIRST_ICON_ID_OFFSET,
+        BREWING_INVIGORATING_ICON_CONTROL_ID,
+    )
+    struct.pack_into(
+        "<I", output, BREWING_FIRST_PRICE_ID_OFFSET,
+        BREWING_INVIGORATING_PRICE_CONTROL_ID,
     )
     return bytes(output)
 
@@ -712,7 +747,7 @@ def add_stock_weapon_oil_research_control(
         raise ValueError("Stock AP69 second recipe record size changed")
     # CGBR indices 7 and 8 are the private second-row label and tooltip.
     struct.pack_into("<I", source, RESEARCH_ROW_OUTER_X_OFFSET, 30)
-    struct.pack_into("<I", source, RESEARCH_ROW_OUTER_Y_OFFSET, 87)
+    struct.pack_into("<I", source, RESEARCH_ROW_OUTER_Y_OFFSET, 62)
     struct.pack_into("<I", source, RESEARCH_ROW_OUTER_WIDTH_OFFSET, 162)
     # Preserve APa1's complete compound-control record but privatize its
     # command key. The runtime resolves 0x2A13 to a byte-for-byte clone of the
@@ -763,7 +798,7 @@ def add_stock_phoenix_phial_research_control(
     if u32(brewing_menu, 0x320) != 0xFFFFFFFF or u32(brewing_menu, 0x324) != 0:
         raise ValueError("Stock AP69 remaining recipe boundary changed")
     struct.pack_into("<I", source, RESEARCH_ROW_OUTER_X_OFFSET, 30)
-    struct.pack_into("<I", source, RESEARCH_ROW_OUTER_Y_OFFSET, 114)
+    struct.pack_into("<I", source, RESEARCH_ROW_OUTER_Y_OFFSET, 87)
     struct.pack_into("<I", source, RESEARCH_ROW_OUTER_WIDTH_OFFSET, 162)
     struct.pack_into(
         "<I", source, RESEARCH_ROW_CONTROL_ID_OFFSET, BREWING_PHOENIX_PHIAL_CONTROL_ID
@@ -842,7 +877,7 @@ def add_stock_weapon_oil_icon_control(
         raise ValueError("Stock APa1 Arrows icon art contract changed")
     if u32(source, 0x3C) != 0x1590:
         raise ValueError("Stock APa1 Arrows icon control ID changed")
-    struct.pack_into("<I", source, 0x0C, 86)
+    struct.pack_into("<I", source, 0x0C, 60)
     source = source.replace(b"INCr", b"ALWI", 1)
     struct.pack_into("<I", source, 0x3C, BREWING_WEAPON_OIL_ICON_CONTROL_ID)
 
@@ -868,7 +903,7 @@ def add_stock_phoenix_phial_icon_control(
         raise ValueError("Stock APa1 Arrows icon rectangle changed")
     if source.count(b"INCr") != 1 or u32(source, 0x3C) != 0x1590:
         raise ValueError("Stock APa1 Arrows icon contract changed")
-    struct.pack_into("<I", source, 0x0C, 113)
+    struct.pack_into("<I", source, 0x0C, 86)
     source = source.replace(b"INCr", b"ALPI", 1)
     struct.pack_into("<I", source, 0x3C, BREWING_PHOENIX_PHIAL_ICON_CONTROL_ID)
     vigor_id = struct.pack("<I", RAGE_PROGRESS_CONTROL_ID)
@@ -1098,16 +1133,15 @@ def build_text_cam(
             0: "ALCHEMY LAB",
             1: "Vigor Elixir",
             2: "Invigorate every unit for 30 seconds: faster movement, 20 bonus hit points, and greater confidence.",
-            3: "1",
+            3: "1500",
             4: "Phoenix Phial",
             5: "Research Phoenix Phials for sale to heroes.",
             6: "",
             7: "Weapon Oil",
             8: "Research weapon oil for the Laboratory's stock enchanting service.",
-            # The live price is formatted by APa1's stock row presenter from
-            # each private descriptor. Keep the inherited fallback slot aligned
-            # with the current one-gold testing price as well.
-            9: "1",
+            # APa1's presenter replaces this fallback with each descriptor's
+            # live price (250 for Oil, 750 for Phoenix).
+            9: "250",
             13: "Brewing",
             28: "Invigorated",
             29: "Researching Weapon Oil",
@@ -1176,12 +1210,20 @@ def build_misc_cam(stock_misc_cam: Path, output_path: Path, include_phantoms: bo
     )
 
 
-def build_manifest(use_ap10_title_alias: bool = False) -> str:
+def build_manifest(
+    use_ap10_title_alias: bool = False,
+    include_siege_test_fixture: bool = False,
+) -> str:
     probe_detail = (
         "Temporary fixture using stock Fervus and Cultist resources; its GPL title "
         "aliases Temple_Fervus to isolate the AP10 spell callback."
         if use_ap10_title_alias
         else "Temporary fixture using stock Fervus and Cultist resources."
+    )
+    siege_source = (
+        "\n\t\t\t\t\t\t<Source>GPL\\Alchemist_Siege_Test.gpl</Source>"
+        if include_siege_test_fixture
+        else ""
     )
     return f'''<Majesty>
 \t<Mod id="{MOD_ID}">
@@ -1206,8 +1248,12 @@ def build_manifest(use_ap10_title_alias: bool = False) -> str:
 \t\t\t\t\t\t<Target>Data\\Alchemist.bcd</Target>
 \t\t\t\t\t\t<Source>GPL\\Alchemist_Building_Data.dat</Source>
 \t\t\t\t\t\t<Source>GPL\\Alchemist_Hero_Data.dat</Source>
+\t\t\t\t\t\t<Source>GPL\\Alchemist_Phoenix_Phial.dat</Source>
+\t\t\t\t\t\t<Source>GPL\\Alchemist_Rogue.gpl</Source>
+\t\t\t\t\t\t<Source>GPL\\Alchemist_Brewing.gpl</Source>
 \t\t\t\t\t\t<Source>GPL\\Alchemist_Economy.gpl</Source>
 \t\t\t\t\t\t<Source>GPL\\Alchemist_Weapon_Oil.gpl</Source>
+\t\t\t\t\t\t<Source>GPL\\Alchemist_Phoenix_Phial.gpl</Source>{siege_source}
 \t\t\t\t\t</GPL>
 \t\t\t\t</Load>
 \t\t\t</Dataset>
@@ -1680,7 +1726,7 @@ def build(
     shutil.copy2(compiled, data_dir / "Alchemist.bcd")
     compiled.unlink()
     (output_root / "CustomGuildAlchemistProbe.mmxml").write_bytes(
-        build_manifest(use_ap10_title_alias).encode("utf-8")
+        build_manifest(use_ap10_title_alias, include_siege_test_fixture).encode("utf-8")
     )
     validate_output(
         output_root,

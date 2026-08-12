@@ -34,9 +34,12 @@ declare
 	integer HeroCount;
 begin
 	Palace = $GetTruePalace(ThisAgent);
-	if ($GetPlayerData(Palace, "Gold") >= 1)
+	// Stock guild actions gate on the owning building's ordinary level
+	// attribute before entering their transaction. Vigor is the level-3 brew.
+	if ($GetAttribute(ThisAgent, #ATTRIB_ExperienceLevel) >= 3)
+	if ($GetPlayerData(Palace, "Gold") >= 1500)
 		begin
-			$AdjustPlayerData(Palace, "Gold", -1);
+			$AdjustPlayerData(Palace, "Gold", -1500);
 			// Exact stock Rage target query, with only the private effector,
 			// values, duration, and sound substituted for the Alchemist brew.
 			$ListObjects(ThisAgent, "hero", -1, Heroes, #MyPlayer, #InsideOtherUnits, #NoHiddenMap, #CheckSubtypes, "Hero");

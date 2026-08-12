@@ -6,22 +6,20 @@ stock lifecycles.
 
 ## Research
 
-The third CGBR row is the same complete APa1 Arrows compound research control
-used by Weapon Oil, privatized as command `0x2A16` and moved down one row. This
+The second CGBR row is the same complete APa1 Arrows compound research control
+used by Weapon Oil, privatized as command `0x2A16`. This
 keeps both Laboratory research bars byte-for-byte identical in width, internal
 hit geometry, disabled state, and native dispatch. The runtime descriptor also
-starts from APa1 Arrows so the prototype remains researchable at Laboratory
-level 1, then copies only APa3 Teleportation Amulets'
-`ResearchPowerfulItem` completion attribute. This deliberately defers the
-final Laboratory-level requirement.
+starts from APa1 Arrows, changes its required-level field to 2, and copies only
+APa3 Teleportation Amulets' `ResearchPowerfulItem` completion attribute.
 
 Its icon and price window retain the same APa1 derived-ID contract as Weapon
-Oil. The separate stock price control is cloned to `(151,117,40,17)` with ID
+Oil. The separate stock price control is cloned to `(151,90,40,17)` with ID
 `0x2A16 + 1000`; this lets the unchanged native presenter render the private
 descriptor price inside the normal gold-cost window.
 
-The private Phoenix descriptor changes Arrows' `+0x08` base-price field to the
-same explicit one-gold testing price used by the other brews. Native research
+The private Phoenix descriptor changes Arrows' `+0x08` base-price field to
+750 gold. Native research
 continues to own validation, displayed cost, treasury payment, timestamp and
 duration creation, completion attributes, the one-time completed state, and
 the green alert. The dedicated Laboratory owner documented in

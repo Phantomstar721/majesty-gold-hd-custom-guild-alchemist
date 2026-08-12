@@ -13,8 +13,8 @@ Invigorating Elixer affects true player heroes only. This is deliberate. The
 hero path was repeatedly confirmed in game to apply, expire, clean up, and
 re-arm correctly when implemented as a private clone of Rage of Krolm.
 
-The final brew costs 1 gold for testing and lasts 30 seconds of simulation
-time. Each affected hero receives:
+The third brew requires a level-3 Laboratory, costs 1500 gold, and lasts 30
+seconds of simulation time. Each affected hero receives:
 
 - 20 current and maximum hit points;
 - 1 Self_Estimation;

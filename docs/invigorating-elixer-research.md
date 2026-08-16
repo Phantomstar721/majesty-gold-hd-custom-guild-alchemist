@@ -1,5 +1,23 @@
 # Invigorating Elixer Research Log
 
+## Current checkpoint status: broken
+
+Vigor is **not functioning** in the current build. The `XR01` stock art
+dependency was private-cloned as described below, but a live test confirmed
+that this did not restore the gameplay effect. This checkpoint intentionally
+records that unresolved state; it must not be treated as a known-good Vigor
+implementation.
+
+## XR01 stock art dependency
+
+The private Rage-derived Vigor effector uses `ImageIDBase="XR01"`, Majesty's
+stock Northern Expansion Speed Tonic icon. That IMAG is absent from retail
+`Data/maindata.cam`; it lives in `DataMX/mx_maindata.cam`. Depending on another
+dataset or mod load order to provide XR01 causes `$CreateEffector` to abort the
+Vigor GPL function before any hero stats are adjusted. The Alchemist art CAM
+therefore private-clones the exact eight-frame stock XR01 IMAG/TILE record from
+DataMX while preserving the proven Rage gameplay lifecycle unchanged.
+
 The complete reusable UI method for a labeled timed-effect bar in a custom
 subpanel is documented in the expanded-building-slots repository under
 `docs/rage-of-krolm-reference.md`, section **Reusable recipe: timed effect bar

@@ -1387,6 +1387,7 @@ def validate_output(
         b"ALB2Alchemy Lab 2",
         b"ALB3Alchemy Lab 3",
         b"PXF1Phoenix Phial",
+        b"XR01Speed_tonic_ico",
     ):
         if not read_cam_entry(main_art, b"IMAG", name).data:
             raise ValueError(f"Private main art record is empty: {name!r}")
@@ -1402,7 +1403,7 @@ def validate_output(
         if not read_cam_entry(interface_art, b"IMAG", name).data:
             raise ValueError(f"Private interface art record is empty: {name!r}")
     for art_path, prefixes in (
-        (main_art, (b"ALC1", b"ALB1", b"ALB2", b"ALB3", b"PXF1")),
+        (main_art, (b"ALC1", b"ALB1", b"ALB2", b"ALB3", b"PXF1", b"XR01")),
         (
             interface_art,
             (b"ALTI", b"ALBB", b"ALBG", b"ALIN", b"ALWI", b"ALPI", b"ALSR"),

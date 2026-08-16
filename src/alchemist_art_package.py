@@ -33,6 +33,8 @@ RESEARCH_ICON_CUSTOM = b"ALWIweapon oil icon"
 PHOENIX_RESEARCH_ICON_CUSTOM = b"ALPIphial icon"
 INVENTORY_ITEM_SOURCE = b"AVk4Res Item"
 INVENTORY_ITEM_CUSTOM = b"PXF1Phoenix Phial"
+VIGOR_EFFECT_SOURCE = b"XR01Speed_tonic_ico"
+VIGOR_EFFECT_CUSTOM = b"XR01Speed_tonic_ico"
 PROGRESS_SOURCE = b"INSrreasearch"
 PROGRESS_CUSTOM = b"ALSRalchemy progress"
 BUILDING_PROFILE_TILE = 1509
@@ -420,6 +422,18 @@ def write_maindata(repo: Path, game_data: Path, art_dir: Path, output: Path) -> 
     phoenix_item_imag = stock.read_cam_entry(
         source, b"IMAG", INVENTORY_ITEM_SOURCE
     ).data
+    # XR01 is the stock Northern Expansion Speed Tonic icon that the proven
+    # Vigor overlay has always referenced. It is not present in retail
+    # Data/maindata.cam, so privateize its exact DataMX IMAG/TILE record here
+    # instead of depending on campaign/mod load order to provide it.
+    mx_source = game_data.parent / "DataMX" / "mx_maindata.cam"
+    if not mx_source.is_file():
+        raise FileNotFoundError(f"Stock Northern Expansion maindata is missing: {mx_source}")
+    mx_tiles = stock.read_cam_entries(mx_source, b"TILE")
+    mx_palettes = stock.read_cam_entries(mx_source, b"SPLT")
+    vigor_effect_imag = stock.read_cam_entry(
+        mx_source, b"IMAG", VIGOR_EFFECT_SOURCE
+    ).data
 
     # All appended art is private. Stock TILE slots remain empty fall-through
     # placeholders in the emitted CAM, so no retail art is globally replaced.
@@ -542,6 +556,33 @@ def write_maindata(repo: Path, game_data: Path, art_dir: Path, output: Path) -> 
         phoenix_item_imag, phoenix_item_replacements
     )
 
+    vigor_effect_replacements: dict[int, int] = {}
+    for frame, source_index in enumerate(
+        stock.animation_tile_indices(vigor_effect_imag, len(mx_tiles))
+    ):
+        source_tile = mx_tiles[source_index].data
+        source_palette_index = stock.tile_palette_index(source_tile)
+        if source_palette_index is None or source_palette_index >= len(mx_palettes):
+            raise ValueError("Stock XR01 frame has no valid DataMX palette")
+        source_colors = stock.splt_palette_colors(
+            mx_palettes[source_palette_index].data
+        )
+        target_colors = stock.splt_palette_colors(palettes[32].data)
+        private_tile = stock.remap_indexed_v3_tile_to_palette(
+            source_tile,
+            source_colors,
+            32,
+            target_colors,
+        )
+        vigor_effect_replacements[source_index] = append(
+            f"XR01Vigor{frame:02d}".encode("ascii"), private_tile
+        )
+    if len(vigor_effect_replacements) != 8:
+        raise ValueError("Stock XR01 Speed Tonic icon no longer has eight frames")
+    vigor_effect_imag = stock.remap_imag_animation_tiles(
+        vigor_effect_imag, vigor_effect_replacements
+    )
+
     profile_index = append(
         b"ALB1Profile",
         stock.tile_from_rgb(
@@ -620,6 +661,7 @@ def write_maindata(repo: Path, game_data: Path, art_dir: Path, output: Path) -> 
         stock.CamEntry(stock.pad_name(HERO_CUSTOM), hero_imag),
         *(stock.CamEntry(stock.pad_name(name), imag) for name, imag in zip(BUILDING_CUSTOM, building_imags)),
         stock.CamEntry(stock.pad_name(INVENTORY_ITEM_CUSTOM), phoenix_item_imag),
+        stock.CamEntry(stock.pad_name(VIGOR_EFFECT_CUSTOM), vigor_effect_imag),
     )
     stock.write_cam(
         (

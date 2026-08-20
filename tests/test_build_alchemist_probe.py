@@ -9,9 +9,119 @@ import xml.etree.ElementTree as ET
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 import build_alchemist_probe as builder
 import alchemist_art_package as art_package
+import approved_sprite_bundle as sprite_bundle
 
 
 class AlchemistProbeTests(unittest.TestCase):
+    def test_approved_sprite_bundle_is_hash_pinned_and_covers_only_walk_stand(self) -> None:
+        repo = Path(__file__).resolve().parents[1]
+        stock = art_package.load_stock_pipeline(repo)
+        retail = Path(
+            r"C:\Program Files (x86)\Steam\steamapps\common\Majesty HD\Data\maindata.cam"
+        )
+        tiles = stock.read_cam_entries(retail, b"TILE")
+        palettes = stock.read_cam_entries(retail, b"SPLT")
+        warrior_imag = stock.read_cam_entry(
+            retail, b"IMAG", art_package.HERO_SOURCE
+        ).data
+        bundle = sprite_bundle.load_approved_sprite_bundle(
+            builder.APPROVED_SPRITE_PIPELINE_ROOT,
+            stock,
+            retail,
+            tiles,
+            palettes,
+            warrior_imag,
+        )
+        self.assertEqual(bundle.private_palette_index, len(palettes))
+        self.assertEqual(bundle.private_palette_index, 854)
+        self.assertEqual(
+            sorted(bundle.tiles_by_stock_slot), list(range(5919, 5991))
+        )
+        self.assertEqual(
+            [record["direction"] for record in bundle.records[:64:8]],
+            list(sprite_bundle.DIRECTION_ORDER),
+        )
+        self.assertEqual(
+            [record["direction"] for record in bundle.records[64:]],
+            list(sprite_bundle.DIRECTION_ORDER),
+        )
+        private_colours = stock.splt_palette_colors(bundle.private_palette_data)
+        visible = private_colours[1:247]
+        self.assertEqual(
+            sprite_bundle.palette_content_sha256(visible),
+            sprite_bundle.PALETTE_CONTENT_SHA256,
+        )
+        self.assertEqual(
+            {index: private_colours[index] for index in sprite_bundle.CONTROL_RGB},
+            sprite_bundle.CONTROL_RGB,
+        )
+
+    def test_approved_sprite_imag_remap_preserves_every_other_warrior_word(self) -> None:
+        repo = Path(__file__).resolve().parents[1]
+        stock = art_package.load_stock_pipeline(repo)
+        retail = Path(
+            r"C:\Program Files (x86)\Steam\steamapps\common\Majesty HD\Data\maindata.cam"
+        )
+        warrior_imag = stock.read_cam_entry(
+            retail, b"IMAG", art_package.HERO_SOURCE
+        ).data
+        replacements = {
+            source: 20000 + source - sprite_bundle.APPROVED_SLOT_START
+            for source in range(
+                sprite_bundle.APPROVED_SLOT_START,
+                sprite_bundle.APPROVED_SLOT_END,
+            )
+        }
+        patched = sprite_bundle.remap_approved_warrior_imag(
+            stock, warrior_imag, replacements
+        )
+        changed = []
+        changed_offsets = []
+        for offset in range(0, len(warrior_imag) - 3, 4):
+            before = struct.unpack_from("<I", warrior_imag, offset)[0]
+            after = struct.unpack_from("<I", patched, offset)[0]
+            if before != after:
+                changed.append(before & 0xFFFF)
+                changed_offsets.append(offset)
+                self.assertGreaterEqual(before & 0xFFFF, 5919)
+                self.assertLessEqual(before & 0xFFFF, 5990)
+        self.assertEqual(set(changed), set(range(5919, 5991)))
+        self.assertEqual(
+            tuple(changed_offsets), sprite_bundle.EXPECTED_REMAPPED_IMAG_OFFSETS
+        )
+        self.assertEqual(len(changed_offsets), 73)
+
+    def test_approved_sprite_mode_is_explicit_and_cannot_use_regular_art_cache(self) -> None:
+        source = Path(builder.__file__).read_text(encoding="utf-8")
+        self.assertIn('"--approved-sprite-test-set"', source)
+        self.assertIn("cache_current = (not approved_sprite_test_set) and all(", source)
+        self.assertIn("if not approved_sprite_test_set:", source)
+        self.assertIn(
+            '"fresh build; regular art cache bypassed and not updated"',
+            Path(sprite_bundle.__file__).read_text(encoding="utf-8"),
+        )
+        powershell = (
+            Path(__file__).resolve().parents[1]
+            / "scripts"
+            / "Build-AlchemistProbe.ps1"
+        ).read_text(encoding="utf-8")
+        self.assertIn('.\\dist\\CustomGuildAlchemistSpriteTest', powershell)
+
+    def test_approved_sprite_output_is_confined_to_repository_dist(self) -> None:
+        repo = Path(__file__).resolve().parents[1]
+        accepted = repo / "dist" / "CustomGuildAlchemistSpriteTest"
+        self.assertEqual(
+            builder.require_approved_sprite_output_root(accepted), accepted.resolve()
+        )
+        with self.assertRaisesRegex(ValueError, "must stay inside"):
+            builder.require_approved_sprite_output_root(repo.parent / "outside")
+        with self.assertRaisesRegex(ValueError, "must be a child"):
+            builder.require_approved_sprite_output_root(repo / "dist")
+        with self.assertRaisesRegex(ValueError, "may not replace"):
+            builder.require_approved_sprite_output_root(
+                repo / "dist" / "CustomGuildAlchemistProbe"
+            )
+
     def test_cgal_privateizes_stock_cultist_member_icon(self) -> None:
         stock = b"prefix AVC1 suffix INTI INBb INBg"
         cloned = builder.privateize_cgal_menu(stock)

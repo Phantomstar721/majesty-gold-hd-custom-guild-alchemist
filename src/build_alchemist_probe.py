@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 from dataclasses import dataclass
+import json
 from pathlib import Path
 import re
 import shutil
@@ -11,6 +12,7 @@ import sys
 import xml.etree.ElementTree as ET
 
 from alchemist_art_package import write_interfacedata, write_maindata
+from approved_sprite_bundle import sha256_file
 
 
 MAGIC = b"CYLBPC  \x01\x00\x01\x00"
@@ -120,6 +122,27 @@ ALCHEMIST_BDEP_RULE = b"ALB1 : ABJ2 ABJ3 NOT NOT ||"
 PHANTOM_BDEP_RULE = b"PHG1 : ABJ2 ABJ3 NOT NOT ||"
 SOURCE_ROOT = Path(__file__).resolve().parent
 GPL_SOURCE_ROOT = SOURCE_ROOT / "gpl"
+APPROVED_SPRITE_PIPELINE_ROOT = (
+    SOURCE_ROOT.parents[1] / "majesty-gold-hd-sprite-art-pipeline"
+)
+APPROVED_SPRITE_PROVENANCE_NAME = "ApprovedSpriteTestSet.json"
+
+
+def require_approved_sprite_output_root(output_root: Path) -> Path:
+    approved_dist = (SOURCE_ROOT.parent / "dist").resolve()
+    regular_probe = (approved_dist / "CustomGuildAlchemistProbe").resolve()
+    resolved = output_root.resolve()
+    if resolved == approved_dist:
+        raise ValueError("Approved sprite output must be a child of the repository dist directory")
+    if resolved == regular_probe:
+        raise ValueError("Approved sprite output may not replace the regular probe build")
+    try:
+        resolved.relative_to(approved_dist)
+    except ValueError as exc:
+        raise ValueError(
+            f"Approved sprite output must stay inside {approved_dist}: {resolved}"
+        ) from exc
+    return resolved
 
 
 def extract_gpl_function(source: str, function_name: str) -> str:
@@ -1269,6 +1292,7 @@ def validate_output(
     use_ap10_title_alias: bool = False,
     enable_unsafe_brewing_control: bool = False,
     include_siege_test_fixture: bool = False,
+    approved_sprite_test_set: bool = False,
 ) -> None:
     expected = {
         output_root / "CustomGuildAlchemistProbe.mmxml",
@@ -1293,9 +1317,37 @@ def validate_output(
     }
     if include_siege_test_fixture:
         expected.add(output_root / "GPL" / "Alchemist_Siege_Test.gpl")
+    if approved_sprite_test_set:
+        expected.add(output_root / APPROVED_SPRITE_PROVENANCE_NAME)
     actual = {path for path in output_root.rglob("*") if path.is_file()}
     if actual != expected:
         raise ValueError(f"Unexpected package files: {sorted(str(p) for p in actual ^ expected)}")
+    if approved_sprite_test_set:
+        provenance_path = output_root / APPROVED_SPRITE_PROVENANCE_NAME
+        provenance = json.loads(provenance_path.read_text(encoding="utf-8"))
+        if provenance.get("schema") != "majesty-alchemist-approved-sprite-test-set-v1":
+            raise ValueError("Approved sprite test provenance schema changed")
+        if provenance.get("cache_policy") != (
+            "fresh build; regular art cache bypassed and not updated"
+        ):
+            raise ValueError("Approved sprite test did not bypass the regular art cache")
+        packaged_main = output_root / "Data" / "alchemist_maindata.cam"
+        if provenance.get("output", {}).get("maindata_cam_sha256") != sha256_file(
+            packaged_main
+        ):
+            raise ValueError("Approved sprite test CAM hash does not match provenance")
+        packaged_bcd = output_root / "Data" / "Alchemist.bcd"
+        if provenance.get("output", {}).get("alchemist_bcd_sha256") != sha256_file(
+            packaged_bcd
+        ):
+            raise ValueError("Approved sprite test BCD hash does not match provenance")
+        expected_package_hashes = {
+            path.relative_to(output_root).as_posix(): sha256_file(path)
+            for path in sorted(output_root.rglob("*"))
+            if path.is_file() and path != provenance_path
+        }
+        if provenance.get("output", {}).get("package_file_sha256") != expected_package_hashes:
+            raise ValueError("Approved sprite test package-file hashes changed")
     root = ET.parse(output_root / "Data" / "alchemist_probe_units.xml").getroot()
     descriptions = root.findall("Description")
     if [item.get("ID") for item in descriptions] != [ALCHEMIST_HERO_ID, *BUILDING_IDS, "PXF1"]:
@@ -1598,7 +1650,10 @@ def build(
     use_ap10_title_alias: bool = False,
     enable_unsafe_brewing_control: bool = False,
     include_siege_test_fixture: bool = False,
+    approved_sprite_test_set: bool = False,
 ) -> None:
+    if approved_sprite_test_set:
+        output_root = require_approved_sprite_output_root(output_root)
     data_dir = output_root / "Data"
     gpl_dir = output_root / "GPL"
     if output_root.exists():
@@ -1617,7 +1672,10 @@ def build(
         SOURCE_ROOT.parent / "src" / "alchemist_art_package.py",
     ]
     newest_input = max(path.stat().st_mtime for path in art_inputs if path.is_file())
-    cache_current = all(
+    # The accepted Walk/Stand bundle has independent, hash-pinned source
+    # artifacts and a new SPLT record. Never let the regular generated-art CAM
+    # cache satisfy or absorb this in-game test mode.
+    cache_current = (not approved_sprite_test_set) and all(
         path.is_file() and path.stat().st_mtime >= newest_input
         for path in (cached_main, cached_interface)
     )
@@ -1658,15 +1716,21 @@ def build(
         data_dir / "alchemist_probe_miscdata.cam",
         include_phantoms,
     )
+    approved_art_provenance = None
     if cache_current:
         shutil.copy2(cached_main, data_dir / "alchemist_maindata.cam")
         shutil.copy2(cached_interface, data_dir / "alchemist_interfacedata.cam")
     else:
-        write_maindata(
+        approved_art_provenance = write_maindata(
             SOURCE_ROOT.parent,
             game_data,
             generated_art,
             data_dir / "alchemist_maindata.cam",
+            (
+                APPROVED_SPRITE_PIPELINE_ROOT
+                if approved_sprite_test_set
+                else None
+            ),
         )
         write_interfacedata(
             SOURCE_ROOT.parent,
@@ -1674,9 +1738,13 @@ def build(
             generated_art,
             data_dir / "alchemist_interfacedata.cam",
         )
-        art_cache.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(data_dir / "alchemist_maindata.cam", cached_main)
-        shutil.copy2(data_dir / "alchemist_interfacedata.cam", cached_interface)
+        if not approved_sprite_test_set:
+            art_cache.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(data_dir / "alchemist_maindata.cam", cached_main)
+            shutil.copy2(data_dir / "alchemist_interfacedata.cam", cached_interface)
+    if approved_sprite_test_set:
+        if approved_art_provenance is None:
+            raise AssertionError("Approved sprite test unexpectedly used cached art")
     (gpl_dir / "Alchemist.gplproj").write_text(
         build_gpl_project(include_siege_test_fixture), encoding="utf-8"
     )
@@ -1729,12 +1797,31 @@ def build(
     (output_root / "CustomGuildAlchemistProbe.mmxml").write_bytes(
         build_manifest(use_ap10_title_alias, include_siege_test_fixture).encode("utf-8")
     )
+    if approved_sprite_test_set:
+        assert approved_art_provenance is not None
+        approved_art_provenance["compiler"] = {
+            "path": "SDK/Gplbcc.exe",
+            "sha256": sha256_file(compiler),
+        }
+        approved_art_provenance["output"]["alchemist_bcd_sha256"] = sha256_file(
+            data_dir / "Alchemist.bcd"
+        )
+        approved_art_provenance["output"]["package_file_sha256"] = {
+            path.relative_to(output_root).as_posix(): sha256_file(path)
+            for path in sorted(output_root.rglob("*"))
+            if path.is_file()
+        }
+        (output_root / APPROVED_SPRITE_PROVENANCE_NAME).write_text(
+            json.dumps(approved_art_provenance, indent=2) + "\n",
+            encoding="utf-8",
+        )
     validate_output(
         output_root,
         include_phantoms,
         use_ap10_title_alias,
         enable_unsafe_brewing_control,
         include_siege_test_fixture,
+        approved_sprite_test_set,
     )
 
 
@@ -1746,6 +1833,14 @@ def main() -> int:
     parser.add_argument("--use-ap10-title-alias-probe", action="store_true")
     parser.add_argument("--enable-unsafe-brewing-control", action="store_true")
     parser.add_argument("--include-siege-test-fixture", action="store_true")
+    parser.add_argument(
+        "--approved-sprite-test-set",
+        action="store_true",
+        help=(
+            "build a fresh, cache-bypassed in-game gate with approved Walk V4 "
+            "and Stand V5 art only"
+        ),
+    )
     args = parser.parse_args()
     build(
         args.game_path,
@@ -1754,6 +1849,7 @@ def main() -> int:
         args.use_ap10_title_alias_probe,
         args.enable_unsafe_brewing_control,
         args.include_siege_test_fixture,
+        args.approved_sprite_test_set,
     )
     print(f"Built and validated Alchemist probe: {args.output_root}")
     return 0

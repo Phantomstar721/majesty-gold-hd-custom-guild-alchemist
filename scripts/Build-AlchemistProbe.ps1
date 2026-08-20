@@ -1,13 +1,14 @@
 param(
     [string]$GamePath = "C:\Program Files (x86)\Steam\steamapps\common\Majesty HD",
-    [string]$OutputRoot = ".\dist\CustomGuildAlchemistProbe",
+    [string]$OutputRoot = "",
     [switch]$IncludePhantomsHauntProbe,
     [switch]$UseAP10TitleAliasProbe,
     # The runtime now owns the formerly unsafe AP10 secondary route. Keep the
     # real Brewing control enabled in every normal build; false is retained
     # only for reproducing the pre-runtime diagnostic fixture.
     [switch]$EnableUnsafeBrewingControl = $true,
-    [switch]$IncludeSiegeTestFixture
+    [switch]$IncludeSiegeTestFixture,
+    [switch]$ApprovedSpriteTestSet
 )
 
 $ErrorActionPreference = "Stop"
@@ -15,10 +16,19 @@ $repoRoot = Split-Path -Parent $PSScriptRoot
 $workspaceRoot = Split-Path -Parent $repoRoot
 $python = Join-Path $workspaceRoot ".tools\python.cmd"
 $builder = Join-Path $repoRoot "src\build_alchemist_probe.py"
-$output = if ([IO.Path]::IsPathRooted($OutputRoot)) {
-    $OutputRoot
+$effectiveOutputRoot = if ([string]::IsNullOrWhiteSpace($OutputRoot)) {
+    if ($ApprovedSpriteTestSet) {
+        ".\dist\CustomGuildAlchemistSpriteTest"
+    } else {
+        ".\dist\CustomGuildAlchemistProbe"
+    }
 } else {
-    Join-Path $repoRoot $OutputRoot
+    $OutputRoot
+}
+$output = if ([IO.Path]::IsPathRooted($effectiveOutputRoot)) {
+    $effectiveOutputRoot
+} else {
+    Join-Path $repoRoot $effectiveOutputRoot
 }
 
 if (-not (Test-Path -LiteralPath $python -PathType Leaf)) {
@@ -44,6 +54,9 @@ if ($EnableUnsafeBrewingControl) {
 }
 if ($IncludeSiegeTestFixture) {
     $arguments += "--include-siege-test-fixture"
+}
+if ($ApprovedSpriteTestSet) {
+    $arguments += "--approved-sprite-test-set"
 }
 
 & $python @arguments

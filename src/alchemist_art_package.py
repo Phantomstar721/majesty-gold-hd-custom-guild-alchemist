@@ -7,6 +7,13 @@ import sys
 
 from PIL import Image, ImageDraw
 
+from approved_sprite_bundle import (
+    load_approved_sprite_bundle,
+    package_provenance,
+    remap_approved_warrior_imag,
+    validate_packaged_approved_sprite_cam,
+)
+
 
 HERO_SOURCE = b"AVL1Warrior"
 HERO_CUSTOM = b"ALC1Alchemist"
@@ -412,7 +419,13 @@ def brewing_dialog_frame(
     return output_path
 
 
-def write_maindata(repo: Path, game_data: Path, art_dir: Path, output: Path) -> None:
+def write_maindata(
+    repo: Path,
+    game_data: Path,
+    art_dir: Path,
+    output: Path,
+    approved_sprite_test_root: Path | None = None,
+) -> dict | None:
     stock = load_stock_pipeline(repo)
     source = game_data / "maindata.cam"
     tiles = stock.read_cam_entries(source, b"TILE")
@@ -435,6 +448,19 @@ def write_maindata(repo: Path, game_data: Path, art_dir: Path, output: Path) -> 
         mx_source, b"IMAG", VIGOR_EFFECT_SOURCE
     ).data
 
+    approved_bundle = (
+        load_approved_sprite_bundle(
+            approved_sprite_test_root,
+            stock,
+            source,
+            tiles,
+            palettes,
+            hero_imag,
+        )
+        if approved_sprite_test_root is not None
+        else None
+    )
+
     # All appended art is private. Stock TILE slots remain empty fall-through
     # placeholders in the emitted CAM, so no retail art is globally replaced.
     # Positional TILE overlays must begin after the complete retail table, not
@@ -448,91 +474,121 @@ def write_maindata(repo: Path, game_data: Path, art_dir: Path, output: Path) -> 
         extra.append(stock.CamEntry(name=stock.pad_name(name), data=data))
         return index
 
-    hero_replacements: dict[int, int] = {}
     hero_dir = art_dir / "hero"
-    warrior_walk_geometry = {
-        source_index: indexed_body_geometry(stock, tiles[source_index].data)
-        for source_index in range(WARRIOR_WALK_START, WARRIOR_WALK_END)
-    }
-    warrior_walk_heights = {
-        source_index: geometry[3] - geometry[1] + 1
-        for source_index, geometry in warrior_walk_geometry.items()
-    }
-    warrior_walk_base_offsets = {
-        # tile_from_png_source's body_base_offset is bottom-exclusive.
-        source_index: geometry[3] - geometry[6] + 1
-        for source_index, geometry in warrior_walk_geometry.items()
-    }
-    walk_body_areas: dict[int, list[int]] = {direction: [] for direction in range(8)}
-    for start, end in HERO_SPRITE_RANGES:
-        for source_index in range(start, end):
-            path = hero_dir / f"hero_tile_{source_index:05d}.png"
-            if not path.exists():
-                raise FileNotFoundError(path)
-            rendered = stock.tile_from_png_source(
-                stock.remap_tile_palette_index(tiles[source_index].data, HERO_ART_PALETTE),
-                palettes,
-                path,
-                horizontal_alignment="center",
-                edge_margin=2,
-                shadow_png_path=path,
-                target_art_height=(
-                    warrior_walk_heights[source_index]
-                    if WARRIOR_WALK_START <= source_index < WARRIOR_WALK_END
-                    else None
-                ),
-                body_base_offset=(
-                    warrior_walk_base_offsets[source_index]
-                    if WARRIOR_WALK_START <= source_index < WARRIOR_WALK_END
-                    else None
-                ),
+    approved_private_tile_indices: dict[int, int] = {}
+    if approved_bundle is not None:
+        # This is deliberately a narrow in-game sprite gate. Clone AVL1's
+        # complete timing/state graph and replace only its accepted Walk and
+        # Stand source slots. Portrait, panel, cast, death, and attack refs all
+        # remain literal stock references until their own visual gates pass.
+        for source_index, rendered in sorted(
+            approved_bundle.tiles_by_stock_slot.items()
+        ):
+            approved_private_tile_indices[source_index] = append(
+                f"ALC1Test{source_index:05d}".encode("ascii"), rendered
             )
-            if WARRIOR_WALK_START <= source_index < WARRIOR_WALK_END:
-                direction = (source_index - WARRIOR_WALK_START) // 8
-                walk_body_areas[direction].append(
-                    validate_packaged_walk_frame(
-                        stock,
-                        tiles[source_index].data,
-                        rendered,
-                        f"Alchemist Walk TILE {source_index}",
-                    )
+        hero_imag = remap_approved_warrior_imag(
+            stock, hero_imag, approved_private_tile_indices
+        )
+    else:
+        hero_replacements: dict[int, int] = {}
+        warrior_walk_geometry = {
+            source_index: indexed_body_geometry(stock, tiles[source_index].data)
+            for source_index in range(WARRIOR_WALK_START, WARRIOR_WALK_END)
+        }
+        warrior_walk_heights = {
+            source_index: geometry[3] - geometry[1] + 1
+            for source_index, geometry in warrior_walk_geometry.items()
+        }
+        warrior_walk_base_offsets = {
+            # tile_from_png_source's body_base_offset is bottom-exclusive.
+            source_index: geometry[3] - geometry[6] + 1
+            for source_index, geometry in warrior_walk_geometry.items()
+        }
+        walk_body_areas: dict[int, list[int]] = {
+            direction: [] for direction in range(8)
+        }
+        for start, end in HERO_SPRITE_RANGES:
+            for source_index in range(start, end):
+                path = hero_dir / f"hero_tile_{source_index:05d}.png"
+                if not path.exists():
+                    raise FileNotFoundError(path)
+                rendered = stock.tile_from_png_source(
+                    stock.remap_tile_palette_index(
+                        tiles[source_index].data, HERO_ART_PALETTE
+                    ),
+                    palettes,
+                    path,
+                    horizontal_alignment="center",
+                    edge_margin=2,
+                    shadow_png_path=path,
+                    target_art_height=(
+                        warrior_walk_heights[source_index]
+                        if WARRIOR_WALK_START <= source_index < WARRIOR_WALK_END
+                        else None
+                    ),
+                    body_base_offset=(
+                        warrior_walk_base_offsets[source_index]
+                        if WARRIOR_WALK_START <= source_index < WARRIOR_WALK_END
+                        else None
+                    ),
                 )
-            hero_replacements[source_index] = append(
-                f"ALC1Hero{source_index - 5919:04d}".encode("ascii"), rendered
-            )
+                if WARRIOR_WALK_START <= source_index < WARRIOR_WALK_END:
+                    direction = (source_index - WARRIOR_WALK_START) // 8
+                    walk_body_areas[direction].append(
+                        validate_packaged_walk_frame(
+                            stock,
+                            tiles[source_index].data,
+                            rendered,
+                            f"Alchemist Walk TILE {source_index}",
+                        )
+                    )
+                hero_replacements[source_index] = append(
+                    f"ALC1Hero{source_index - 5919:04d}".encode("ascii"), rendered
+                )
 
-    for direction, areas in walk_body_areas.items():
-        if len(areas) != 8 or min(areas) < max(areas) * 0.62:
-            raise ValueError(
-                f"Alchemist Walk direction {direction} has an incomplete packaged "
-                f"frame body: {areas}"
-            )
+        for direction, areas in walk_body_areas.items():
+            if len(areas) != 8 or min(areas) < max(areas) * 0.62:
+                raise ValueError(
+                    f"Alchemist Walk direction {direction} has an incomplete packaged "
+                    f"frame body: {areas}"
+                )
 
-    hero_replacements[HERO_PORTRAIT_TILE] = append(
-        b"ALC1Portrait",
-        stock.tile_from_rgb(
-            stock.remap_tile_palette_index(tiles[HERO_PORTRAIT_TILE].data, BUILDING_PALETTE),
-            palettes,
-            image_rgb(repo / "assets/source/hero/portrait.png", (100, 100)),
-        ),
-    )
-    hero_replacements[HERO_ICON_TILE] = append(
-        b"ALC1HeroIcon",
-        stock.tile_from_rgb(
-            stock.remap_tile_palette_index(tiles[HERO_ICON_TILE].data, BUILDING_PALETTE),
-            palettes,
-            image_rgb(art_dir / "interface/hero-icon-25.png", (25, 25)),
-        ),
-    )
-    hero_replacements[HERO_PANEL_TILE] = append(
-        b"ALC1HeroPanel",
-        stock.tile_from_rgb(
-            stock.remap_tile_palette_index(tiles[HERO_PANEL_TILE].data, HERO_ART_PALETTE),
-            palettes,
-            image_rgb(art_dir / "interface/building-panel-200x245.png", (200, 245)),
-        ),
-    )
-    hero_imag = stock.remap_imag_low16_tile_indices(hero_imag, hero_replacements)
+        hero_replacements[HERO_PORTRAIT_TILE] = append(
+            b"ALC1Portrait",
+            stock.tile_from_rgb(
+                stock.remap_tile_palette_index(
+                    tiles[HERO_PORTRAIT_TILE].data, BUILDING_PALETTE
+                ),
+                palettes,
+                image_rgb(repo / "assets/source/hero/portrait.png", (100, 100)),
+            ),
+        )
+        hero_replacements[HERO_ICON_TILE] = append(
+            b"ALC1HeroIcon",
+            stock.tile_from_rgb(
+                stock.remap_tile_palette_index(
+                    tiles[HERO_ICON_TILE].data, BUILDING_PALETTE
+                ),
+                palettes,
+                image_rgb(art_dir / "interface/hero-icon-25.png", (25, 25)),
+            ),
+        )
+        hero_replacements[HERO_PANEL_TILE] = append(
+            b"ALC1HeroPanel",
+            stock.tile_from_rgb(
+                stock.remap_tile_palette_index(
+                    tiles[HERO_PANEL_TILE].data, HERO_ART_PALETTE
+                ),
+                palettes,
+                image_rgb(
+                    art_dir / "interface/building-panel-200x245.png", (200, 245)
+                ),
+            ),
+        )
+        hero_imag = stock.remap_imag_low16_tile_indices(
+            hero_imag, hero_replacements
+        )
 
     # Retail and the SDK model carried items as ordinary IsInventoryItem units
     # backed by AVk4's Inactive/Minimap/Interface animation sets. Preserve that
@@ -638,20 +694,35 @@ def write_maindata(repo: Path, game_data: Path, art_dir: Path, output: Path) -> 
         index = stock.tile_palette_index(entry.data)
         if index is not None:
             palette_indices.add(index)
-    palette_entries = tuple(
-        stock.CamEntry(
-            name=palettes[index].name,
-            data=(
-                stock.splt_with_color_replacements(
-                    palettes[index].data,
-                    {247: (156, 33, 24), 248: (178, 0, 178), 249: (204, 0, 204), 250: (229, 0, 229)},
+    palette_entries_list = []
+    for index in range(max(palette_indices) + 1):
+        if approved_bundle is not None and index == approved_bundle.private_palette_index:
+            palette_entries_list.append(
+                stock.CamEntry(
+                    name=stock.pad_name(b"ALC1WalkStandV4"),
+                    data=approved_bundle.private_palette_data,
                 )
-                if index == BUILDING_PALETTE
-                else palettes[index].data
-            ),
+            )
+            continue
+        palette_entries_list.append(
+            stock.CamEntry(
+                name=palettes[index].name,
+                data=(
+                    stock.splt_with_color_replacements(
+                        palettes[index].data,
+                        {
+                            247: (156, 33, 24),
+                            248: (178, 0, 178),
+                            249: (204, 0, 204),
+                            250: (229, 0, 229),
+                        },
+                    )
+                    if index == BUILDING_PALETTE
+                    else palettes[index].data
+                ),
+            )
         )
-        for index in range(max(palette_indices) + 1)
-    )
+    palette_entries = tuple(palette_entries_list)
     tile_entries = [
         stock.CamEntry(name=tiles[index].name, data=b"")
         for index in range(base_max + 1)
@@ -671,6 +742,20 @@ def write_maindata(repo: Path, game_data: Path, art_dir: Path, output: Path) -> 
         ),
         output,
     )
+    if approved_bundle is not None:
+        validate_packaged_approved_sprite_cam(
+            stock,
+            output,
+            tiles,
+            palettes,
+            stock.read_cam_entry(source, b"IMAG", HERO_SOURCE).data,
+            approved_bundle,
+            approved_private_tile_indices,
+        )
+        return package_provenance(
+            approved_bundle, approved_private_tile_indices, output
+        )
+    return None
 
 
 def write_interfacedata(repo: Path, game_data: Path, art_dir: Path, output: Path) -> None:

@@ -56,6 +56,22 @@ temple and animal-spawning callbacks are not inherited.
 .\scripts\Deploy-AlchemistProbe.ps1
 ```
 
+To build the accepted hero-motion in-game gate without deploying it, use:
+
+```powershell
+.\scripts\Build-AlchemistProbe.ps1 -ApprovedSpriteTestSet
+```
+
+That explicit mode writes `dist\CustomGuildAlchemistSpriteTest`, bypasses the
+regular art cache, and verifies the hash-pinned Walk V4 and Stand V5 sources
+before compiling. It appends one private SPLT after the complete retail palette
+table and replaces only Warrior Walk/Stand slots `5919–5990` in the private
+`ALC1` IMAG. Special/cast/death slots `5991–6052` and attack slots `6055–6118`
+remain stock fallthrough references until those actions pass their own visual
+gates. The generated `ApprovedSpriteTestSet.json` records every source and
+packaged-frame hash. The build command does not copy anything into the game or
+Majesty Mods directories.
+
 The compatibility switch emits both temporary `PHG1` and `ALB1` BDEP rules so
 this package can load after Phantoms Haunt during the two-mod test. It is a
 deliberate stopgap for the CAM merger, not the final distribution model.

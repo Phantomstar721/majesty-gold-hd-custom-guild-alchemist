@@ -15,6 +15,13 @@ rotation and the Marketplace's player-purchased consumables.
 
 See [the initial design brief](docs/design-brief.md).
 
+The recruit now uses a private copy of the stock Rogue decision cycle with its
+stealing branch removed, while dagger combat uses Warrior's direct
+`basic_attack` lifecycle. Cultist camouflage, charm, and shapeshifting are
+removed at the stock `AllowedSpells` declaration. The exact ownership and call
+paths are recorded in
+[the Alchemist hero stock-clone notes](docs/alchemist-hero-stock-clone.md).
+
 Invigorating Elixer is intentionally scoped to true recruitable heroes. Its
 activation, targeting, timed effector, Palace-side count, expiry cleanup, and
 repeat-use lifecycle copy the stock Rage of Krolm mechanism. Henchmen were

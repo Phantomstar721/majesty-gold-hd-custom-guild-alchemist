@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import importlib.util
+import math
 from pathlib import Path
 import struct
 import sys
@@ -42,6 +43,14 @@ RESEARCH_ICON_CUSTOM = b"ALWIweapon oil icon"
 PHOENIX_RESEARCH_ICON_CUSTOM = b"ALPIphial icon"
 INVENTORY_ITEM_SOURCE = b"AVk4Res Item"
 INVENTORY_ITEM_CUSTOM = b"PXF1Phoenix Phial"
+PHOENIX_EFFECT_SOURCE = b"HRC1resurrect_e"
+PHOENIX_EFFECT_CUSTOM = b"PXE1Phoenix Cast"
+PHOENIX_EFFECT_PALETTE = 505
+# Phantoms Haunt's live-proven Eternal Soul cast keeps every animation frame
+# on this one fixed canvas.  The stock HRC1 resurrection animation instead
+# changes canvas and hotspot on every frame, which made the discarded Phoenix
+# experiment jump from the upper-left back onto its hero as it shrank.
+PHOENIX_EFFECT_HEADER = (3, 99, 103, 0, 32, 56, 43, 8)
 VIGOR_EFFECT_SOURCE = b"XR01Speed_tonic_ico"
 VIGOR_EFFECT_CUSTOM = b"XR01Speed_tonic_ico"
 PROGRESS_SOURCE = b"INSrreasearch"
@@ -86,6 +95,78 @@ VIGOR_ICON_STYLES = {
 HERO_SPRITE_RANGES = ((5919, 6053), (6055, 6119))
 WARRIOR_WALK_START = 5919
 WARRIOR_WALK_END = 5983
+
+
+def generated_phoenix_resurrection_tile(
+    stock,
+    palettes,
+    source_png: Path,
+    frame_index: int,
+    frame_count: int,
+) -> bytes:
+    """Render one fixed-anchor frame for the private resurrection effector.
+
+    HRC1 still owns the exact stock 29-slot animation timing.  Only its 28
+    visible TILEs are replaced.  Every replacement uses Eternal Soul's proven
+    fixed self-cast geometry and stock fireball palette 505, so growth and
+    fading come from the Phoenix drawing rather than moving tile origins.
+    """
+    from PIL import ImageEnhance
+
+    _version, height, width, _field_6, _depth, _hot_x, _hot_y, _field_14 = (
+        PHOENIX_EFFECT_HEADER
+    )
+    with Image.open(source_png) as loaded:
+        source = loaded.convert("RGBA")
+
+    # Ignore isolated near-transparent generation fringe when choosing the
+    # crop, while retaining the original antialiased alpha inside that crop.
+    crop_mask = source.getchannel("A").point(lambda value: 255 if value >= 64 else 0)
+    bbox = crop_mask.getbbox()
+    if bbox is None:
+        raise ValueError("Phoenix resurrection source has no visible alpha")
+    source = source.crop(bbox)
+
+    progress = frame_index / max(1, frame_count - 1)
+    if progress <= 0.48:
+        growth = progress / 0.48
+        smooth_growth = growth * growth * (3.0 - 2.0 * growth)
+        scale = 0.12 + 0.88 * smooth_growth
+        visible_alpha = 0.30 + 0.70 * growth
+    elif progress <= 0.72:
+        hold = (progress - 0.48) / 0.24
+        scale = 1.0 + 0.035 * math.sin(math.pi * hold)
+        visible_alpha = 1.0
+    else:
+        fade = (progress - 0.72) / 0.28
+        scale = 1.02 - 0.30 * fade
+        visible_alpha = max(0.06, 1.0 - 0.94 * fade)
+
+    max_width = round(width * 0.90 * scale)
+    max_height = round(height * 0.90 * scale)
+    source.thumbnail(
+        (max(3, max_width), max(3, max_height)),
+        Image.Resampling.LANCZOS,
+    )
+    source = ImageEnhance.Brightness(source).enhance(
+        0.92 + 0.10 * visible_alpha
+    )
+    alpha = source.getchannel("A").point(
+        lambda value: round(value * visible_alpha)
+    )
+    source.putalpha(alpha)
+
+    canvas = Image.new("RGBA", (width, height), (0, 0, 0, 0))
+    left = (width - source.width) // 2
+    # Eternal Soul grows upward from a stable foot/attachment anchor.
+    top = height - source.height - 2
+    canvas.alpha_composite(source, (left, top))
+    return stock.rgba_to_indexed_tile(
+        canvas,
+        palettes,
+        PHOENIX_EFFECT_PALETTE,
+        PHOENIX_EFFECT_HEADER,
+    )
 
 
 def indexed_body_geometry(stock, tile: bytes) -> tuple[int, int, int, int, int, int, int]:
@@ -442,6 +523,9 @@ def write_maindata(
     phoenix_item_imag = stock.read_cam_entry(
         source, b"IMAG", INVENTORY_ITEM_SOURCE
     ).data
+    phoenix_effect_imag = stock.read_cam_entry(
+        source, b"IMAG", PHOENIX_EFFECT_SOURCE
+    ).data
     # XR01 is the stock Northern Expansion Speed Tonic icon that the proven
     # Vigor overlay has always referenced. It is not present in retail
     # Data/maindata.cam, so privateize its exact DataMX IMAG/TILE record here
@@ -619,6 +703,50 @@ def write_maindata(
         )
     phoenix_item_imag = stock.remap_imag_low16_tile_indices(
         phoenix_item_imag, phoenix_item_replacements
+    )
+
+    # Preserve HRC1's exact stock set-64 timing table and first blank slot.
+    # Its 28 visible frames are the only privatized seam.  Unlike the failed
+    # variable-canvas experiment, every frame shares the proven Eternal Soul
+    # canvas/hotspot and fiery stock palette.
+    phoenix_sets = stock.single_direction_imag_animation_sets(
+        phoenix_effect_imag
+    )
+    if len(phoenix_sets) != 1 or phoenix_sets[0][0] != 64:
+        raise ValueError("Stock HRC1 resurrection animation set changed")
+    phoenix_frame_slots = phoenix_sets[0][1]
+    phoenix_source_indices = [
+        tile_index for _record_offset, tile_index in phoenix_frame_slots if tile_index
+    ]
+    if len(phoenix_frame_slots) != 29 or len(phoenix_source_indices) != 28:
+        raise ValueError("Stock HRC1 resurrection frame contract changed")
+    if PHOENIX_EFFECT_PALETTE >= len(palettes):
+        raise ValueError("Stock fireball palette 505 is missing")
+    phoenix_effect_source_png = (
+        repo
+        / "assets"
+        / "source"
+        / "spells"
+        / "phoenix-phial"
+        / "flaming-phoenix-source.png"
+    )
+    if not phoenix_effect_source_png.is_file():
+        raise FileNotFoundError(phoenix_effect_source_png)
+    phoenix_effect_replacements: dict[int, int] = {}
+    for frame_index, source_index in enumerate(phoenix_source_indices):
+        phoenix_effect_replacements[source_index] = append(
+            f"PXE1Phoenix{frame_index:02d}".encode("ascii"),
+            generated_phoenix_resurrection_tile(
+                stock,
+                palettes,
+                phoenix_effect_source_png,
+                frame_index,
+                len(phoenix_source_indices),
+            ),
+        )
+    phoenix_effect_imag = stock.remap_imag_animation_tiles(
+        phoenix_effect_imag,
+        phoenix_effect_replacements,
     )
 
     vigor_effect_replacements: dict[int, int] = {}
@@ -807,6 +935,7 @@ def write_maindata(
         stock.CamEntry(stock.pad_name(HERO_CUSTOM), hero_imag),
         *(stock.CamEntry(stock.pad_name(name), imag) for name, imag in zip(BUILDING_CUSTOM, building_imags)),
         stock.CamEntry(stock.pad_name(INVENTORY_ITEM_CUSTOM), phoenix_item_imag),
+        stock.CamEntry(stock.pad_name(PHOENIX_EFFECT_CUSTOM), phoenix_effect_imag),
         stock.CamEntry(stock.pad_name(VIGOR_EFFECT_CUSTOM), vigor_effect_imag),
     )
     stock.write_cam(

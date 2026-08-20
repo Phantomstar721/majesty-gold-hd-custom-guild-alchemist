@@ -261,6 +261,9 @@ class AlchemistProbeTests(unittest.TestCase):
             packaged_imag = stock.read_cam_entry(
                 output, b"IMAG", art_package.HERO_CUSTOM
             ).data
+            phoenix_effect_imag = stock.read_cam_entry(
+                output, b"IMAG", art_package.PHOENIX_EFFECT_CUSTOM
+            ).data
             stock_imag = stock.read_cam_entry(
                 game_data / "maindata.cam", b"IMAG", art_package.HERO_SOURCE
             ).data
@@ -289,6 +292,28 @@ class AlchemistProbeTests(unittest.TestCase):
                 record["packaged_tile_sha256"],
             )
         self.assertGreater(len(output_tiles), len(stock_tiles))
+        phoenix_sets = stock.single_direction_imag_animation_sets(
+            phoenix_effect_imag
+        )
+        self.assertEqual(len(phoenix_sets), 1)
+        self.assertEqual(phoenix_sets[0][0], 64)
+        self.assertEqual(len(phoenix_sets[0][1]), 29)
+        phoenix_indices = [
+            tile_index
+            for _record_offset, tile_index in phoenix_sets[0][1]
+            if tile_index
+        ]
+        self.assertEqual(len(phoenix_indices), 28)
+        for tile_index in phoenix_indices:
+            tile = output_tiles[tile_index].data
+            self.assertEqual(
+                struct.unpack_from("<8H", tile, 0),
+                art_package.PHOENIX_EFFECT_HEADER,
+            )
+            self.assertEqual(
+                stock.tile_palette_index(tile),
+                art_package.PHOENIX_EFFECT_PALETTE,
+            )
 
     def test_approved_sprite_imag_remap_preserves_every_other_warrior_word(self) -> None:
         repo = Path(__file__).resolve().parents[1]
@@ -517,28 +542,64 @@ class AlchemistProbeTests(unittest.TestCase):
         self.assertIn("[Alchemist]", data)
         self.assertIn("(title Alchemist)", data)
         self.assertEqual(data.count("Alchemist_tree"), 3)
-        self.assertIn("(attack_action \t\tCultist_Dagger)", data)
-        self.assertIn("(special_attack_action  Fire_Dagger)", data)
+        self.assertIn("(attack_action basic_attack)", data)
+        self.assertIn("(attacktype 1)", data)
+        self.assertIn("(castingrange 25)", data)
+        self.assertNotIn("Cultist_Dagger", data)
+        self.assertNotIn("Fire_Dagger", data)
+        self.assertNotIn("special_attack_action", data)
         self.assertIn("(Greed 26)", data)
         self.assertIn("(Upgrade_Armor_Chance\t100)", data)
         self.assertIn("(Upgrade_Weapon_Chance\t100)", data)
         self.assertIn("(evaluationScript\teval_enemies_nearby)", data)
 
-    def test_private_rogue_tree_preserves_stock_greed_lifecycle(self) -> None:
+    def test_private_rogue_tree_preserves_stock_greed_lifecycle_without_stealing(self) -> None:
         source = (builder.GPL_SOURCE_ROOT / "Alchemist_Rogue.gpl").read_text(
             encoding="utf-8"
         )
         expected = (
-            "$Check_rewards",
-            "$Purchase_equipment",
+            '$createeffector(thisagent,"thought_bubble_think",#think_bubble_time)',
+            "$SpecifyIntent (ThisAgent, #Intent_Thinking)",
+            "$check_nearby(thisagent)",
+            "$Check_rewards(thisagent,FALSE)",
+            "$Defend_home(thisagent)",
+            '$defend_building(thisagent,"Gambling_hall")',
+            "$rest(thisagent)",
+            "$Purchase_equipment(thisagent)",
+            "$pursue_entertainment(thisagent)",
             "$Loot_Gravestones(ThisAgent,100)",
-            "$Steal_Check(thisagent,95)",
+            "$collect_special_item (ThisAgent, 90)",
             '$Collect_Resource(thisagent,"poison_plants",90)',
+            '$check_library(thisagent,15, "Train_magic_resist")',
+            '$check_library(thisagent,25, "Learn_generic_spell")',
+            "$Combat_wandering(thisagent,65)",
+            "$combat_wandering_heroes(thisagent,55)",
+            '$Visit_Building(ThisAgent, "Inn", 35)',
+            "$explore_map(thisagent,20)",
+            '$Visit_Building(ThisAgent, "Royal_gardens", 30)',
             "$Go_home(thisagent,95)",
+            "$SpecifyIntent (ThisAgent, #intent_wandering)",
         )
         positions = [source.index(token) for token in expected]
         self.assertEqual(positions, sorted(positions))
+        self.assertNotIn("$Steal_Check", source)
         self.assertNotIn("Cultist_tree", source)
+        for cultist_only in ("$Build_Pack", "$Swarm", "$Seed_Resource_Check"):
+            self.assertNotIn(cultist_only, source)
+
+    def test_alchemist_unit_strips_cultist_spells_and_uses_stock_melee_range(self) -> None:
+        game = Path(r"C:\Program Files (x86)\Steam\steamapps\common\Majesty HD")
+        units = builder.build_units_xml(
+            game / "SDK" / "OriginalQuests" / "Data" / "M_Buildings.xml",
+            game / "SDK" / "OriginalQuests" / "Data" / "M_Characters.xml",
+        )
+        root = ET.fromstring(units)
+        hero = root.find('./Description[@Name="Alchemist"]')
+        self.assertIsNotNone(hero)
+        self.assertIsNone(hero.find("./Game/AllowedSpells"))
+        attack_range = hero.find("./Game/AttackRange")
+        self.assertIsNotNone(attack_range)
+        self.assertEqual((attack_range.get("min"), attack_range.get("max")), ("1", "1"))
 
     def test_title_alias_changes_only_the_gpl_title_token(self) -> None:
         data = (builder.GPL_SOURCE_ROOT / "Alchemist_Building_Data.dat").read_text(
@@ -723,6 +784,7 @@ end
         self.assertNotIn('$HasAttribute("Alchemist_Brewing", ThisAgent)', source)
         self.assertIn("function Alchemist_Invigorating_Elixer_End(agent ThisAgent)", source)
         self.assertIn("$IsDead(Hero) == False", source)
+        self.assertNotIn("#ATTRIB_ExperienceLevel", source)
         self.assertNotIn("$RunThread", source)
         self.assertNotIn("Alchemist_Invigorated", source)
         self.assertIn('"hero"', source)
@@ -771,6 +833,12 @@ end
         self.assertEqual(
             resurrection.find("./Engine/Script").get("GPLFunction"),
             "Phoenix_Phial_Resurrection_End",
+        )
+        self.assertEqual(
+            resurrection.find("./Engine/ImageIDBase").get("value"), "PXE1"
+        )
+        self.assertEqual(
+            resurrection.find("./Engine/AttachmentPointID").get("value"), "2"
         )
 
     def test_phoenix_phial_composes_stock_purchase_rebirth_and_flee(self) -> None:

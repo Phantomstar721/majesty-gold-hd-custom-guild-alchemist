@@ -1,12 +1,26 @@
 # Invigorating Elixer Research Log
 
-## Current checkpoint status: broken
+## Regression diagnosis and restoration
 
-Vigor is **not functioning** in the current build. The `XR01` stock art
-dependency was private-cloned as described below, but a live test confirmed
-that this did not restore the gameplay effect. This checkpoint intentionally
-records that unresolved state; it must not be treated as a known-good Vigor
-implementation.
+The last live-confirmed implementation was Alchemist commit `911067c` paired
+with Expanded Building Slots commit `513676f`. The current DLL still reaches
+that exact private Rage command and GPL dispatch path; the Beta2 runtime log
+records both the Vigor submission and the private callback match.
+
+The regression was introduced by `58262bc`, which added a click-time
+`#ATTRIB_ExperienceLevel >= 3` check inside
+`Alchemist_DoInvigoratingElixer`. Laboratory definitions use Majesty's stock
+named `Level` building data and do not set that hero experience attribute, so
+the GPL function exited before charging gold, creating effectors, changing
+stats, or playing its sound. Stock `DoRageOfKrolm` has no corresponding GPL
+gate. The stock AP69 descriptor/presenter already owns Vigor's level-3
+availability and suppresses its click until the completed building reaches
+that level.
+
+The repair therefore removes only the non-stock GPL level check. The native
+AP69 level gate, 1500-gold transaction, exact Rage target query, effector
+ordering, Palace reference count, expiry callback, and UI refresh remain
+unchanged.
 
 ## XR01 stock art dependency
 

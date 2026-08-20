@@ -72,6 +72,27 @@ normal safe-building travel path, and already contains the desired exception:
 a hero near a threatened home fights instead. With nowhere safe to flee, stock
 behavior makes the hero stand and fight.
 
+### Private Phoenix resurrection art
+
+The original private descriptor changed the callback identity but accidentally
+left `ImageIDBase="HRC1"`, so it could only display stock Healer/Agrela
+resurrection art. No committed private Phoenix animation existed.
+
+The repaired effector keeps HRC1's exact set-64 timing table: one initial blank
+slot followed by 28 visible frames during the unchanged 1500-ms resurrection
+window. Only those visible TILEs are replaced. Every private frame uses the
+live-proven Eternal Soul self-cast geometry—a fixed 103 by 99 canvas, hotspot
+`(56,43)`, and attachment point 2—rather than HRC1's moving per-frame canvases
+and hotspots. That prevents the growing art from appearing above-left and then
+jumping back onto the hero during its fade.
+
+The Phoenix is quantized through stock fireball palette 505, not HRC1's cool
+resurrection palettes 189-192. The package validator requires all 28 frames to
+retain the same canvas, hotspot, and fiery palette, requires the PXE1 descriptor
+to point at private `PXE1Phoenix Cast`, and rejects a private override of stock
+HRC1. The generated source master lives at
+`assets/source/spells/phoenix-phial/flaming-phoenix-source.png`.
+
 No polling thread, resurrection watcher, custom destination search, custom
 combat reset, or custom inventory counter is permitted.
 

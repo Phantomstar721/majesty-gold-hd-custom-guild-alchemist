@@ -34,9 +34,6 @@ declare
 	integer HeroCount;
 begin
 	Palace = $GetTruePalace(ThisAgent);
-	// Stock guild actions gate on the owning building's ordinary level
-	// attribute before entering their transaction. Vigor is the level-3 brew.
-	if ($GetAttribute(ThisAgent, #ATTRIB_ExperienceLevel) >= 3)
 	if ($GetPlayerData(Palace, "Gold") >= 1500)
 		begin
 			$AdjustPlayerData(Palace, "Gold", -1500);

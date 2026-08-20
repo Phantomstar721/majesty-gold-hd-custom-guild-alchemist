@@ -11,7 +11,14 @@ import subprocess
 import sys
 import xml.etree.ElementTree as ET
 
-from alchemist_art_package import write_interfacedata, write_maindata
+from alchemist_art_package import (
+    PHOENIX_EFFECT_CUSTOM,
+    PHOENIX_EFFECT_HEADER,
+    PHOENIX_EFFECT_PALETTE,
+    load_stock_pipeline,
+    write_interfacedata,
+    write_maindata,
+)
 from approved_sprite_bundle import sha256_file
 
 
@@ -503,6 +510,23 @@ def build_units_xml(stock_buildings_xml: Path, stock_characters_xml: Path) -> by
     # The private IMAG is a literal Warrior animation/timing clone, so retain
     # Warrior's matching stock movement class rather than Cultist Class 3.
     movement.set("ID", "Class 1")
+    # Do not inherit the Cultist's class-local spell surface.  This is the
+    # complete stock declaration that makes camouflage, change_shape, and
+    # charm_monster available to Cultists; removing the whole node keeps those
+    # three actions out of the Alchemist while leaving the shared Rogue tree
+    # and its ordinary Library checks untouched.
+    allowed_spells = alchemist.find("./Game/AllowedSpells")
+    if allowed_spells is None:
+        raise ValueError("Stock Cultist AllowedSpells contract is missing")
+    alchemist.find("./Game").remove(allowed_spells)
+    # Warrior's direct bladed-melee contract is attacktype 1 (in GPL),
+    # attack_action basic_attack (in GPL), and a 1..1 engine attack range.
+    # ALC1 already clones Warrior's Attack animation/timing table.
+    attack_range = alchemist.find("./Game/AttackRange")
+    if attack_range is None:
+        raise ValueError("Stock Cultist AttackRange contract is missing")
+    attack_range.set("min", "1")
+    attack_range.set("max", "1")
     output.append(alchemist)
     for level, source_name in enumerate(SOURCE_BUILDING_NAMES):
         source = stock_root.find(f'.//Description[@Name="{source_name}"]')
@@ -594,9 +618,23 @@ def build_brewing_overlays_xml(stock_overlays_xml: Path) -> bytes:
     resurrection.set("ID", "PXE1")
     resurrection.set("Name", "phoenix_phial_resurrection_effector")
     resurrection.set("Description", "Phoenix Phial Resurrection")
+    resurrection_image = resurrection.find("./Engine/ImageIDBase")
     resurrection_script = resurrection.find("./Engine/Script")
-    if resurrection_script is None:
-        raise ValueError("Stock resurrection effector callback is missing")
+    resurrection_engine = resurrection.find("./Engine")
+    if (
+        resurrection_image is None
+        or resurrection_script is None
+        or resurrection_engine is None
+    ):
+        raise ValueError("Stock resurrection effector visual/callback contract is missing")
+    resurrection_image.set("value", "PXE1")
+    attachment = resurrection_engine.find("./AttachmentPointID")
+    if attachment is None:
+        attachment = ET.SubElement(
+            resurrection_engine, "AttachmentPointID", {"value": "2"}
+        )
+    else:
+        attachment.set("value", "2")
     resurrection_script.set("GPLFunction", "Phoenix_Phial_Resurrection_End")
     output.append(resurrection)
     ET.indent(output, space="\t")
@@ -1456,6 +1494,15 @@ def validate_output(
     movement = hero.find('./Engine/Attachment[@kind="Movement"]')
     if movement is None or movement.get("ID") != "Class 1":
         raise ValueError("Alchemist must use the stock Warrior movement class")
+    if hero.find("./Game/AllowedSpells") is not None:
+        raise ValueError("Alchemist must not inherit Cultist class spells")
+    attack_range = hero.find("./Game/AttackRange")
+    if (
+        attack_range is None
+        or attack_range.get("min") != "1"
+        or attack_range.get("max") != "1"
+    ):
+        raise ValueError("Alchemist must use Warrior's stock 1..1 melee range")
     if any(item.find("./Game/DialogID").get("value") != "CGAL" for item in buildings):
         raise ValueError("Every Laboratory level must use CGAL")
     if phoenix.get("Name") != "PhoenixPhial" or phoenix.find(
@@ -1464,6 +1511,25 @@ def validate_output(
         raise ValueError("Phoenix Phial inventory-item description is missing")
     if phoenix.find("./Engine/ImageIDBase").get("value") != "PXF1":
         raise ValueError("Phoenix Phial must use its private inventory-item art")
+    overlays = ET.parse(
+        output_root / "Data" / "alchemist_brewing_overlays.xml"
+    ).getroot()
+    phoenix_overlay = overlays.find(
+        './Description[@Name="phoenix_phial_resurrection_effector"]'
+    )
+    if phoenix_overlay is None:
+        raise ValueError("Private Phoenix resurrection effector is missing")
+    if phoenix_overlay.find("./Engine/ImageIDBase").get("value") != "PXE1":
+        raise ValueError("Phoenix resurrection effector still borrows stock HRC1 art")
+    if phoenix_overlay.find("./Engine/AttachmentPointID").get("value") != "2":
+        raise ValueError("Phoenix resurrection effector lost Eternal Soul's anchor")
+    if (
+        phoenix_overlay.find("./Engine/Script").get("GPLFunction")
+        != "Phoenix_Phial_Resurrection_End"
+    ):
+        raise ValueError("Phoenix resurrection effector lost its private callback")
+    if phoenix_overlay.find("./Engine/DefaultSound").get("value") != "Resurrection":
+        raise ValueError("Phoenix resurrection effector lost the stock resurrection sound")
     if [item.find("./Engine/ImageIDBase").get("value") for item in buildings] != list(BUILDING_IDS):
         raise ValueError("Every Laboratory level must use its private image record")
     text_cam = output_root / "Data" / "alchemist_probe_textdata.cam"
@@ -1531,10 +1597,40 @@ def validate_output(
         b"ALB2Alchemy Lab 2",
         b"ALB3Alchemy Lab 3",
         b"PXF1Phoenix Phial",
+        PHOENIX_EFFECT_CUSTOM,
         b"XR01Speed_tonic_ico",
     ):
         if not read_cam_entry(main_art, b"IMAG", name).data:
             raise ValueError(f"Private main art record is empty: {name!r}")
+
+    art_stock = load_stock_pipeline(SOURCE_ROOT.parent)
+    phoenix_effect_imag = art_stock.read_cam_entry(
+        main_art, b"IMAG", PHOENIX_EFFECT_CUSTOM
+    ).data
+    phoenix_effect_tiles = art_stock.read_cam_entries(main_art, b"TILE")
+    phoenix_sets = art_stock.single_direction_imag_animation_sets(
+        phoenix_effect_imag
+    )
+    if len(phoenix_sets) != 1 or phoenix_sets[0][0] != 64:
+        raise ValueError("Private Phoenix animation lost stock HRC1 set-64 timing")
+    phoenix_frame_slots = phoenix_sets[0][1]
+    phoenix_tile_indices = [
+        tile_index for _record_offset, tile_index in phoenix_frame_slots if tile_index
+    ]
+    if len(phoenix_frame_slots) != 29 or len(phoenix_tile_indices) != 28:
+        raise ValueError("Private Phoenix animation lost HRC1's 29-slot lifecycle")
+    for tile_index in phoenix_tile_indices:
+        tile = phoenix_effect_tiles[tile_index].data
+        if struct.unpack_from("<8H", tile, 0) != PHOENIX_EFFECT_HEADER:
+            raise ValueError("Phoenix animation frame lost its fixed Eternal Soul anchor")
+        if art_stock.tile_palette_index(tile) != PHOENIX_EFFECT_PALETTE:
+            raise ValueError("Phoenix animation frame is not using stock fire palette 505")
+    if any(
+        entry.name.startswith(b"HRC1")
+        for entry in art_stock.read_cam_entries(main_art, b"IMAG")
+    ):
+        raise ValueError("Alchemist art CAM must not override stock HRC1")
+
     for name in (
         b"ALTIraw textures",
         b"ALBBbuilding frame",
@@ -1547,7 +1643,10 @@ def validate_output(
         if not read_cam_entry(interface_art, b"IMAG", name).data:
             raise ValueError(f"Private interface art record is empty: {name!r}")
     for art_path, prefixes in (
-        (main_art, (b"ALC1", b"ALB1", b"ALB2", b"ALB3", b"PXF1", b"XR01")),
+        (
+            main_art,
+            (b"ALC1", b"ALB1", b"ALB2", b"ALB3", b"PXF1", b"PXE1", b"XR01"),
+        ),
         (
             interface_art,
             (b"ALTI", b"ALBB", b"ALBG", b"ALIN", b"ALWI", b"ALPI", b"ALSR"),
@@ -1701,6 +1800,17 @@ def validate_output(
         raise ValueError("GPL Alchemist hero record is missing")
     if hero_data.count("Alchemist_tree") != 3:
         raise ValueError("Alchemist must retain all three private Rogue tree hooks")
+    if "(attack_action basic_attack)" not in hero_data:
+        raise ValueError("Alchemist must use Warrior's stock basic melee action")
+    if "(attacktype 1)" not in hero_data:
+        raise ValueError("Alchemist must use stock hand-to-hand hit resolution")
+    if "special_attack_action" in hero_data or "Cultist_Dagger" in hero_data:
+        raise ValueError("Alchemist must not retain Cultist projectile attacks")
+    alchemist_tree = (output_root / "GPL" / "Alchemist_Rogue.gpl").read_text(
+        encoding="utf-8"
+    )
+    if "$Steal_Check" in alchemist_tree:
+        raise ValueError("Alchemist must not retain Rogue stealing")
     expected_title = "Temple_Fervus" if use_ap10_title_alias else "AlchemistsLaboratory"
     if building_data.count(f"(title {expected_title})") != 3:
         raise ValueError(f"Expected all GPL levels to use title {expected_title}")

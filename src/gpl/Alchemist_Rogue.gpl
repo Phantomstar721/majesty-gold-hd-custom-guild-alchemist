@@ -1,6 +1,9 @@
 ///////////////////////////////////////////////////////////////////////////////
 // Private Alchemist clone of stock OriginalQuests Rogue_tree.
-// Ordering, calls, flags, and weights are intentionally unchanged.
+// Ordering, calls, flags, and weights are intentionally unchanged except for
+// the single requested deletion of Rogue's Steal_Check branch.  Looting,
+// equipment purchases, poison-plant collection, and every other stock Rogue
+// priority remain in their original positions.
 ///////////////////////////////////////////////////////////////////////////////
 
 function Alchemist_tree (agent thisagent)
@@ -27,8 +30,6 @@ begin
 	if ($pursue_entertainment(thisagent) == False)
 
 	if ($Loot_Gravestones(ThisAgent,100) == False)
-
-	if ($Steal_Check(thisagent,95) == False)
 
 	if ($collect_special_item (ThisAgent, 90) == False)
 

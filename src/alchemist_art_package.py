@@ -11,6 +11,8 @@ from approved_sprite_bundle import (
     load_approved_sprite_bundle,
     package_provenance,
     remap_approved_warrior_imag,
+    sha256_bytes,
+    sha256_file,
     validate_packaged_approved_sprite_cam,
 )
 
@@ -54,6 +56,11 @@ BUILDING_PALETTE = 560
 # forest green and copper into blue-black. Fervus building palette 560 retains
 # both materials and already owns the stock 247-250 sprite controls.
 HERO_ART_PALETTE = 560
+APPROVED_INTERFACE_ART_SHA256 = {
+    HERO_PORTRAIT_TILE: "f78a44a14bff09a378e4392a2bbaa7c25d4ed7405a48b0cddd7428843113c944",
+    HERO_ICON_TILE: "3131dd204cc42d6c8ac2a5cb865e65ae1a5eeb942c7c8fb160feda61c9fc81a0",
+    HERO_PANEL_TILE: "7c3d2a2ba50bed0e313ee90c8c67976961886c3ee5d6e2e7b9644f1c47234986",
+}
 BREWING_BUTTON_TILES = (739, 740, 741, 742)
 BREWING_DIALOG_FRAME_TILE = 594
 RAGE_PROGRESS_TILES = (412, 413)
@@ -476,6 +483,8 @@ def write_maindata(
 
     hero_dir = art_dir / "hero"
     approved_private_tile_indices: dict[int, int] = {}
+    approved_interface_tile_indices: dict[int, int] = {}
+    approved_interface_records: list[dict] = []
     if approved_bundle is not None:
         # This is deliberately a narrow in-game sprite gate. Clone AVL1's
         # complete timing/state graph and replace only its accepted Walk and
@@ -689,6 +698,72 @@ def write_maindata(
         imag = stock.replace_building_state_animation_tiles(imag, 192, active_indices)
         building_imags[level - 1] = imag
 
+    if approved_bundle is not None:
+        # ALC1's cloned Interface-00/01/02 records still point at retail TILE
+        # numbers. Those positions are intentionally empty in this private CAM,
+        # so copy the already-established Alchemist interface art at the end of
+        # the private table and remap all three records together. Appending here
+        # preserves every approved motion and previously generated private TILE
+        # index while restoring portrait, selected-unit panel, and hero-count
+        # icon as one stock interface contract.
+        interface_specs = (
+            (
+                HERO_PORTRAIT_TILE,
+                b"ALC1Portrait",
+                repo / "assets/source/hero/portrait.png",
+                (100, 100),
+                BUILDING_PALETTE,
+            ),
+            (
+                HERO_ICON_TILE,
+                b"ALC1HeroIcon",
+                art_dir / "interface/hero-icon-25.png",
+                (25, 25),
+                BUILDING_PALETTE,
+            ),
+            (
+                HERO_PANEL_TILE,
+                b"ALC1HeroPanel",
+                art_dir / "interface/building-panel-200x245.png",
+                (200, 245),
+                HERO_ART_PALETTE,
+            ),
+        )
+        for source_index, name, image_path, image_size, palette_index in interface_specs:
+            source_art_sha256 = sha256_file(image_path)
+            if source_art_sha256 != APPROVED_INTERFACE_ART_SHA256[source_index]:
+                raise ValueError(
+                    f"Approved Alchemist interface art changed for TILE {source_index}: "
+                    f"{source_art_sha256}"
+                )
+            template = stock.remap_tile_palette_index(
+                tiles[source_index].data,
+                palette_index,
+            )
+            payload = stock.tile_from_rgb(
+                template,
+                palettes,
+                image_rgb(image_path, image_size),
+            )
+            private_index = append(name, payload)
+            approved_interface_tile_indices[source_index] = private_index
+            approved_interface_records.append(
+                {
+                    "source_stock_slot": source_index,
+                    "private_tile_index": private_index,
+                    "name": name.decode("ascii"),
+                    "source_art": image_path.relative_to(repo).as_posix(),
+                    "source_art_sha256": source_art_sha256,
+                    "packaged_tile_sha256": sha256_bytes(payload),
+                    "canvas": list(image_size),
+                    "palette_index": palette_index,
+                }
+            )
+        hero_imag = stock.remap_imag_low16_tile_indices(
+            hero_imag,
+            approved_interface_tile_indices,
+        )
+
     palette_indices = {BUILDING_PALETTE, HERO_ART_PALETTE}
     for entry in extra:
         index = stock.tile_palette_index(entry.data)
@@ -751,9 +826,15 @@ def write_maindata(
             stock.read_cam_entry(source, b"IMAG", HERO_SOURCE).data,
             approved_bundle,
             approved_private_tile_indices,
+            approved_interface_tile_indices,
+            approved_interface_records,
         )
         return package_provenance(
-            approved_bundle, approved_private_tile_indices, output
+            approved_bundle,
+            approved_private_tile_indices,
+            approved_interface_tile_indices,
+            approved_interface_records,
+            output,
         )
     return None
 

@@ -43,7 +43,13 @@ $arguments = @(
     "--game-path", $GamePath,
     "--output-root", $output
 )
-if ($IncludePhantomsHauntProbe) {
+# The approved motion gate is a ready-to-run replacement for the established
+# two-mod Siege probe.  Its art mode remains independent in the Python builder,
+# while this user-facing profile retains the fixture needed to inspect the hero
+# immediately and the PHG1 compatibility row needed when Haunt is active first.
+$effectiveIncludePhantomsHauntProbe = $IncludePhantomsHauntProbe -or $ApprovedSpriteTestSet
+$effectiveIncludeSiegeTestFixture = $IncludeSiegeTestFixture -or $ApprovedSpriteTestSet
+if ($effectiveIncludePhantomsHauntProbe) {
     $arguments += "--include-phantoms-haunt-probe"
 }
 if ($UseAP10TitleAliasProbe) {
@@ -52,7 +58,7 @@ if ($UseAP10TitleAliasProbe) {
 if ($EnableUnsafeBrewingControl) {
     $arguments += "--enable-unsafe-brewing-control"
 }
-if ($IncludeSiegeTestFixture) {
+if ($effectiveIncludeSiegeTestFixture) {
     $arguments += "--include-siege-test-fixture"
 }
 if ($ApprovedSpriteTestSet) {

@@ -120,6 +120,17 @@ BUILDING_NAMES = (
 SOURCE_BUILDING_NAMES = ("Temple_Fervus1", "Temple_Fervus2", "Temple_Fervus3")
 ALCHEMIST_BDEP_RULE = b"ALB1 : ABJ2 ABJ3 NOT NOT ||"
 PHANTOM_BDEP_RULE = b"PHG1 : ABJ2 ABJ3 NOT NOT ||"
+ALCHEMIST_BDEP_COMMENT = b"Alchemist probe requires Palace level 2"
+PHANTOM_BDEP_COMMENT = b"Two-mod probe: Phantoms Haunt"
+STOCK_BDEP_CAM_RELATIVE_PATH = Path("DataMX") / "mx_miscdata.cam"
+STOCK_EXPANSION_BDEP_RULES = (
+    b"ABo1 : ABJ3 ABm1 || ABo1 NOT &&",
+    b"ABl1 : ABJ2 ABJ3 NOT NOT || ABm1 ||",
+    b"ABm1 : ABJ2 ABJ3 NOT NOT || ABm1 ||",
+    b"ABr1 : ABJ2 ABJ3 NOT NOT || ABm1 ||",
+    b"ABq1 : ABq1 NOT ABq2 NOT ABq3 NOT && && "
+    b"ABl1 ABl2 NOT NOT || ABl3 NOT NOT || &&",
+)
 SOURCE_ROOT = Path(__file__).resolve().parent
 GPL_SOURCE_ROOT = SOURCE_ROOT / "gpl"
 APPROVED_SPRITE_PIPELINE_ROOT = (
@@ -1222,11 +1233,91 @@ def append_bdep_rule(data: bytes, rule: bytes, comment: bytes) -> bytes:
     return data + b"\r\n# " + comment + b"\r\n" + rule + b"\r\n"
 
 
+def stock_building_dependency_cam(game_path: Path) -> Path:
+    """Return the final stock BDEP provider used by Northern Expansion.
+
+    Gold HD loads Original Majesty's Data/miscdata.cam first, then replaces the
+    complete DATA/BDEP resource with DataMX/mx_miscdata.cam.  The universal
+    probe must extend that final stock record so it does not erase expansion
+    Palace gates or Outpost alternatives.
+    """
+
+    return game_path / STOCK_BDEP_CAM_RELATIVE_PATH
+
+
+def build_bdep_payload(stock_data: bytes, include_phantoms: bool) -> bytes:
+    """Append the private probe rows to an unmodified stock Expansion table."""
+
+    for private_rule in (PHANTOM_BDEP_RULE, ALCHEMIST_BDEP_RULE):
+        if private_rule in stock_data:
+            raise ValueError(
+                f"Stock Expansion BDEP unexpectedly contains {private_rule!r}"
+            )
+    stock_lines = stock_data.splitlines()
+    missing_expansion_rules = [
+        rule for rule in STOCK_EXPANSION_BDEP_RULES if rule not in stock_lines
+    ]
+    if missing_expansion_rules:
+        raise ValueError(
+            "Stock Expansion BDEP lost canonical building prerequisites: "
+            f"{missing_expansion_rules}"
+        )
+
+    output = stock_data
+    if include_phantoms:
+        output = append_bdep_rule(output, PHANTOM_BDEP_RULE, PHANTOM_BDEP_COMMENT)
+    return append_bdep_rule(
+        output,
+        ALCHEMIST_BDEP_RULE,
+        ALCHEMIST_BDEP_COMMENT,
+    )
+
+
+def validate_bdep_payload(
+    building_dependencies: bytes,
+    stock_data: bytes,
+    include_phantoms: bool,
+) -> None:
+    """Require exact stock Expansion bytes followed by the selected private rows."""
+
+    expected = build_bdep_payload(stock_data, include_phantoms)
+    if building_dependencies == expected:
+        return
+    mismatch = next(
+        (
+            index
+            for index, (actual, wanted) in enumerate(
+                zip(building_dependencies, expected)
+            )
+            if actual != wanted
+        ),
+        min(len(building_dependencies), len(expected)),
+    )
+    raise ValueError(
+        "Alchemist BDEP differs from the complete stock Expansion table plus "
+        f"the selected private rules at byte {mismatch} "
+        f"(built={len(building_dependencies)} bytes, expected={len(expected)} bytes)"
+    )
+
+
+def validate_siege_test_symbols(
+    compiled_symbols: bytes,
+    include_siege_test_fixture: bool,
+) -> None:
+    required = (b"SIEGE", b"Alchemist_Oil_Test_Buyer")
+    present = tuple(symbol for symbol in required if symbol in compiled_symbols)
+    if include_siege_test_fixture and len(present) != len(required):
+        missing = [symbol for symbol in required if symbol not in compiled_symbols]
+        raise ValueError(f"Compiled Siege QA fixture lost symbols: {missing}")
+    if not include_siege_test_fixture and present:
+        raise ValueError(
+            f"Compiled non-Siege probe unexpectedly exports QA symbols: {present}"
+        )
+
+
 def build_misc_cam(stock_misc_cam: Path, output_path: Path, include_phantoms: bool) -> None:
     bdep = read_cam_entry(stock_misc_cam, b"DATA", b"BDEP").data
-    if include_phantoms:
-        bdep = append_bdep_rule(bdep, PHANTOM_BDEP_RULE, b"Two-mod probe: Phantoms Haunt")
-    bdep = append_bdep_rule(bdep, ALCHEMIST_BDEP_RULE, b"Alchemist probe requires Palace level 2")
+    bdep = build_bdep_payload(bdep, include_phantoms)
     write_cam(
         output_path,
         (CamSection(b"DATA", (CamEntry(pad_name(b"BDEP"), bdep),)),),
@@ -1288,6 +1379,7 @@ def build_manifest(
 
 def validate_output(
     output_root: Path,
+    game_path: Path,
     include_phantoms: bool,
     use_ap10_title_alias: bool = False,
     enable_unsafe_brewing_control: bool = False,
@@ -1589,6 +1681,9 @@ def validate_output(
     bdep = read_cam_entry(
         output_root / "Data" / "alchemist_probe_miscdata.cam", b"DATA", b"BDEP"
     ).data
+    stock_bdep_path = stock_building_dependency_cam(game_path)
+    stock_bdep = read_cam_entry(stock_bdep_path, b"DATA", b"BDEP").data
+    validate_bdep_payload(bdep, stock_bdep, include_phantoms)
     if bdep.count(ALCHEMIST_BDEP_RULE) != 1:
         raise ValueError("Alchemist BDEP rule is missing or duplicated")
     if include_phantoms and bdep.count(PHANTOM_BDEP_RULE) != 1:
@@ -1625,6 +1720,7 @@ def validate_output(
     if compiled.stat().st_size == 0:
         raise ValueError("Compiled Alchemist bytecode is empty")
     compiled_symbols = compiled.read_bytes()
+    validate_siege_test_symbols(compiled_symbols, include_siege_test_fixture)
     if b"Alchemist_DoInvigoratingElixer" not in compiled_symbols:
         raise ValueError("Compiled Alchemist bytecode lost its private Vigor symbol")
     if b"Purchase_Equipment" not in compiled_symbols:
@@ -1712,7 +1808,7 @@ def build(
         data_dir / "alchemist_probe_gpltext.cam",
     )
     build_misc_cam(
-        game_data / "miscdata.cam",
+        stock_building_dependency_cam(game_path),
         data_dir / "alchemist_probe_miscdata.cam",
         include_phantoms,
     )
@@ -1817,6 +1913,7 @@ def build(
         )
     validate_output(
         output_root,
+        game_path,
         include_phantoms,
         use_ap10_title_alias,
         enable_unsafe_brewing_control,

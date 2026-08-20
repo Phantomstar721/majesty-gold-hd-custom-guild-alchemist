@@ -56,6 +56,98 @@ class AlchemistProbeTests(unittest.TestCase):
             sprite_bundle.CONTROL_RGB,
         )
 
+        shadow_totals = {
+            "projected": sum(
+                record["shadow"]["projected_control_total"] for record in bundle.records
+            ),
+            "body_conflicts": sum(
+                record["shadow"]["body_conflict_total"] for record in bundle.records
+            ),
+            "retained": sum(
+                record["shadow"]["retained_control_total"] for record in bundle.records
+            ),
+        }
+        self.assertEqual(shadow_totals, sprite_bundle.EXPECTED_SHADOW_TOTALS)
+        for record in bundle.records:
+            payload = bundle.tiles_by_stock_slot[record["stock_slot"]]
+            decoded = stock.decode_indexed_v3_tile(payload)
+            self.assertIsNotNone(decoded)
+            _height, _width, rows = decoded
+            indices = bytes(value for row in rows for value in row)
+            body = bytes(
+                0 if value in sprite_bundle.CONTROL_INDICES else value
+                for value in indices
+            )
+            self.assertEqual(
+                sprite_bundle.sha256_bytes(body), record["indexed_pixel_sha256"]
+            )
+            self.assertTrue(any(value in sprite_bundle.CONTROL_INDICES for value in indices))
+            self.assertFalse(any(value > 250 for value in indices))
+            sprite_bundle.validate_split_control_segments(payload)
+
+    def test_approved_sprite_rle_rejects_mixed_body_shadow_segments(self) -> None:
+        repo = Path(__file__).resolve().parents[1]
+        stock = art_package.load_stock_pipeline(repo)
+        rows = [[0] * 96 for _ in range(92)]
+        rows[70][48:50] = [1, 247]
+        mixed = stock.encode_indexed_v3_tile(
+            rows,
+            854,
+            (3, 92, 96, 0, 32, 48, 70, 1),
+        )
+        with self.assertRaisesRegex(ValueError, "mixes visible and shadow-control"):
+            sprite_bundle.validate_split_control_segments(mixed)
+
+    def test_approved_sprite_privateizes_all_three_hero_interface_frames(self) -> None:
+        repo = Path(__file__).resolve().parents[1]
+        game_data = Path(
+            r"C:\Program Files (x86)\Steam\steamapps\common\Majesty HD\Data"
+        )
+        stock = art_package.load_stock_pipeline(repo)
+        with tempfile.TemporaryDirectory() as directory:
+            output = Path(directory) / "alchemist_maindata.cam"
+            provenance = art_package.write_maindata(
+                repo,
+                game_data,
+                repo / "artifacts" / "generated-art",
+                output,
+                builder.APPROVED_SPRITE_PIPELINE_ROOT,
+            )
+            self.assertIsNotNone(provenance)
+            output_tiles = stock.read_cam_entries(output, b"TILE")
+            stock_tiles = stock.read_cam_entries(game_data / "maindata.cam", b"TILE")
+            packaged_imag = stock.read_cam_entry(
+                output, b"IMAG", art_package.HERO_CUSTOM
+            ).data
+            stock_imag = stock.read_cam_entry(
+                game_data / "maindata.cam", b"IMAG", art_package.HERO_SOURCE
+            ).data
+
+        interface_records = provenance["interface_frames"]
+        self.assertEqual(
+            [record["source_stock_slot"] for record in interface_records],
+            list(sprite_bundle.INTERFACE_SOURCE_SLOTS),
+        )
+        self.assertEqual(
+            [record["private_tile_index"] for record in interface_records],
+            list(range(len(output_tiles) - 3, len(output_tiles))),
+        )
+        for record in interface_records:
+            source_slot = record["source_stock_slot"]
+            private_index = record["private_tile_index"]
+            self.assertEqual(output_tiles[source_slot].data, b"")
+            self.assertNotEqual(output_tiles[private_index].data, b"")
+            offset = sprite_bundle.EXPECTED_INTERFACE_IMAG_OFFSETS[source_slot]
+            before = struct.unpack_from("<I", stock_imag, offset)[0]
+            after = struct.unpack_from("<I", packaged_imag, offset)[0]
+            self.assertEqual(before & 0xFFFF, source_slot)
+            self.assertEqual(after & 0xFFFF, private_index)
+            self.assertEqual(
+                sprite_bundle.sha256_bytes(output_tiles[private_index].data),
+                record["packaged_tile_sha256"],
+            )
+        self.assertGreater(len(output_tiles), len(stock_tiles))
+
     def test_approved_sprite_imag_remap_preserves_every_other_warrior_word(self) -> None:
         repo = Path(__file__).resolve().parents[1]
         stock = art_package.load_stock_pipeline(repo)
@@ -106,6 +198,16 @@ class AlchemistProbeTests(unittest.TestCase):
             / "Build-AlchemistProbe.ps1"
         ).read_text(encoding="utf-8")
         self.assertIn('.\\dist\\CustomGuildAlchemistSpriteTest', powershell)
+        self.assertIn(
+            "$effectiveIncludePhantomsHauntProbe = "
+            "$IncludePhantomsHauntProbe -or $ApprovedSpriteTestSet",
+            powershell,
+        )
+        self.assertIn(
+            "$effectiveIncludeSiegeTestFixture = "
+            "$IncludeSiegeTestFixture -or $ApprovedSpriteTestSet",
+            powershell,
+        )
 
     def test_approved_sprite_output_is_confined_to_repository_dist(self) -> None:
         repo = Path(__file__).resolve().parents[1]
@@ -182,6 +284,76 @@ class AlchemistProbeTests(unittest.TestCase):
         twice = builder.append_bdep_rule(once, builder.ALCHEMIST_BDEP_RULE, b"test")
         self.assertEqual(once, twice)
         self.assertEqual(once.count(builder.ALCHEMIST_BDEP_RULE), 1)
+
+    def test_universal_bdep_uses_stock_expansion_overlay(self) -> None:
+        game_path = Path("Majesty HD")
+        self.assertEqual(
+            builder.stock_building_dependency_cam(game_path),
+            game_path / "DataMX" / "mx_miscdata.cam",
+        )
+
+    def test_expansion_bdep_regression_rules_cover_gated_buildings(self) -> None:
+        self.assertEqual(
+            builder.STOCK_EXPANSION_BDEP_RULES,
+            (
+                b"ABo1 : ABJ3 ABm1 || ABo1 NOT &&",
+                b"ABl1 : ABJ2 ABJ3 NOT NOT || ABm1 ||",
+                b"ABm1 : ABJ2 ABJ3 NOT NOT || ABm1 ||",
+                b"ABr1 : ABJ2 ABJ3 NOT NOT || ABm1 ||",
+                b"ABq1 : ABq1 NOT ABq2 NOT ABq3 NOT && && "
+                b"ABl1 ABl2 NOT NOT || ABl3 NOT NOT || &&",
+            ),
+        )
+
+    def test_bdep_payload_preserves_every_stock_expansion_byte(self) -> None:
+        stock = (
+            b"# stock Expansion table\r\n"
+            + b"\r\n".join(builder.STOCK_EXPANSION_BDEP_RULES)
+            + b"\r\n"
+        )
+        built = builder.build_bdep_payload(stock, include_phantoms=True)
+        self.assertTrue(built.startswith(stock))
+        self.assertEqual(built.count(builder.PHANTOM_BDEP_RULE), 1)
+        self.assertEqual(built.count(builder.ALCHEMIST_BDEP_RULE), 1)
+        self.assertTrue(
+            built.endswith(
+                b"# "
+                + builder.PHANTOM_BDEP_COMMENT
+                + b"\r\n"
+                + builder.PHANTOM_BDEP_RULE
+                + b"\r\n\r\n# "
+                + builder.ALCHEMIST_BDEP_COMMENT
+                + b"\r\n"
+                + builder.ALCHEMIST_BDEP_RULE
+                + b"\r\n"
+            )
+        )
+        builder.validate_bdep_payload(built, stock, include_phantoms=True)
+
+    def test_bdep_validation_rejects_one_altered_stock_byte(self) -> None:
+        stock = (
+            b"# stock Expansion table\r\n"
+            + b"\r\n".join(builder.STOCK_EXPANSION_BDEP_RULES)
+            + b"\r\n"
+        )
+        built = bytearray(builder.build_bdep_payload(stock, include_phantoms=False))
+        built[2] ^= 1
+        with self.assertRaisesRegex(ValueError, "differs from the complete stock"):
+            builder.validate_bdep_payload(
+                bytes(built), stock, include_phantoms=False
+            )
+
+    def test_bdep_builder_rejects_incomplete_or_prepatched_stock(self) -> None:
+        with self.assertRaisesRegex(ValueError, "lost canonical"):
+            builder.build_bdep_payload(b"# incomplete\r\n", include_phantoms=False)
+        stock = (
+            b"\r\n".join(builder.STOCK_EXPANSION_BDEP_RULES)
+            + b"\r\n"
+            + builder.ALCHEMIST_BDEP_RULE
+            + b"\r\n"
+        )
+        with self.assertRaisesRegex(ValueError, "unexpectedly contains"):
+            builder.build_bdep_payload(stock, include_phantoms=False)
 
     def test_building_data_registers_every_xml_name(self) -> None:
         data = (builder.GPL_SOURCE_ROOT / "Alchemist_Building_Data.dat").read_text(
@@ -314,6 +486,15 @@ end
             "<Source>GPL\\Alchemist_Siege_Test.gpl</Source>",
             builder.build_manifest(),
         )
+
+    def test_siege_fixture_compiled_symbols_are_fail_closed(self) -> None:
+        compiled = b"SIEGE\x00Alchemist_Oil_Test_Buyer\x00"
+        builder.validate_siege_test_symbols(compiled, True)
+        builder.validate_siege_test_symbols(b"ordinary probe", False)
+        with self.assertRaisesRegex(ValueError, "lost symbols"):
+            builder.validate_siege_test_symbols(b"SIEGE", True)
+        with self.assertRaisesRegex(ValueError, "unexpectedly exports"):
+            builder.validate_siege_test_symbols(compiled, False)
 
     def test_economy_keeps_labs_out_of_stock_wizard_candidates(self) -> None:
         stock = (

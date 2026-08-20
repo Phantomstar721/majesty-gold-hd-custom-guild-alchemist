@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import hashlib
+import inspect
 import json
 from pathlib import Path
 import struct
@@ -36,6 +37,12 @@ EXPECTED_REMAPPED_IMAG_OFFSETS = (
     ),
     *(0x960 + direction * 0x30 for direction in range(8)),
 )
+INTERFACE_SOURCE_SLOTS = (6053, 6054, 5411)
+EXPECTED_INTERFACE_IMAG_OFFSETS = {
+    6053: 0x14C,
+    6054: 0x22C,
+    5411: 0x290,
+}
 
 NATIVE_CANVAS = (96, 92)
 NATIVE_ROOT = (48, 70)
@@ -76,6 +83,26 @@ CONTROL_RGB = {
 }
 CONTROL_INDICES = frozenset(CONTROL_RGB)
 STRONG_CORE_NAMES = ("red", "green", "blue", "steel")
+PROJECTED_SHADOW_FUNCTION_SHA256 = (
+    "57477d9ec6c6a35ef2607facc780bd110a4322137183726a722d34c86cc97eb4"
+)
+EXPECTED_SHADOW_TOTALS = {
+    "projected": 15073,
+    "body_conflicts": 15,
+    "retained": 15058,
+}
+EXPECTED_RETAINED_SHADOW_BANDS = {
+    247: 8247,
+    248: 1830,
+    249: 3631,
+    250: 1350,
+}
+EXPECTED_CONFLICT_SHADOW_BANDS = {
+    247: 3,
+    248: 5,
+    249: 6,
+    250: 1,
+}
 
 
 @dataclass(frozen=True)
@@ -259,6 +286,189 @@ def _tile_indices(stock: Any, tile: bytes) -> bytes:
     return bytes(index for row in rows for index in row)
 
 
+def _tile_rows(stock: Any, tile: bytes) -> list[list[int]]:
+    decoded = stock.decode_indexed_v3_tile(tile)
+    if decoded is None:
+        raise ValueError("Approved payload is not an indexed TILE-v3 record")
+    height, width, rows = decoded
+    if (width, height) != NATIVE_CANVAS:
+        raise ValueError(f"Approved TILE canvas changed: {(width, height)}")
+    return [list(row) for row in rows]
+
+
+def _control_plane(rows: Sequence[Sequence[int]]) -> bytes:
+    return bytes(
+        value if value in CONTROL_INDICES else 0
+        for row in rows
+        for value in row
+    )
+
+
+def _visible_body_plane(rows: Sequence[Sequence[int]]) -> bytes:
+    return bytes(
+        0 if value in CONTROL_INDICES else value
+        for row in rows
+        for value in row
+    )
+
+
+def validate_split_control_segments(tile: bytes) -> None:
+    """Reject mixed body/control RLE runs in a generated TILE-v3 payload."""
+
+    if len(tile) < 26 or struct.unpack_from("<H", tile, 0)[0] != 3:
+        raise ValueError("Shadow-bearing payload is not TILE v3")
+    height = struct.unpack_from("<H", tile, 2)[0]
+    offset_base = 26
+    if offset_base + height * 4 > len(tile):
+        raise ValueError("Shadow-bearing TILE row table is truncated")
+    offsets = [
+        struct.unpack_from("<I", tile, offset_base + row * 4)[0]
+        for row in range(height)
+    ]
+    for row_index, row_offset in enumerate(offsets):
+        start = offset_base + row_offset
+        end = (
+            offset_base + offsets[row_index + 1]
+            if row_index + 1 < height
+            else len(tile)
+        )
+        if not offset_base <= start <= end <= len(tile):
+            raise ValueError("Shadow-bearing TILE has an invalid row offset")
+        position = start
+        saw_final = False
+        while position + 4 <= end:
+            count = tile[position + 2]
+            flags = tile[position + 3]
+            position += 4
+            values = tile[position : position + count]
+            if len(values) != count:
+                raise ValueError("Shadow-bearing TILE row segment is truncated")
+            position += count
+            if any(value > 250 for value in values):
+                raise ValueError("Shadow-bearing TILE uses forbidden indices 251..255")
+            has_body = any(1 <= value <= 246 for value in values)
+            has_control = any(value in CONTROL_INDICES for value in values)
+            if has_body and has_control:
+                raise ValueError("TILE RLE segment mixes visible and shadow-control pixels")
+            if flags & 0x80:
+                saw_final = True
+                break
+        if not saw_final:
+            raise ValueError("Shadow-bearing TILE row has no final segment")
+        if position != end:
+            raise ValueError("Shadow-bearing TILE row has trailing bytes")
+
+
+def project_approved_shadow_controls(
+    stock: Any,
+    approved_tile: bytes,
+    palette_colours: Sequence[tuple[int, int, int]],
+) -> tuple[bytes, dict[str, Any]]:
+    """Derive Majesty control bands from the approved Alchemist silhouette.
+
+    This is the exact body-derived hero-shadow path already used by the proven
+    Phantoms/regular-Alchemist packer.  It authors Majesty's real 247..250 TILE
+    controls while avoiding the Warrior shield/sword shapes that a literal mask
+    transplant would retain.  Body indices, registration, and canvas are fixed.
+    """
+
+    algorithm_sha256 = sha256_bytes(
+        inspect.getsource(stock.projected_floating_hero_shadow).encode("utf-8")
+    )
+    if algorithm_sha256 != PROJECTED_SHADOW_FUNCTION_SHA256:
+        raise ValueError("Proven body-derived hero-shadow algorithm changed")
+    approved_decoded = stock.decode_indexed_v3_tile(approved_tile)
+    if approved_decoded is None:
+        raise ValueError("Approved shadow projection requires an indexed TILE-v3 record")
+    approved_height, approved_width, approved_rows = approved_decoded
+    if (approved_width, approved_height) != NATIVE_CANVAS:
+        raise ValueError("Shadow projection changed the approved native canvas")
+    if len(palette_colours) < 251:
+        raise ValueError("Shadow projection palette is incomplete")
+    if any(
+        value in CONTROL_INDICES or value > 246
+        for row in approved_rows
+        for value in row
+    ):
+        raise ValueError("Shadow projection target must contain body indices 0..246 only")
+    if struct.unpack_from("<HH", approved_tile, 10) != NATIVE_ROOT:
+        raise ValueError("Shadow projection target hotspot changed")
+
+    caster = Image.new("RGBA", NATIVE_CANVAS, (0, 0, 0, 0))
+    caster.putdata(
+        [
+            (*palette_colours[value], 255) if value else (0, 0, 0, 0)
+            for row in approved_rows
+            for value in row
+        ]
+    )
+    projected_rows = stock.projected_floating_hero_shadow(caster, 1.0)
+    if len(projected_rows) != approved_height or any(
+        len(row) != approved_width for row in projected_rows
+    ):
+        raise ValueError("Body-derived shadow projection changed the canvas")
+    if any(
+        value != 0 and value not in CONTROL_INDICES
+        for row in projected_rows
+        for value in row
+    ):
+        raise ValueError("Body-derived shadow emitted a non-control palette index")
+
+    target_rows = [list(row) for row in approved_rows]
+    projected_counts = {index: 0 for index in sorted(CONTROL_INDICES)}
+    retained_counts = {index: 0 for index in sorted(CONTROL_INDICES)}
+    conflict_counts = {index: 0 for index in sorted(CONTROL_INDICES)}
+    for y, row in enumerate(projected_rows):
+        for x, value in enumerate(row):
+            if value == 0:
+                continue
+            projected_counts[value] += 1
+            if target_rows[y][x] != 0:
+                conflict_counts[value] += 1
+                continue
+            target_rows[y][x] = value
+            retained_counts[value] += 1
+
+    projected_total = sum(projected_counts.values())
+    conflict_total = sum(conflict_counts.values())
+    retained_total = sum(retained_counts.values())
+    if not projected_total or not retained_total:
+        raise ValueError("Approved frame has no retained body-derived shadow")
+    if projected_total != conflict_total + retained_total:
+        raise AssertionError("Body-derived shadow pixel accounting is incomplete")
+
+    encoded = stock.encode_indexed_v3_tile_like_original(
+        approved_tile,
+        target_rows,
+        split_shadow_controls=True,
+    )
+    # The proven helper normalizes header word 3 to the canvas width. These
+    # approved fixtures deliberately retain word 3 == 0, so restore that
+    # non-row header field after the split-run encoding.
+    output_bytes = bytearray(encoded)
+    output_bytes[6:8] = approved_tile[6:8]
+    output = bytes(output_bytes)
+    if output[:26] != approved_tile[:26]:
+        raise AssertionError("Shadow projection changed TILE geometry/hotspot/palette")
+    if _tile_rows(stock, output) != target_rows:
+        raise AssertionError("Shadow projection TILE does not decode exactly")
+    validate_split_control_segments(output)
+    stats: dict[str, Any] = {
+        "algorithm": "projected_floating_hero_shadow",
+        "algorithm_source_sha256": algorithm_sha256,
+        "caster_body_sha256": sha256_bytes(_visible_body_plane(approved_rows)),
+        "projected_control_counts": {str(k): v for k, v in projected_counts.items()},
+        "projected_control_total": projected_total,
+        "body_conflict_counts": {str(k): v for k, v in conflict_counts.items()},
+        "body_conflict_total": conflict_total,
+        "retained_control_counts": {str(k): v for k, v in retained_counts.items()},
+        "retained_control_total": retained_total,
+        "projected_control_sha256": sha256_bytes(_control_plane(projected_rows)),
+        "retained_control_sha256": sha256_bytes(_control_plane(target_rows)),
+    }
+    return output, stats
+
+
 def _patch_walk_palette(tile: bytes, private_palette_index: int) -> bytes:
     if len(tile) < 26 or struct.unpack_from("<H", tile, 0)[0] != 3:
         raise ValueError("Approved Walk payload is not TILE v3")
@@ -410,6 +620,22 @@ def load_approved_sprite_bundle(
 
     tiles_by_stock_slot: dict[int, bytes] = {}
     output_records: list[dict[str, Any]] = []
+    shadow_totals = {
+        "projected": 0,
+        "body_conflicts": 0,
+        "retained": 0,
+    }
+    retained_shadow_bands = {index: 0 for index in sorted(CONTROL_INDICES)}
+    conflict_shadow_bands = {index: 0 for index in sorted(CONTROL_INDICES)}
+
+    def record_shadow_stats(stats: dict[str, Any]) -> None:
+        shadow_totals["projected"] += stats["projected_control_total"]
+        shadow_totals["body_conflicts"] += stats["body_conflict_total"]
+        shadow_totals["retained"] += stats["retained_control_total"]
+        for index in sorted(CONTROL_INDICES):
+            retained_shadow_bands[index] += stats["retained_control_counts"][str(index)]
+            conflict_shadow_bands[index] += stats["body_conflict_counts"][str(index)]
+
     walk_records = _expected_walk_records(walk_report)
     expected_artifacts = {
         record["path"]: record
@@ -446,7 +672,13 @@ def load_approved_sprite_bundle(
         patched_tile = _patch_walk_palette(source_tile, private_palette_index)
         if _tile_indices(stock, patched_tile) != source_indices:
             raise AssertionError("Walk palette patch changed decoded pixels")
-        tiles_by_stock_slot[stock_slot] = patched_tile
+        shadowed_tile, shadow_stats = project_approved_shadow_controls(
+            stock,
+            patched_tile,
+            private_colours,
+        )
+        record_shadow_stats(shadow_stats)
+        tiles_by_stock_slot[stock_slot] = shadowed_tile
         output_records.append(
             {
                 "kind": "walk",
@@ -456,7 +688,11 @@ def load_approved_sprite_bundle(
                 "source": expected_path,
                 "source_sha256": expected_hash,
                 "indexed_pixel_sha256": sha256_bytes(source_indices),
-                "packaged_tile_sha256": sha256_bytes(patched_tile),
+                "full_indexed_pixel_sha256": sha256_bytes(
+                    _tile_indices(stock, shadowed_tile)
+                ),
+                "shadow": shadow_stats,
+                "packaged_tile_sha256": sha256_bytes(shadowed_tile),
             }
         )
 
@@ -487,7 +723,13 @@ def load_approved_sprite_bundle(
         tile, indices = _encode_stand_tile(
             stock, image, visible_colours, private_palette_index
         )
-        tiles_by_stock_slot[stock_slot] = tile
+        shadowed_tile, shadow_stats = project_approved_shadow_controls(
+            stock,
+            tile,
+            private_colours,
+        )
+        record_shadow_stats(shadow_stats)
+        tiles_by_stock_slot[stock_slot] = shadowed_tile
         output_records.append(
             {
                 "kind": "stand",
@@ -499,12 +741,30 @@ def load_approved_sprite_bundle(
                 ),
                 "source_sha256": expected_hash,
                 "indexed_pixel_sha256": sha256_bytes(indices),
-                "packaged_tile_sha256": sha256_bytes(tile),
+                "full_indexed_pixel_sha256": sha256_bytes(
+                    _tile_indices(stock, shadowed_tile)
+                ),
+                "shadow": shadow_stats,
+                "packaged_tile_sha256": sha256_bytes(shadowed_tile),
             }
         )
 
     if sorted(tiles_by_stock_slot) != list(range(APPROVED_SLOT_START, APPROVED_SLOT_END)):
         raise AssertionError("Approved sprite bundle does not cover exactly 5919..5990")
+    if shadow_totals != EXPECTED_SHADOW_TOTALS:
+        raise ValueError(
+            f"Approved body-derived shadow totals changed: {shadow_totals!r}"
+        )
+    if retained_shadow_bands != EXPECTED_RETAINED_SHADOW_BANDS:
+        raise ValueError(
+            "Approved retained body-derived shadow bands changed: "
+            f"{retained_shadow_bands!r}"
+        )
+    if conflict_shadow_bands != EXPECTED_CONFLICT_SHADOW_BANDS:
+        raise ValueError(
+            "Approved body-conflict shadow bands changed: "
+            f"{conflict_shadow_bands!r}"
+        )
 
     # The exact retail CAM hash already protects every source TILE, but check
     # the Stand per-TILE hashes carried by the approval report as a local
@@ -589,6 +849,8 @@ def validate_packaged_approved_sprite_cam(
     warrior_imag: bytes,
     bundle: ApprovedSpriteBundle,
     private_tile_indices: dict[int, int],
+    interface_tile_indices: dict[int, int],
+    interface_records: Sequence[dict[str, Any]],
 ) -> None:
     """Re-read the emitted CAM and prove the narrow stock clone survived I/O."""
 
@@ -597,6 +859,7 @@ def validate_packaged_approved_sprite_cam(
         raise ValueError("Packaged SPLT table does not end at the private palette")
     if output_palettes[bundle.private_palette_index].data != bundle.private_palette_data:
         raise ValueError("Packaged private SPLT differs from the approved palette")
+    private_colours = stock.splt_palette_colors(bundle.private_palette_data)
     # Untouched Warrior actions still reference retail SPLT 427, so its
     # fall-through companion must remain a literal stock palette record.
     if output_palettes[427].data != stock_palettes[427].data:
@@ -610,6 +873,14 @@ def validate_packaged_approved_sprite_cam(
         range(first_private, first_private + (APPROVED_SLOT_END - APPROVED_SLOT_START))
     ):
         raise ValueError("Approved private TILEs were not the first appended block")
+    if tuple(interface_tile_indices) != INTERFACE_SOURCE_SLOTS:
+        raise ValueError("Approved interface TILE mapping is incomplete or reordered")
+    if list(interface_tile_indices.values()) != list(
+        range(len(output_tiles) - len(INTERFACE_SOURCE_SLOTS), len(output_tiles))
+    ):
+        raise ValueError("Approved interface TILEs were not appended at the table end")
+    if len(interface_records) != len(INTERFACE_SOURCE_SLOTS):
+        raise ValueError("Approved interface provenance is incomplete")
 
     records_by_slot = {record["stock_slot"]: record for record in bundle.records}
     for stock_slot, private_index in sorted(private_tile_indices.items()):
@@ -625,12 +896,64 @@ def validate_packaged_approved_sprite_cam(
             raise ValueError(
                 f"Packaged TILE for stock slot {stock_slot} uses the wrong SPLT"
             )
-        if sha256_bytes(_tile_indices(stock, payload)) != record["indexed_pixel_sha256"]:
-            raise ValueError(f"Packaged TILE pixels changed for stock slot {stock_slot}")
-        if any(index >= 247 for index in _tile_indices(stock, payload)):
+        packaged_rows = _tile_rows(stock, payload)
+        packaged_indices = bytes(value for row in packaged_rows for value in row)
+        if sha256_bytes(_visible_body_plane(packaged_rows)) != record["indexed_pixel_sha256"]:
+            raise ValueError(f"Packaged TILE body pixels changed for stock slot {stock_slot}")
+        if sha256_bytes(packaged_indices) != record["full_indexed_pixel_sha256"]:
+            raise ValueError(f"Packaged TILE full index plane changed for stock slot {stock_slot}")
+        if any(index > 250 for index in packaged_indices):
             raise ValueError(
-                f"Packaged hero TILE for stock slot {stock_slot} uses a reserved index"
+                f"Packaged hero TILE for stock slot {stock_slot} uses index 251..255"
             )
+        if not any(index in CONTROL_INDICES for index in packaged_indices):
+            raise ValueError(f"Packaged hero TILE for stock slot {stock_slot} has no shadow")
+        validate_split_control_segments(payload)
+
+        body_rows = [
+            [0 if value in CONTROL_INDICES else value for value in row]
+            for row in packaged_rows
+        ]
+        body_tile = stock.encode_indexed_v3_tile_like_original(
+            payload,
+            body_rows,
+            split_shadow_controls=True,
+        )
+        expected_tile, expected_shadow = project_approved_shadow_controls(
+            stock,
+            body_tile,
+            private_colours,
+        )
+        if _tile_rows(stock, expected_tile) != packaged_rows:
+            raise ValueError(
+                f"Packaged body-derived shadow changed for stock slot {stock_slot}"
+            )
+        if expected_shadow != record["shadow"]:
+            raise ValueError(
+                f"Packaged body-derived shadow provenance changed for stock slot {stock_slot}"
+            )
+
+    records_by_interface_slot = {
+        record["source_stock_slot"]: record for record in interface_records
+    }
+    if tuple(records_by_interface_slot) != INTERFACE_SOURCE_SLOTS:
+        raise ValueError("Approved interface provenance order changed")
+    for source_slot, private_index in interface_tile_indices.items():
+        record = records_by_interface_slot[source_slot]
+        if record["private_tile_index"] != private_index:
+            raise ValueError("Approved interface provenance TILE mapping changed")
+        payload = output_tiles[private_index].data
+        if not payload:
+            raise ValueError(f"Approved interface TILE {private_index} is empty")
+        if sha256_bytes(payload) != record["packaged_tile_sha256"]:
+            raise ValueError(f"Approved interface TILE {private_index} changed")
+        if len(payload) < 16 or struct.unpack_from("<H", payload, 0)[0] != 1:
+            raise ValueError(f"Approved interface TILE {private_index} is not TILE v1")
+        height, width = struct.unpack_from("<HH", payload, 2)
+        if [width, height] != record["canvas"]:
+            raise ValueError(f"Approved interface TILE {private_index} canvas changed")
+        if stock.tile_palette_index(payload) != record["palette_index"]:
+            raise ValueError(f"Approved interface TILE {private_index} palette changed")
 
     packaged_imag = stock.read_cam_entry(
         output_cam, b"IMAG", b"ALC1Alchemist"
@@ -638,12 +961,26 @@ def validate_packaged_approved_sprite_cam(
     expected_imag = remap_approved_warrior_imag(
         stock, warrior_imag, private_tile_indices
     )
+    expected_imag = stock.remap_imag_low16_tile_indices(
+        expected_imag,
+        interface_tile_indices,
+    )
     if packaged_imag != expected_imag:
-        raise ValueError("Packaged ALC1 IMAG differs from the narrow Warrior remap")
+        raise ValueError(
+            "Packaged ALC1 IMAG differs from the audited Walk/Stand/interface remap"
+        )
+    for source_slot, expected_offset in EXPECTED_INTERFACE_IMAG_OFFSETS.items():
+        before = struct.unpack_from("<I", warrior_imag, expected_offset)[0]
+        after = struct.unpack_from("<I", packaged_imag, expected_offset)[0]
+        if (before & 0xFFFF) != source_slot:
+            raise ValueError(f"Stock interface IMAG offset changed for TILE {source_slot}")
+        expected = (before & 0xFFFF0000) | interface_tile_indices[source_slot]
+        if after != expected:
+            raise ValueError(f"Private interface IMAG offset changed for TILE {source_slot}")
 
-    # These placeholders are intentionally empty: the unchanged IMAG refs
-    # resolve to the retail source art instead of copied or generated action
-    # frames in this test CAM.
+    # Unapproved animation placeholders stay empty so unchanged ALC1 refs fall
+    # through to stock action art. The three interface frames above are private
+    # appended copies and do not populate any retail slot.
     for start, end in UNTOUCHED_WARRIOR_SLOT_RANGES:
         if any(output_tiles[index].data for index in range(start, end)):
             raise ValueError(
@@ -654,6 +991,8 @@ def validate_packaged_approved_sprite_cam(
 def package_provenance(
     bundle: ApprovedSpriteBundle,
     private_tile_indices: dict[int, int],
+    interface_tile_indices: dict[int, int],
+    interface_records: Sequence[dict[str, Any]],
     output_cam: Path,
 ) -> dict[str, Any]:
     if sorted(private_tile_indices) != list(range(APPROVED_SLOT_START, APPROVED_SLOT_END)):
@@ -671,6 +1010,7 @@ def package_provenance(
             "source_imag": "AVL1Warrior",
             "private_imag": "ALC1Alchemist",
             "remapped_stock_slots": [APPROVED_SLOT_START, APPROVED_SLOT_END - 1],
+            "interface_remapped_stock_slots": list(INTERFACE_SOURCE_SLOTS),
             "untouched_stock_slot_ranges": [
                 [start, end - 1] for start, end in UNTOUCHED_WARRIOR_SLOT_RANGES
             ],
@@ -688,8 +1028,26 @@ def package_provenance(
                 str(index): list(colour) for index, colour in CONTROL_RGB.items()
             },
         },
+        "shadows": {
+            "authority": "proven Phantoms body-derived Majesty control-mask pipeline",
+            "algorithm": "projected_floating_hero_shadow",
+            "algorithm_source_sha256": PROJECTED_SHADOW_FUNCTION_SHA256,
+            "output_indices": [247, 250],
+            "body_precedence": "approved visible indices 1..246 win on overlap",
+            "body_contract": "no crop, recenter, scale, palette, or visible-index changes",
+            "expected_totals": EXPECTED_SHADOW_TOTALS,
+            "expected_retained_bands": {
+                str(index): count
+                for index, count in EXPECTED_RETAINED_SHADOW_BANDS.items()
+            },
+            "expected_body_conflict_bands": {
+                str(index): count
+                for index, count in EXPECTED_CONFLICT_SHADOW_BANDS.items()
+            },
+        },
         "source_hashes": bundle.source_hashes,
         "frames": records,
+        "interface_frames": [dict(record) for record in interface_records],
         "output": {
             "maindata_cam": "Data/alchemist_maindata.cam",
             "maindata_cam_sha256": sha256_file(output_cam),

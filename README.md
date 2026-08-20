@@ -64,17 +64,28 @@ To build the accepted hero-motion in-game gate without deploying it, use:
 
 That explicit mode writes `dist\CustomGuildAlchemistSpriteTest`, bypasses the
 regular art cache, and verifies the hash-pinned Walk V4 and Stand V5 sources
-before compiling. It appends one private SPLT after the complete retail palette
-table and replaces only Warrior Walk/Stand slots `5919–5990` in the private
-`ALC1` IMAG. Special/cast/death slots `5991–6052` and attack slots `6055–6118`
-remain stock fallthrough references until those actions pass their own visual
-gates. The generated `ApprovedSpriteTestSet.json` records every source and
-packaged-frame hash. The build command does not copy anything into the game or
-Majesty Mods directories.
+before compiling. The wrapper also enables the established two-mod BDEP
+compatibility and Siege QA fixture, so The Siege starts with a completed
+Laboratory and Test Alchemist ready for motion review. It appends one private
+SPLT after the complete retail palette table and replaces only Warrior
+Walk/Stand slots `5919–5990` in the private `ALC1` IMAG. Special/cast/death slots
+`5991–6052` and attack slots `6055–6118` remain stock fallthrough references
+until those actions pass their own visual gates. The generated
+`ApprovedSpriteTestSet.json` records every source and packaged-frame hash. The
+build command does not copy anything into the game or Majesty Mods directories.
 
-The compatibility switch emits both temporary `PHG1` and `ALB1` BDEP rules so
-this package can load after Phantoms Haunt during the two-mod test. It is a
-deliberate stopgap for the CAM merger, not the final distribution model.
+The compiled Walk/Stand TILEs preserve every approved visible body index, add
+Majesty's native `247`–`250` shadow-control bands through the pinned
+body-derived Phantoms pipeline, and keep visible/control pixels in separate RLE
+runs. The approved profile also privateizes ALC1's stock Interface-00/01/02
+frames, so the Alchemist portrait, selected-unit panel, and Laboratory
+hero-count icon resolve to nonempty private art instead of empty retail slots.
+
+The compatibility switch preserves Majesty's complete Northern Expansion BDEP
+table and appends the temporary `PHG1` and `ALB1` rules so this package can load
+after Phantoms Haunt during the two-mod test. Approved sprite-test builds enable
+it automatically. It is a deliberate stopgap for the CAM merger, not the final
+distribution model.
 
 In game, enable **Custom Guild: Phantoms Haunt** and **Custom Guild: Alchemist
 (CGAL Probe)**, with the Alchemist probe later in the active list. The first
@@ -93,9 +104,10 @@ proved that it crashes under `CGAL` even when the Laboratory aliases the stock
 the future DLL callback mapping; it intentionally restores the known-crashing
 control.
 
-For repeated Brewing development, add `-IncludeSiegeTestFixture`. This copies
-and overrides only the stock `SIEGE()` entry point in the generated probe and
-spawns completed player-owned Fervus, Krolm, level-3 Wizard, and Alchemy guilds
-near the Palace. It also supplies 100,000 sovereign gold and three funded,
-level-10 purchase-test heroes so Phoenix Phial death/resurrection tests can be
-repeated quickly. The switch is deliberately off by default.
+For repeated Brewing development, add `-IncludeSiegeTestFixture`. Approved
+sprite-test builds enable it automatically. This copies and overrides only the
+stock `SIEGE()` entry point in the generated probe and spawns completed
+player-owned Fervus, Krolm, level-3 Wizard, and Alchemy guilds near the Palace.
+It also supplies 100,000 sovereign gold and three funded, level-10 purchase-test
+heroes so Phoenix Phial death/resurrection tests can be repeated quickly. The
+switch remains off for other builds unless explicitly selected.

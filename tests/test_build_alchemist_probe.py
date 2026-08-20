@@ -1,9 +1,10 @@
-from pathlib import Path
+import json
 import struct
 import sys
 import tempfile
 import unittest
 import xml.etree.ElementTree as ET
+from pathlib import Path
 
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
@@ -63,11 +64,28 @@ class AlchemistProbeTests(unittest.TestCase):
             "body_conflicts": sum(
                 record["shadow"]["body_conflict_total"] for record in bundle.records
             ),
+            "retained_projected": sum(
+                record["shadow"]["retained_projected_control_total"]
+                for record in bundle.records
+            ),
+            "direct_seam": sum(
+                record["shadow"]["direct_seam_total"] for record in bundle.records
+            ),
+            "gap_fill_seam": sum(
+                record["shadow"]["gap_fill_seam_total"] for record in bundle.records
+            ),
             "retained": sum(
                 record["shadow"]["retained_control_total"] for record in bundle.records
             ),
+            "ground_contact_seam": sum(
+                record["shadow"]["ground_contact_seam_total"]
+                for record in bundle.records
+            ),
         }
         self.assertEqual(shadow_totals, sprite_bundle.EXPECTED_SHADOW_TOTALS)
+        control_planes = bytearray()
+        full_planes = bytearray()
+        body_planes = bytearray()
         for record in bundle.records:
             payload = bundle.tiles_by_stock_slot[record["stock_slot"]]
             decoded = stock.decode_indexed_v3_tile(payload)
@@ -84,6 +102,130 @@ class AlchemistProbeTests(unittest.TestCase):
             self.assertTrue(any(value in sprite_bundle.CONTROL_INDICES for value in indices))
             self.assertFalse(any(value > 250 for value in indices))
             sprite_bundle.validate_split_control_segments(payload)
+            contact = sprite_bundle.validate_grounded_shadow_contact(rows)
+            self.assertEqual(contact["magenta_body_contact_total"], 0)
+            self.assertEqual(contact["transparent_magenta_body_gap_total"], 0)
+            self.assertEqual(contact["edge_control_total"], 0)
+            self.assertGreaterEqual(contact["ground_seam_contact_total"], 14)
+            self.assertLessEqual(contact["ground_seam_contact_total"], 47)
+            self.assertEqual(
+                contact["ground_seam_contact_total"],
+                record["shadow"]["ground_contact_seam_total"],
+            )
+            control_planes.extend(sprite_bundle._control_plane(rows))
+            full_planes.extend(indices)
+            body_planes.extend(sprite_bundle._visible_body_plane(rows))
+
+        self.assertEqual(
+            sprite_bundle.sha256_bytes(bytes(control_planes)),
+            sprite_bundle.EXPECTED_CONTROL_PLANE_SHA256,
+        )
+        self.assertEqual(
+            sprite_bundle.sha256_bytes(bytes(full_planes)),
+            sprite_bundle.EXPECTED_FULL_INDEX_PLANE_SHA256,
+        )
+        self.assertEqual(
+            sprite_bundle.sha256_bytes(bytes(body_planes)),
+            sprite_bundle.EXPECTED_BODY_PLANE_SHA256,
+        )
+        frame_hash_lists = {
+            "projected_control": [
+                record["shadow"]["projected_control_sha256"]
+                for record in bundle.records
+            ],
+            "retained_control": [
+                record["shadow"]["retained_control_sha256"]
+                for record in bundle.records
+            ],
+            "full": [
+                record["full_indexed_pixel_sha256"] for record in bundle.records
+            ],
+            "body": [record["indexed_pixel_sha256"] for record in bundle.records],
+        }
+        self.assertEqual(
+            {
+                name: sprite_bundle.sha256_bytes(
+                    json.dumps(values, separators=(",", ":")).encode("ascii")
+                )
+                for name, values in frame_hash_lists.items()
+            },
+            sprite_bundle.EXPECTED_FRAME_HASH_LIST_SHA256,
+        )
+        northwest_four = next(
+            record
+            for record in bundle.records
+            if record["kind"] == "walk"
+            and record["direction"] == "northwest"
+            and record["frame"] == 4
+        )
+        self.assertEqual(
+            northwest_four["shadow"]["projected_component_sizes"],
+            [259, 35],
+        )
+
+    def test_stock_warrior_walk_and_stand_shadows_contact_the_grounded_body(self) -> None:
+        repo = Path(__file__).resolve().parents[1]
+        stock = art_package.load_stock_pipeline(repo)
+        retail = Path(
+            r"C:\Program Files (x86)\Steam\steamapps\common\Majesty HD\Data\maindata.cam"
+        )
+        tiles = stock.read_cam_entries(retail, b"TILE")
+        contact_counts = []
+        for stock_slot in range(
+            sprite_bundle.APPROVED_SLOT_START,
+            sprite_bundle.APPROVED_SLOT_END,
+        ):
+            decoded = stock.decode_indexed_v3_tile(tiles[stock_slot].data)
+            self.assertIsNotNone(decoded)
+            _height, _width, rows = decoded
+            metrics = sprite_bundle.grounded_shadow_contact_metrics(rows)
+            contact_counts.append(metrics["ground_control_contact_total"])
+        self.assertEqual(len(contact_counts), 72)
+        self.assertTrue(all(count > 0 for count in contact_counts))
+
+    def test_grounded_shadow_validator_rejects_a_transparent_foot_moat(self) -> None:
+        repo = Path(__file__).resolve().parents[1]
+        stock = art_package.load_stock_pipeline(repo)
+        retail = Path(
+            r"C:\Program Files (x86)\Steam\steamapps\common\Majesty HD\Data\maindata.cam"
+        )
+        tiles = stock.read_cam_entries(retail, b"TILE")
+        palettes = stock.read_cam_entries(retail, b"SPLT")
+        warrior_imag = stock.read_cam_entry(
+            retail, b"IMAG", art_package.HERO_SOURCE
+        ).data
+        bundle = sprite_bundle.load_approved_sprite_bundle(
+            builder.APPROVED_SPRITE_PIPELINE_ROOT,
+            stock,
+            retail,
+            tiles,
+            palettes,
+            warrior_imag,
+        )
+        payload = bundle.tiles_by_stock_slot[sprite_bundle.APPROVED_SLOT_START]
+        _height, width, rows = stock.decode_indexed_v3_tile(payload)
+        moated = [list(row) for row in rows]
+        body = {
+            (x, y)
+            for y, row in enumerate(rows)
+            for x, value in enumerate(row)
+            if 1 <= value <= 246
+        }
+        body_base = max(y for _x, y in body)
+        ground_body = {(x, y) for x, y in body if y >= body_base - 5}
+        for y, row in enumerate(rows):
+            for x, value in enumerate(row):
+                if value not in sprite_bundle.CONTROL_INDICES:
+                    continue
+                if any(
+                    (neighbor_x, neighbor_y) in ground_body
+                    for neighbor_x, neighbor_y in sprite_bundle._neighbors8(
+                        width, len(rows), x, y
+                    )
+                ):
+                    moated[y][x] = 0
+        with self.assertRaisesRegex(ValueError, "transparent moat"):
+            sprite_bundle.validate_grounded_shadow_contact(moated)
 
     def test_approved_sprite_rle_rejects_mixed_body_shadow_segments(self) -> None:
         repo = Path(__file__).resolve().parents[1]

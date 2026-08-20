@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import hashlib
-import inspect
 import json
 from pathlib import Path
 import struct
@@ -83,25 +82,55 @@ CONTROL_RGB = {
 }
 CONTROL_INDICES = frozenset(CONTROL_RGB)
 STRONG_CORE_NAMES = ("red", "green", "blue", "steel")
-PROJECTED_SHADOW_FUNCTION_SHA256 = (
-    "57477d9ec6c6a35ef2607facc780bd110a4322137183726a722d34c86cc97eb4"
+GROUNDED_SHADOW_POLICY = "stock-warrior-contact+phantoms-seam-v1"
+GROUNDED_SHADOW_POLICY_SHA256 = (
+    "acc40e1f2beb74f6cebfdf1e687c4cb2607ed79359192e16b396a5bb9cc6e5ec"
 )
+PHANTOMS_SHADOW_CONTRACT_COMMIT = (
+    "1ac887f55e4c1c67dc8d90829cb099eea87b15ae"
+)
+PHANTOMS_SHADOW_CONTRACT_PATH = "docs/majesty-building-shadow-encoding.md"
 EXPECTED_SHADOW_TOTALS = {
-    "projected": 15073,
-    "body_conflicts": 15,
-    "retained": 15058,
+    "projected": 21171,
+    "body_conflicts": 3732,
+    "retained_projected": 17439,
+    "direct_seam": 3057,
+    "gap_fill_seam": 366,
+    "retained": 17805,
+    "ground_contact_seam": 2061,
+}
+EXPECTED_PROJECTED_SHADOW_BANDS = {
+    247: 0,
+    248: 10216,
+    249: 8755,
+    250: 2200,
 }
 EXPECTED_RETAINED_SHADOW_BANDS = {
-    247: 8247,
-    248: 1830,
-    249: 3631,
-    250: 1350,
+    247: 3423,
+    248: 7387,
+    249: 5526,
+    250: 1469,
 }
 EXPECTED_CONFLICT_SHADOW_BANDS = {
-    247: 3,
-    248: 5,
-    249: 6,
-    250: 1,
+    247: 0,
+    248: 1706,
+    249: 1639,
+    250: 387,
+}
+EXPECTED_CONTROL_PLANE_SHA256 = (
+    "2723c6f8a55880ac0f5ab57d2f81f08da462b9b65663c58cf96e26770c3af890"
+)
+EXPECTED_FULL_INDEX_PLANE_SHA256 = (
+    "6172a1e92fcde51b760363f8fd8b8524363b71a166953908c293cbdd08c68b45"
+)
+EXPECTED_BODY_PLANE_SHA256 = (
+    "661f18fd2833ccd805a53a440919e20a95b5fbb93ef7fde910183a24ed7a937d"
+)
+EXPECTED_FRAME_HASH_LIST_SHA256 = {
+    "projected_control": "de01d522c16a7ad7f3642ad70b4f816a237618a5a7cacee99db7f2c74f6dd65d",
+    "retained_control": "8e1e85d82db0c57f6f1f8b4b8986e2314dad9bbc1b7d708300271231bb85d4ec",
+    "full": "e8d4b85eb76a98c70f7ff0e3f3c2938ec0e267fbdca44f6df26991dd785bc26d",
+    "body": "203a485528ac8fb0906ffc5519f7f1d3f24c590ce0a2c6564d59e0d3aac5ef8e",
 }
 
 
@@ -359,24 +388,244 @@ def validate_split_control_segments(tile: bytes) -> None:
             raise ValueError("Shadow-bearing TILE row has trailing bytes")
 
 
+def _neighbors8(
+    width: int,
+    height: int,
+    x: int,
+    y: int,
+) -> tuple[tuple[int, int], ...]:
+    return tuple(
+        (neighbor_x, neighbor_y)
+        for neighbor_y in range(max(0, y - 1), min(height, y + 2))
+        for neighbor_x in range(max(0, x - 1), min(width, x + 2))
+        if (neighbor_x, neighbor_y) != (x, y)
+    )
+
+
+def _control_component_sizes(rows: Sequence[Sequence[int]]) -> tuple[int, ...]:
+    height = len(rows)
+    width = len(rows[0]) if rows else 0
+    remaining = {
+        (x, y)
+        for y, row in enumerate(rows)
+        for x, value in enumerate(row)
+        if value in CONTROL_INDICES
+    }
+    sizes: list[int] = []
+    while remaining:
+        pending = [remaining.pop()]
+        size = 0
+        while pending:
+            x, y = pending.pop()
+            size += 1
+            for neighbor in _neighbors8(width, height, x, y):
+                if neighbor in remaining:
+                    remaining.remove(neighbor)
+                    pending.append(neighbor)
+        sizes.append(size)
+    return tuple(sorted(sizes, reverse=True))
+
+
+def grounded_shadow_contact_metrics(
+    rows: Sequence[Sequence[int]],
+) -> dict[str, Any]:
+    """Measure Majesty shadow/body contact without interpreting preview RGB.
+
+    Stock Warrior Walk/Stand TILEs establish the grounded invariant: at least
+    one control pixel directly touches the lowest six rows of visible body art.
+    The stricter private-Alchemist contract additionally reserves 247 for that
+    seam and forbids a transparent moat between body and bands 248..250.
+    """
+
+    height = len(rows)
+    width = len(rows[0]) if rows else 0
+    if not width or any(len(row) != width for row in rows):
+        raise ValueError("Grounded shadow metrics require a rectangular index plane")
+    body = {
+        (x, y)
+        for y, row in enumerate(rows)
+        for x, value in enumerate(row)
+        if 1 <= value <= 246
+    }
+    controls = {
+        (x, y)
+        for y, row in enumerate(rows)
+        for x, value in enumerate(row)
+        if value in CONTROL_INDICES
+    }
+    if not body or not controls:
+        raise ValueError("Grounded shadow metrics require both body and control pixels")
+    body_base = max(y for _x, y in body)
+    ground_body = {(x, y) for x, y in body if y >= body_base - 5}
+    seam = {
+        (x, y)
+        for x, y in controls
+        if rows[y][x] == 247
+    }
+    magenta = controls - seam
+
+    def touching(points: set[tuple[int, int]], target: set[tuple[int, int]]) -> set[tuple[int, int]]:
+        return {
+            (x, y)
+            for x, y in points
+            if any(
+                neighbor in target
+                for neighbor in _neighbors8(width, height, x, y)
+            )
+        }
+
+    transparent_gap_points: list[tuple[int, int]] = []
+    for y, row in enumerate(rows):
+        for x, value in enumerate(row):
+            if value != 0:
+                continue
+            neighbors = _neighbors8(width, height, x, y)
+            if any(point in body for point in neighbors) and any(
+                point in magenta for point in neighbors
+            ):
+                transparent_gap_points.append((x, y))
+
+    return {
+        "body_base_y": body_base,
+        "body_control_contact_total": len(touching(controls, body)),
+        "ground_control_contact_total": len(touching(controls, ground_body)),
+        "ground_seam_contact_total": len(touching(seam, ground_body)),
+        "magenta_body_contact_total": len(touching(magenta, body)),
+        "transparent_magenta_body_gap_total": len(transparent_gap_points),
+        "transparent_magenta_body_gap_examples": transparent_gap_points[:12],
+        "edge_control_total": sum(
+            x in (0, width - 1) or y in (0, height - 1)
+            for x, y in controls
+        ),
+        "control_counts": {
+            str(index): sum(value == index for row in rows for value in row)
+            for index in sorted(CONTROL_INDICES)
+        },
+    }
+
+
+def validate_grounded_shadow_contact(rows: Sequence[Sequence[int]]) -> dict[str, Any]:
+    """Reject the disconnected-shadow failure seen in the first game gate."""
+
+    if (len(rows[0]) if rows else 0, len(rows)) != NATIVE_CANVAS:
+        raise ValueError("Grounded Alchemist shadow changed the native canvas")
+    metrics = grounded_shadow_contact_metrics(rows)
+    if not metrics["ground_control_contact_total"]:
+        raise ValueError("Grounded Alchemist shadow has a transparent moat at the feet")
+    if not metrics["ground_seam_contact_total"]:
+        raise ValueError("Grounded Alchemist shadow has no index-247 foot seam")
+    if metrics["magenta_body_contact_total"]:
+        raise ValueError("Grounded Alchemist shadow has magenta touching body without a seam")
+    if metrics["transparent_magenta_body_gap_total"]:
+        raise ValueError(
+            "Grounded Alchemist shadow has transparent pixels between magenta and body"
+        )
+    if metrics["edge_control_total"]:
+        raise ValueError("Grounded Alchemist shadow writes controls on a TILE edge")
+    if any(not count for count in metrics["control_counts"].values()):
+        raise ValueError("Grounded Alchemist shadow lost a required 247..250 control band")
+    return metrics
+
+
+def projected_grounded_hero_shadow(
+    body_rows: Sequence[Sequence[int]],
+) -> list[list[int]]:
+    """Project a grounded Majesty hero shadow from the approved body plane.
+
+    Authority, in priority order:
+
+    * stock Warrior Walk/Stand TILEs 5919..5990: the ground shadow touches the
+      lower body in every one of the 72 source frames;
+    * Phantoms Haunt commit ``1ac887f55e4c1c67dc8d90829cb099eea87b15ae``,
+      ``docs/majesty-building-shadow-encoding.md``: 247 is the contact seam,
+      248..250 are projected bands, and index 0 is forbidden at contact;
+    * ``generate_phantom_building_sprites.py:add_cast_shadow``: the grounded
+      base anchor, body precedence, literal seam repair, and split-RLE order;
+    * ``build_phantom_guild.py:projected_floating_hero_shadow``: only its
+      central-mass limiter and 0.44/0.36 projection geometry. Its -3/-3 hover
+      displacement, body clearance, and component prune are forbidden here.
+
+    Do not call ``projected_floating_hero_shadow`` here. Its constant -3/-3
+    base displacement, body-clearance pass, and largest-component cleanup are
+    deliberate Phantom hovering behavior. They created the visible transparent
+    band when copied to this grounded hero.
+    """
+
+    height = len(body_rows)
+    width = len(body_rows[0]) if body_rows else 0
+    if (width, height) != NATIVE_CANVAS or any(
+        len(row) != width for row in body_rows
+    ):
+        raise ValueError("Grounded shadow projection changed the approved canvas")
+    if any(
+        value < 0 or value > 246
+        for row in body_rows
+        for value in row
+    ):
+        raise ValueError("Grounded shadow caster must contain indices 0..246 only")
+
+    points_by_row: dict[int, list[int]] = {}
+    for y, row in enumerate(body_rows):
+        for x, value in enumerate(row):
+            if value:
+                points_by_row.setdefault(y, []).append(x)
+    if not points_by_row:
+        raise ValueError("Grounded shadow caster has no visible body")
+
+    # Preserve the proven Phantom central-mass limiter so a changing arm,
+    # dagger, or bottle cannot turn the projection into a horizontal bar. All
+    # visible Alchemist indices cast; the Phantom-only cyan/white exclusions do
+    # not apply to ordinary grounded costume highlights or carried equipment.
+    caster_points: list[tuple[int, int]] = []
+    for y, row_xs in points_by_row.items():
+        row_xs.sort()
+        row_center = row_xs[len(row_xs) // 2]
+        row_span = row_xs[-1] - row_xs[0] + 1
+        half_width = max(3, min(12, round(row_span * 0.38)))
+        caster_points.extend(
+            (x, y)
+            for x in row_xs
+            if abs(x - row_center) <= half_width
+        )
+
+    base_y = max(y for _x, y in caster_points)
+    hits: dict[tuple[int, int], int] = {}
+    for x, y in caster_points:
+        vertical_height = base_y - y
+        shadow_x = round(x - vertical_height * 0.44)
+        shadow_y = round(base_y - vertical_height * 0.36)
+        if 0 <= shadow_x < width and 0 <= shadow_y < height:
+            point = (shadow_x, shadow_y)
+            hits[point] = hits.get(point, 0) + 1
+
+    projected = [[0 for _x in range(width)] for _y in range(height)]
+    core = set(hits)
+    for (x, y), hit_count in hits.items():
+        projected[y][x] = 248 if hit_count >= 2 else 249
+    for x, y in sorted(core, key=lambda point: (point[1], point[0])):
+        for neighbor_x, neighbor_y in _neighbors8(width, height, x, y):
+            if (neighbor_x, neighbor_y) in core:
+                continue
+            diagonal = neighbor_x != x and neighbor_y != y
+            value = 250 if diagonal else 249
+            current = projected[neighbor_y][neighbor_x]
+            projected[neighbor_y][neighbor_x] = min(current or 250, value)
+
+    # No body-clearance or component-prune pass belongs here. The raw NW Walk
+    # frame 4 projection legitimately has a small second foot component; the
+    # floating Phantom cleanup would silently discard it.
+    return projected
+
+
 def project_approved_shadow_controls(
     stock: Any,
     approved_tile: bytes,
     palette_colours: Sequence[tuple[int, int, int]],
 ) -> tuple[bytes, dict[str, Any]]:
-    """Derive Majesty control bands from the approved Alchemist silhouette.
+    """Add grounded Majesty 247..250 controls without changing approved art."""
 
-    This is the exact body-derived hero-shadow path already used by the proven
-    Phantoms/regular-Alchemist packer.  It authors Majesty's real 247..250 TILE
-    controls while avoiding the Warrior shield/sword shapes that a literal mask
-    transplant would retain.  Body indices, registration, and canvas are fixed.
-    """
-
-    algorithm_sha256 = sha256_bytes(
-        inspect.getsource(stock.projected_floating_hero_shadow).encode("utf-8")
-    )
-    if algorithm_sha256 != PROJECTED_SHADOW_FUNCTION_SHA256:
-        raise ValueError("Proven body-derived hero-shadow algorithm changed")
+    if sha256_bytes(GROUNDED_SHADOW_POLICY.encode("ascii")) != GROUNDED_SHADOW_POLICY_SHA256:
+        raise ValueError("Grounded shadow policy identity changed")
     approved_decoded = stock.decode_indexed_v3_tile(approved_tile)
     if approved_decoded is None:
         raise ValueError("Approved shadow projection requires an indexed TILE-v3 record")
@@ -394,29 +643,11 @@ def project_approved_shadow_controls(
     if struct.unpack_from("<HH", approved_tile, 10) != NATIVE_ROOT:
         raise ValueError("Shadow projection target hotspot changed")
 
-    caster = Image.new("RGBA", NATIVE_CANVAS, (0, 0, 0, 0))
-    caster.putdata(
-        [
-            (*palette_colours[value], 255) if value else (0, 0, 0, 0)
-            for row in approved_rows
-            for value in row
-        ]
-    )
-    projected_rows = stock.projected_floating_hero_shadow(caster, 1.0)
-    if len(projected_rows) != approved_height or any(
-        len(row) != approved_width for row in projected_rows
-    ):
-        raise ValueError("Body-derived shadow projection changed the canvas")
-    if any(
-        value != 0 and value not in CONTROL_INDICES
-        for row in projected_rows
-        for value in row
-    ):
-        raise ValueError("Body-derived shadow emitted a non-control palette index")
-
+    projected_rows = projected_grounded_hero_shadow(approved_rows)
+    projected_component_sizes = _control_component_sizes(projected_rows)
     target_rows = [list(row) for row in approved_rows]
     projected_counts = {index: 0 for index in sorted(CONTROL_INDICES)}
-    retained_counts = {index: 0 for index in sorted(CONTROL_INDICES)}
+    retained_projected_counts = {index: 0 for index in sorted(CONTROL_INDICES)}
     conflict_counts = {index: 0 for index in sorted(CONTROL_INDICES)}
     for y, row in enumerate(projected_rows):
         for x, value in enumerate(row):
@@ -427,15 +658,60 @@ def project_approved_shadow_controls(
                 conflict_counts[value] += 1
                 continue
             target_rows[y][x] = value
-            retained_counts[value] += 1
+            retained_projected_counts[value] += 1
+
+    # Phantoms' documented contact rule: projected magenta that directly
+    # touches authored body becomes the red index-247 transition seam.
+    direct_seam_total = 0
+    direct_source = [list(row) for row in target_rows]
+    for y, row in enumerate(direct_source):
+        for x, value in enumerate(row):
+            if not 248 <= value <= 250:
+                continue
+            if any(
+                1 <= direct_source[neighbor_y][neighbor_x] <= 246
+                for neighbor_x, neighbor_y in _neighbors8(
+                    approved_width, approved_height, x, y
+                )
+            ):
+                target_rows[y][x] = 247
+                direct_seam_total += 1
+
+    # Literal final seam rule from generate_phantom_building_sprites.py: fill
+    # only a zero pixel that touches both magenta and real body. Use a snapshot
+    # so this cannot grow a seam recursively into unrelated transparency.
+    gap_fill_seam_total = 0
+    gap_source = [list(row) for row in target_rows]
+    for y, row in enumerate(gap_source):
+        for x, value in enumerate(row):
+            if value != 0:
+                continue
+            neighbors = _neighbors8(approved_width, approved_height, x, y)
+            if any(
+                1 <= gap_source[neighbor_y][neighbor_x] <= 246
+                for neighbor_x, neighbor_y in neighbors
+            ) and any(
+                248 <= gap_source[neighbor_y][neighbor_x] <= 250
+                for neighbor_x, neighbor_y in neighbors
+            ):
+                target_rows[y][x] = 247
+                gap_fill_seam_total += 1
 
     projected_total = sum(projected_counts.values())
     conflict_total = sum(conflict_counts.values())
+    retained_projected_total = sum(retained_projected_counts.values())
+    retained_counts = {
+        index: sum(value == index for row in target_rows for value in row)
+        for index in sorted(CONTROL_INDICES)
+    }
     retained_total = sum(retained_counts.values())
     if not projected_total or not retained_total:
-        raise ValueError("Approved frame has no retained body-derived shadow")
-    if projected_total != conflict_total + retained_total:
-        raise AssertionError("Body-derived shadow pixel accounting is incomplete")
+        raise ValueError("Approved frame has no retained grounded shadow")
+    if projected_total != conflict_total + retained_projected_total:
+        raise AssertionError("Grounded shadow projected-pixel accounting is incomplete")
+    if retained_total != retained_projected_total + gap_fill_seam_total:
+        raise AssertionError("Grounded shadow seam-fill accounting is incomplete")
+    contact_metrics = validate_grounded_shadow_contact(target_rows)
 
     encoded = stock.encode_indexed_v3_tile_like_original(
         approved_tile,
@@ -454,15 +730,47 @@ def project_approved_shadow_controls(
         raise AssertionError("Shadow projection TILE does not decode exactly")
     validate_split_control_segments(output)
     stats: dict[str, Any] = {
-        "algorithm": "projected_floating_hero_shadow",
-        "algorithm_source_sha256": algorithm_sha256,
+        "algorithm": GROUNDED_SHADOW_POLICY,
+        "algorithm_policy_sha256": GROUNDED_SHADOW_POLICY_SHA256,
+        "authority": {
+            "stock": "AVL1Warrior TILE 5919..5990 grounded contact",
+            "contract_commit": PHANTOMS_SHADOW_CONTRACT_COMMIT,
+            "contract_path": PHANTOMS_SHADOW_CONTRACT_PATH,
+            "contract": (
+                "../majesty-gold-hd-custom-guild-phantoms-haunt/docs/"
+                "majesty-building-shadow-encoding.md"
+            ),
+            "grounding_implementation": (
+                "../majesty-gold-hd-custom-guild-phantoms-haunt/scripts/"
+                "generate_phantom_building_sprites.py:add_cast_shadow"
+            ),
+            "projection_geometry": (
+                "../majesty-gold-hd-custom-guild-phantoms-haunt/src/"
+                "build_phantom_guild.py:projected_floating_hero_shadow "
+                "central-mass and 0.44/0.36 terms only"
+            ),
+        },
         "caster_body_sha256": sha256_bytes(_visible_body_plane(approved_rows)),
         "projected_control_counts": {str(k): v for k, v in projected_counts.items()},
         "projected_control_total": projected_total,
+        "projected_component_sizes": list(projected_component_sizes),
         "body_conflict_counts": {str(k): v for k, v in conflict_counts.items()},
         "body_conflict_total": conflict_total,
+        "retained_projected_control_counts": {
+            str(k): v for k, v in retained_projected_counts.items()
+        },
+        "retained_projected_control_total": retained_projected_total,
+        "direct_seam_total": direct_seam_total,
+        "gap_fill_seam_total": gap_fill_seam_total,
         "retained_control_counts": {str(k): v for k, v in retained_counts.items()},
         "retained_control_total": retained_total,
+        "ground_contact_seam_total": contact_metrics["ground_seam_contact_total"],
+        "body_control_contact_total": contact_metrics["body_control_contact_total"],
+        "magenta_body_contact_total": contact_metrics["magenta_body_contact_total"],
+        "transparent_magenta_body_gap_total": contact_metrics[
+            "transparent_magenta_body_gap_total"
+        ],
+        "edge_control_total": contact_metrics["edge_control_total"],
         "projected_control_sha256": sha256_bytes(_control_plane(projected_rows)),
         "retained_control_sha256": sha256_bytes(_control_plane(target_rows)),
     }
@@ -623,16 +931,30 @@ def load_approved_sprite_bundle(
     shadow_totals = {
         "projected": 0,
         "body_conflicts": 0,
+        "retained_projected": 0,
+        "direct_seam": 0,
+        "gap_fill_seam": 0,
         "retained": 0,
+        "ground_contact_seam": 0,
     }
+    projected_shadow_bands = {index: 0 for index in sorted(CONTROL_INDICES)}
     retained_shadow_bands = {index: 0 for index in sorted(CONTROL_INDICES)}
     conflict_shadow_bands = {index: 0 for index in sorted(CONTROL_INDICES)}
 
     def record_shadow_stats(stats: dict[str, Any]) -> None:
         shadow_totals["projected"] += stats["projected_control_total"]
         shadow_totals["body_conflicts"] += stats["body_conflict_total"]
+        shadow_totals["retained_projected"] += stats[
+            "retained_projected_control_total"
+        ]
+        shadow_totals["direct_seam"] += stats["direct_seam_total"]
+        shadow_totals["gap_fill_seam"] += stats["gap_fill_seam_total"]
         shadow_totals["retained"] += stats["retained_control_total"]
+        shadow_totals["ground_contact_seam"] += stats[
+            "ground_contact_seam_total"
+        ]
         for index in sorted(CONTROL_INDICES):
+            projected_shadow_bands[index] += stats["projected_control_counts"][str(index)]
             retained_shadow_bands[index] += stats["retained_control_counts"][str(index)]
             conflict_shadow_bands[index] += stats["body_conflict_counts"][str(index)]
 
@@ -753,17 +1075,73 @@ def load_approved_sprite_bundle(
         raise AssertionError("Approved sprite bundle does not cover exactly 5919..5990")
     if shadow_totals != EXPECTED_SHADOW_TOTALS:
         raise ValueError(
-            f"Approved body-derived shadow totals changed: {shadow_totals!r}"
+            f"Approved grounded shadow totals changed: {shadow_totals!r}"
+        )
+    if projected_shadow_bands != EXPECTED_PROJECTED_SHADOW_BANDS:
+        raise ValueError(
+            "Approved projected grounded-shadow bands changed: "
+            f"{projected_shadow_bands!r}"
         )
     if retained_shadow_bands != EXPECTED_RETAINED_SHADOW_BANDS:
         raise ValueError(
-            "Approved retained body-derived shadow bands changed: "
+            "Approved retained grounded-shadow bands changed: "
             f"{retained_shadow_bands!r}"
         )
     if conflict_shadow_bands != EXPECTED_CONFLICT_SHADOW_BANDS:
         raise ValueError(
             "Approved body-conflict shadow bands changed: "
             f"{conflict_shadow_bands!r}"
+        )
+
+    ordered_rows = [
+        _tile_rows(stock, tiles_by_stock_slot[stock_slot])
+        for stock_slot in range(APPROVED_SLOT_START, APPROVED_SLOT_END)
+    ]
+    aggregate_control_plane = b"".join(_control_plane(rows) for rows in ordered_rows)
+    aggregate_full_plane = b"".join(
+        bytes(value for row in rows for value in row)
+        for rows in ordered_rows
+    )
+    aggregate_body_plane = b"".join(
+        _visible_body_plane(rows) for rows in ordered_rows
+    )
+    aggregate_hashes = {
+        "control": sha256_bytes(aggregate_control_plane),
+        "full": sha256_bytes(aggregate_full_plane),
+        "body": sha256_bytes(aggregate_body_plane),
+    }
+    expected_aggregate_hashes = {
+        "control": EXPECTED_CONTROL_PLANE_SHA256,
+        "full": EXPECTED_FULL_INDEX_PLANE_SHA256,
+        "body": EXPECTED_BODY_PLANE_SHA256,
+    }
+    if aggregate_hashes != expected_aggregate_hashes:
+        raise ValueError(
+            "Approved grounded-shadow aggregate plane hashes changed: "
+            f"{aggregate_hashes!r}"
+        )
+    frame_hash_lists = {
+        "projected_control": [
+            record["shadow"]["projected_control_sha256"]
+            for record in output_records
+        ],
+        "retained_control": [
+            record["shadow"]["retained_control_sha256"]
+            for record in output_records
+        ],
+        "full": [record["full_indexed_pixel_sha256"] for record in output_records],
+        "body": [record["indexed_pixel_sha256"] for record in output_records],
+    }
+    frame_hash_list_sha256 = {
+        name: sha256_bytes(
+            json.dumps(values, separators=(",", ":")).encode("ascii")
+        )
+        for name, values in frame_hash_lists.items()
+    }
+    if frame_hash_list_sha256 != EXPECTED_FRAME_HASH_LIST_SHA256:
+        raise ValueError(
+            "Approved grounded-shadow per-frame hash lists changed: "
+            f"{frame_hash_list_sha256!r}"
         )
 
     # The exact retail CAM hash already protects every source TILE, but check
@@ -926,11 +1304,11 @@ def validate_packaged_approved_sprite_cam(
         )
         if _tile_rows(stock, expected_tile) != packaged_rows:
             raise ValueError(
-                f"Packaged body-derived shadow changed for stock slot {stock_slot}"
+                f"Packaged grounded shadow changed for stock slot {stock_slot}"
             )
         if expected_shadow != record["shadow"]:
             raise ValueError(
-                f"Packaged body-derived shadow provenance changed for stock slot {stock_slot}"
+                f"Packaged grounded-shadow provenance changed for stock slot {stock_slot}"
             )
 
     records_by_interface_slot = {
@@ -1029,13 +1407,40 @@ def package_provenance(
             },
         },
         "shadows": {
-            "authority": "proven Phantoms body-derived Majesty control-mask pipeline",
-            "algorithm": "projected_floating_hero_shadow",
-            "algorithm_source_sha256": PROJECTED_SHADOW_FUNCTION_SHA256,
+            "authority": {
+                "stock": "AVL1Warrior TILE 5919..5990 grounded contact",
+                "contract_commit": PHANTOMS_SHADOW_CONTRACT_COMMIT,
+                "contract_path": PHANTOMS_SHADOW_CONTRACT_PATH,
+                "contract": (
+                    "../majesty-gold-hd-custom-guild-phantoms-haunt/docs/"
+                    "majesty-building-shadow-encoding.md"
+                ),
+                "grounding_implementation": (
+                    "../majesty-gold-hd-custom-guild-phantoms-haunt/scripts/"
+                    "generate_phantom_building_sprites.py:add_cast_shadow"
+                ),
+                "projection_geometry": (
+                    "../majesty-gold-hd-custom-guild-phantoms-haunt/src/"
+                    "build_phantom_guild.py:projected_floating_hero_shadow "
+                    "central-mass and 0.44/0.36 terms only"
+                ),
+            },
+            "algorithm": GROUNDED_SHADOW_POLICY,
+            "algorithm_policy_sha256": GROUNDED_SHADOW_POLICY_SHA256,
             "output_indices": [247, 250],
             "body_precedence": "approved visible indices 1..246 win on overlap",
+            "ground_contact": (
+                "index 247 directly touches the lowest six body rows in every frame"
+            ),
+            "forbidden_analogue": (
+                "projected_floating_hero_shadow deliberately clears body contact"
+            ),
             "body_contract": "no crop, recenter, scale, palette, or visible-index changes",
             "expected_totals": EXPECTED_SHADOW_TOTALS,
+            "expected_projected_bands": {
+                str(index): count
+                for index, count in EXPECTED_PROJECTED_SHADOW_BANDS.items()
+            },
             "expected_retained_bands": {
                 str(index): count
                 for index, count in EXPECTED_RETAINED_SHADOW_BANDS.items()
@@ -1044,6 +1449,12 @@ def package_provenance(
                 str(index): count
                 for index, count in EXPECTED_CONFLICT_SHADOW_BANDS.items()
             },
+            "aggregate_plane_sha256": {
+                "control": EXPECTED_CONTROL_PLANE_SHA256,
+                "full": EXPECTED_FULL_INDEX_PLANE_SHA256,
+                "body": EXPECTED_BODY_PLANE_SHA256,
+            },
+            "per_frame_hash_list_sha256": EXPECTED_FRAME_HASH_LIST_SHA256,
         },
         "source_hashes": bundle.source_hashes,
         "frames": records,

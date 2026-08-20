@@ -127,6 +127,20 @@ controls. Every building state and hero frame is encoded with independent
 visible and shadow RLE streams. Keep the validated transparent top and side
 gutters; seam pixels may only occupy the validated footprint.
 
+Grounded hero shadows use stock Warrior Walk/Stand TILEs `5919–5990` as the
+contact reference and the sibling Phantoms Haunt
+[shadow contract](../../majesty-gold-hd-custom-guild-phantoms-haunt/docs/majesty-building-shadow-encoding.md)
+and
+[`add_cast_shadow`](../../majesty-gold-hd-custom-guild-phantoms-haunt/scripts/generate_phantom_building_sprites.py)
+for the base anchor, index-247 contact seam, 248–250 bands, and literal gap
+repair. The full contact contract is pinned to Phantoms commit
+`1ac887f55e4c1c67dc8d90829cb099eea87b15ae`. Never reuse Phantoms'
+`projected_floating_hero_shadow` as a complete algorithm for a grounded
+unit: its `-3/-3` displacement and body-clearance pass intentionally detach the
+shadow to communicate hovering. Every Alchemist frame must have an index-247
+seam touching its lowest six body rows, with no transparent or magenta-only
+contact between the body and projected bands.
+
 The private records are `ALC1`, `ALB1`, `ALB2`, `ALB3`, `ALTI`, and `ALBB`.
 Their TILE data must be appended after the complete retail table. All earlier
 TILE slots in the mod CAM are zero-length fallthrough placeholders. Starting a

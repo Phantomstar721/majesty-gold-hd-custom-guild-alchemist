@@ -76,10 +76,26 @@ build command does not copy anything into the game or Majesty Mods directories.
 
 The compiled Walk/Stand TILEs preserve every approved visible body index, add
 Majesty's native `247`–`250` shadow-control bands through the pinned
-body-derived Phantoms pipeline, and keep visible/control pixels in separate RLE
-runs. The approved profile also privateizes ALC1's stock Interface-00/01/02
-frames, so the Alchemist portrait, selected-unit panel, and Laboratory
-hero-count icon resolve to nonempty private art instead of empty retail slots.
+grounded-shadow pipeline, and keep visible/control pixels in separate RLE runs.
+Stock Warrior TILEs `5919–5990` are the contact authority: their shadow touches
+the lower body in all 72 Walk/Stand frames. Palette roles, base-anchored
+projection, literal seam repair, and split-run encoding follow Phantoms Haunt's
+[Majesty building shadow notes](../majesty-gold-hd-custom-guild-phantoms-haunt/docs/majesty-building-shadow-encoding.md)
+and
+[`add_cast_shadow`](../majesty-gold-hd-custom-guild-phantoms-haunt/scripts/generate_phantom_building_sprites.py).
+The complete seam contract is pinned to Phantoms commit
+`1ac887f55e4c1c67dc8d90829cb099eea87b15ae`; current sibling paths are links
+for convenience, not mutable authority.
+The Phantom hero's `projected_floating_hero_shadow` is explicitly forbidden for
+this grounded hero: its base displacement and body-clearance pass deliberately
+create the transparent separation that makes the Phantom read as hovering.
+
+The validator pins all 72 body/control planes and rejects a transparent foot
+moat, direct magenta/body contact without the index-247 seam, controls on the
+canvas edge, or mixed body/control RLE runs. The approved profile also
+privateizes ALC1's stock Interface-00/01/02 frames, so the Alchemist portrait,
+selected-unit panel, and Laboratory hero-count icon resolve to nonempty private
+art instead of empty retail slots.
 
 The compatibility switch preserves Majesty's complete Northern Expansion BDEP
 table and appends the temporary `PHG1` and `ALB1` rules so this package can load

@@ -205,7 +205,7 @@ def build_siege_test_fixture(stock_quests: Path) -> str:
         raise ValueError("The Siege agent declarations no longer match the SDK fixture")
     function = function.replace(
         declare_anchor,
-        "\tagent palace, enemypalace, alchemyLab, rogueGuild, warriorGuild, "
+        "\tagent palace, enemypalace, alchemyLab, magicBazaar, rogueGuild, warriorGuild, "
         "oilRogue, oilWarrior, oilAlchemist;",
         1,
     )
@@ -221,8 +221,18 @@ def build_siege_test_fixture(stock_quests: Path) -> str:
         '$RandomCoord ( palace, 550, 750 ), "MaxHP" );'
         + '\n\t$SpawnUnit ( palace, "Temple_Krolm", '
         '$RandomCoord ( palace, 700, 900 ), "MaxHP" );'
-        + '\n\talchemyLab = $SpawnUnit ( palace, "AlchemistsLaboratory1", '
+        + '\n\talchemyLab = $SpawnUnit ( palace, "AlchemistsLaboratory3", '
         '$RandomCoord ( palace, 850, 1050 ), "MaxHP" );'
+        + '\n\t$SetAttribute ( alchemyLab, #ATTRIB_ResearchArrows, 1 );'
+        + '\n\t$SetAttribute ( alchemyLab, #ATTRIB_ResearchPowerfulItem, 1 );'
+        + '\n\tmagicBazaar = $SpawnUnit ( palace, "MagicBazaar3", '
+        '$RandomCoord ( palace, 925, 1125 ), "MaxHP" );'
+        + '\n\t$SetAttribute ( magicBazaar, #ATTRIB_ResearchBazaar_Item_One, 1 );'
+        + '\n\t$SetAttribute ( magicBazaar, #ATTRIB_ResearchBazaar_Item_Two, 1 );'
+        + '\n\t$SetAttribute ( magicBazaar, #ATTRIB_ResearchBazaar_Item_Three, 1 );'
+        + '\n\t$SetAttribute ( magicBazaar, #ATTRIB_ResearchBazaar_Item_Four, 1 );'
+        + '\n\t$SetAttribute ( magicBazaar, #ATTRIB_ResearchBazaar_Item_Five, 1 );'
+        + '\n\t$SetAttribute ( magicBazaar, #ATTRIB_ResearchBazaar_Item_Six, 1 );'
         + '\n\trogueGuild = $SpawnUnit ( palace, "Rogues_Guild1", '
         '$RandomCoord ( palace, 1000, 1200 ), "MaxHP" );'
         + '\n\twarriorGuild = $SpawnUnit ( palace, "Warriors_Guild", '
@@ -731,6 +741,10 @@ def build_flash_flask_xml(stock_actions_xml: Path, stock_overlays_xml: Path) -> 
     action.find("./Game/EffectorDuration").set("value", FLASH_FLASK_DURATION_MS)
     action.find("./Game/TimeoutDuration").set("value", FLASH_FLASK_COOLDOWN_MS)
     action.find("./Game/CharacterLevel").set("value", "3")
+    # Stock getbestspell orders combat buffs by SpellRank.  Stun Serum remains
+    # rank 5; rank 4 places Flash Flask immediately after it and before the
+    # native Bazaar attack potions (Fire Balm 3, Shapeshift 2, others 1).
+    action.find("./Game/SpellRank").set("value", "4")
 
     icon = ET.fromstring(ET.tostring(stock_icon, encoding="utf-8"))
     icon.set("ID", FLASH_FLASK_ICON_ID)

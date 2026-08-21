@@ -640,6 +640,7 @@ class AlchemistProbeTests(unittest.TestCase):
             '$defend_building(thisagent,"Gambling_hall")',
             "$rest(thisagent)",
             "$Purchase_equipment(thisagent)",
+            "$Purchase_bazaar(thisagent, 101)",
             "$pursue_entertainment(thisagent)",
             "$Loot_Gravestones(ThisAgent,100)",
             "$collect_special_item (ThisAgent, 90)",
@@ -732,12 +733,24 @@ end
         self.assertIn('"Temple_Fervus1"', fixture)
         self.assertIn('"Temple_Krolm"', fixture)
         self.assertIn('"Wizards_Guild3"', fixture)
-        self.assertIn('"AlchemistsLaboratory1"', fixture)
+        self.assertIn('"AlchemistsLaboratory3"', fixture)
+        self.assertIn('magicBazaar = $SpawnUnit ( palace, "MagicBazaar3"', fixture)
         self.assertIn('rogueGuild = $SpawnUnit ( palace, "Rogues_Guild1"', fixture)
         self.assertIn('warriorGuild = $SpawnUnit ( palace, "Warriors_Guild"', fixture)
-        self.assertEqual(fixture.count('"MaxHP"'), 6)
+        self.assertEqual(fixture.count('"MaxHP"'), 7)
         self.assertIn('$AdjustPlayerData ( palace, "gold", 100000 )', fixture)
-        self.assertNotIn("#ATTRIB_ResearchArrows, 1", fixture)
+        self.assertIn(
+            "$SetAttribute ( alchemyLab, #ATTRIB_ResearchArrows, 1 )", fixture
+        )
+        self.assertIn(
+            "$SetAttribute ( alchemyLab, #ATTRIB_ResearchPowerfulItem, 1 )",
+            fixture,
+        )
+        for suffix in ("One", "Two", "Three", "Four", "Five", "Six"):
+            self.assertIn(
+                f"$SetAttribute ( magicBazaar, #ATTRIB_ResearchBazaar_Item_{suffix}, 1 )",
+                fixture,
+            )
         self.assertIn('oilRogue = $SpawnUnit ( rogueGuild, "Rogue"', fixture)
         self.assertIn('oilWarrior = $SpawnUnit ( warriorGuild, "Warrior"', fixture)
         self.assertIn('oilAlchemist = $SpawnUnit ( alchemyLab, "Alchemist"', fixture)
@@ -979,6 +992,7 @@ end
         self.assertEqual(action.find("./Game/TimeoutDuration").get("value"), "60000")
         self.assertEqual(action.find("./Game/SpellType").get("value"), "Attack")
         self.assertEqual(action.find("./Game/CharacterLevel").get("value"), "3")
+        self.assertEqual(action.find("./Game/SpellRank").get("value"), "4")
         self.assertEqual(icon.get("Name"), "alchemist_flash_flask_icon")
         self.assertEqual(icon.find("./Engine/ImageIDBase").get("value"), "AFF1")
         self.assertEqual(

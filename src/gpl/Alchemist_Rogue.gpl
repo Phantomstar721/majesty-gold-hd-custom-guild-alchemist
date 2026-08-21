@@ -1,9 +1,10 @@
 ///////////////////////////////////////////////////////////////////////////////
 // Private Alchemist clone of stock OriginalQuests Rogue_tree.
-// Ordering, calls, flags, and weights are intentionally unchanged except for
-// the single requested deletion of Rogue's Steal_Check branch.  Looting,
-// equipment purchases, poison-plant collection, and every other stock Rogue
-// priority remain in their original positions.
+// Ordering, calls, and flags are intentionally unchanged except for the
+// requested deletion of Rogue's Steal_Check branch and the Magic Bazaar's
+// requested deterministic pre-hunt purchase weight.  Looting, equipment
+// purchases, poison-plant collection, and every other stock Rogue priority
+// remain in their original positions.
 ///////////////////////////////////////////////////////////////////////////////
 
 function Alchemist_tree (agent thisagent)
@@ -26,6 +27,11 @@ begin
 	if ($rest(thisagent) == False)
 
 	if ($Purchase_equipment(thisagent) == False)
+
+	// Literal stock Rogue Magic Bazaar priority.  A value above the stock
+	// RandomNumber(100)+1 ceiling makes the requested pre-hunt purchase check
+	// deterministic whenever a researched, affordable item is available.
+	if ($Purchase_bazaar(thisagent, 101) == False)
 
 	if ($pursue_entertainment(thisagent) == False)
 

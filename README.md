@@ -134,7 +134,9 @@ control.
 For repeated Brewing development, add `-IncludeSiegeTestFixture`. Approved
 sprite-test builds enable it automatically. This copies and overrides only the
 stock `SIEGE()` entry point in the generated probe and spawns completed
-player-owned Fervus, Krolm, level-3 Wizard, and Alchemy guilds near the Palace.
-It also supplies 100,000 sovereign gold and three funded, level-10 purchase-test
-heroes so Phoenix Phial death/resurrection tests can be repeated quickly. The
-switch remains off for other builds unless explicitly selected.
+player-owned Fervus, Krolm, level-3 Wizard, level-3 Alchemy, and level-3 Magic
+Bazaar buildings near the Palace. Weapon Oil, Phoenix Phial, and all six stock
+Bazaar items begin researched. It also supplies 100,000 sovereign gold and
+three funded, level-10 purchase-test heroes so purchase, combat-buff, and
+Phoenix Phial death/resurrection tests can be repeated quickly. The switch
+remains off for other builds unless explicitly selected.

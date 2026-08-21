@@ -164,7 +164,7 @@ STOCK_EXPANSION_BDEP_RULES = (
 SOURCE_ROOT = Path(__file__).resolve().parent
 GPL_SOURCE_ROOT = SOURCE_ROOT / "gpl"
 APPROVED_SPRITE_PIPELINE_ROOT = (
-    SOURCE_ROOT.parents[1] / "majesty-gold-hd-sprite-art-pipeline"
+    SOURCE_ROOT.parent / "assets" / "source" / "approved-alchemist-sprite-set-v1"
 )
 APPROVED_SPRITE_PROVENANCE_NAME = "ApprovedSpriteTestSet.json"
 
@@ -383,9 +383,81 @@ def build_alchemist_damage(stock_make_attack: Path) -> str:
     return function.replace(stock_poison, private_oils, 1) + "\n"
 
 
+def build_alchemist_magic_bazaar(stock_magic_bazaar: Path) -> str:
+    """Privatize only Bazaar selection; retain the complete stock transaction."""
+    source = stock_magic_bazaar.read_text(encoding="cp1252")
+    purchase = extract_gpl_function(source, "Purchase_Bazaar")
+    check = extract_gpl_function(source, "Bazaar_Item_Check")
+
+    stock_signature = (
+        "Function Purchase_Bazaar ( agent ThisAgent, integer bazaar_chance ) is boolean"
+    )
+    if purchase.count(stock_signature) != 1:
+        raise ValueError("Stock Purchase_Bazaar signature changed")
+    purchase = purchase.replace(
+        stock_signature,
+        "Function Alchemist_Purchase_Bazaar ( agent ThisAgent, integer bazaar_chance ) is boolean",
+        1,
+    )
+    stock_order = (
+        "\tItem_list << #Bazaar_Item_One;\n"
+        " \tItem_list << #Bazaar_Item_Two;\n"
+        " \tItem_list << #Bazaar_Item_Three;\n"
+        "\tItem_list << #Bazaar_Item_Four;\n"
+        " \tItem_list << #Bazaar_Item_Five;\n"
+        " \tItem_list << #Bazaar_Item_Six;"
+    )
+    # Stock checks every item and the last successful check owns TaskName.
+    # Iterating lowest-to-highest yields the requested final priority:
+    # Speed > Strength > Regeneration > Fire > Shapeshift > Invisibility.
+    private_order = (
+        "\tItem_list << #Bazaar_Item_Five;\n"
+        "\tItem_list << #Bazaar_Item_Six;\n"
+        "\tItem_list << #Bazaar_Item_Two;\n"
+        "\tItem_list << #Bazaar_Item_Four;\n"
+        "\tItem_list << #Bazaar_Item_Three;\n"
+        "\tItem_list << #Bazaar_Item_One;"
+    )
+    if purchase.count(stock_order) != 1:
+        raise ValueError("Stock Purchase_Bazaar item order changed")
+    purchase = purchase.replace(stock_order, private_order, 1)
+    if purchase.count("$Bazaar_Item_Check") != 1:
+        raise ValueError("Stock Purchase_Bazaar item-check call changed")
+    purchase = purchase.replace(
+        "$Bazaar_Item_Check", "$Alchemist_Bazaar_Item_Check", 1
+    )
+
+    stock_check_signature = (
+        "Function Bazaar_Item_Check ( agent ThisAgent, integer item, list potentials, integer Item_cost ) is boolean"
+    )
+    if check.count(stock_check_signature) != 1:
+        raise ValueError("Stock Bazaar_Item_Check signature changed")
+    check = check.replace(
+        stock_check_signature,
+        "Function Alchemist_Bazaar_Item_Check ( agent ThisAgent, integer item, list potentials, integer Item_cost ) is boolean",
+        1,
+    )
+    stock_fire_gate = (
+        '\t\tif (( thisagent\'s "title" != "ranger"  ) && '
+        '( thisagent\'s "title" != "rogue" ) && '
+        '( thisagent\'s "title" != "elf" ))'
+    )
+    private_fire_gate = (
+        '\t\tif (( thisagent\'s "title" != "ranger"  ) && '
+        '( thisagent\'s "title" != "rogue" ) && '
+        '( thisagent\'s "title" != "elf" ) && '
+        '( thisagent\'s "title" != "alchemist" ))'
+    )
+    if check.count(stock_fire_gate) != 1:
+        raise ValueError("Stock Bazaar fire-balm eligibility changed")
+    check = check.replace(stock_fire_gate, private_fire_gate, 1)
+    return purchase + "\n\n" + check + "\n"
+
+
 def build_gpl_project(include_siege_test_fixture: bool) -> str:
     sources = [
         'source="Alchemist_Rogue.gpl"',
+        'source="Alchemist_Magic_Bazaar.gpl"',
         'source="Alchemist_Stun_Serum.gpl"',
         'source="Alchemist_Flash_Flask.gpl"',
         'source="Alchemist_Brewing.gpl"',
@@ -1635,6 +1707,7 @@ def build_manifest(
 \t\t\t\t\t\t<Source>GPL\\Alchemist_Hero_Data.dat</Source>
 \t\t\t\t\t\t<Source>GPL\\Alchemist_Phoenix_Phial.dat</Source>
 \t\t\t\t\t\t<Source>GPL\\Alchemist_Rogue.gpl</Source>
+\t\t\t\t\t\t<Source>GPL\\Alchemist_Magic_Bazaar.gpl</Source>
 \t\t\t\t\t\t<Source>GPL\\Alchemist_Stun_Serum.gpl</Source>
 \t\t\t\t\t\t<Source>GPL\\Alchemist_Flash_Flask.gpl</Source>
 \t\t\t\t\t\t<Source>GPL\\Alchemist_Brewing.gpl</Source>
@@ -1679,6 +1752,7 @@ def validate_output(
         output_root / "GPL" / "Alchemist_Hero_Data.dat",
         output_root / "GPL" / "Alchemist_Phoenix_Phial.dat",
         output_root / "GPL" / "Alchemist_Rogue.gpl",
+        output_root / "GPL" / "Alchemist_Magic_Bazaar.gpl",
         output_root / "GPL" / "Alchemist_Flash_Flask.gpl",
         output_root / "GPL" / "Alchemist_Stun_Serum.gpl",
         output_root / "GPL" / "Alchemist_Brewing.gpl",
@@ -1698,7 +1772,7 @@ def validate_output(
     if approved_sprite_test_set:
         provenance_path = output_root / APPROVED_SPRITE_PROVENANCE_NAME
         provenance = json.loads(provenance_path.read_text(encoding="utf-8"))
-        if provenance.get("schema") != "majesty-alchemist-approved-sprite-test-set-v1":
+        if provenance.get("schema") != "majesty-alchemist-approved-sprite-test-set-v2":
             raise ValueError("Approved sprite test provenance schema changed")
         if provenance.get("cache_policy") != (
             "fresh build; regular art cache bypassed and not updated"
@@ -2220,6 +2294,12 @@ def validate_output(
     if b"Purchase_Equipment" not in compiled_symbols:
         raise ValueError("Compiled Alchemist bytecode lost its stock-derived economy gate")
     for symbol in (
+        b"Alchemist_Purchase_Bazaar",
+        b"Alchemist_Bazaar_Item_Check",
+    ):
+        if symbol not in compiled_symbols:
+            raise ValueError(f"Compiled Alchemist bytecode lost Bazaar symbol {symbol!r}")
+    for symbol in (
         b"Alchemy_Oil_Check",
         b"Alchemy_Oil_Enchant_Equipment",
         b"Obtain_Alchemy_Oil",
@@ -2387,6 +2467,12 @@ def build(
     )
     (gpl_dir / "Alchemist_Economy.gpl").write_text(
         economy_source, encoding="utf-8"
+    )
+    bazaar_source = build_alchemist_magic_bazaar(
+        sdk_data.parent / "GPLMx" / "TaskModules" / "Buildings" / "Magic_Bazaar.gpl"
+    )
+    (gpl_dir / "Alchemist_Magic_Bazaar.gpl").write_text(
+        bazaar_source, encoding="utf-8"
     )
     if include_siege_test_fixture:
         siege_source = build_siege_test_fixture(

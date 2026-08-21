@@ -11,6 +11,7 @@ from PIL import Image, ImageChops, ImageDraw
 from approved_sprite_bundle import (
     load_approved_sprite_bundle,
     package_provenance,
+    patch_completed_warrior_imag,
     remap_approved_warrior_imag,
     sha256_bytes,
     sha256_file,
@@ -715,19 +716,35 @@ def write_maindata(
     approved_interface_tile_indices: dict[int, int] = {}
     approved_interface_records: list[dict] = []
     if approved_bundle is not None:
-        # This is deliberately a narrow in-game sprite gate. Clone AVL1's
-        # complete timing/state graph and replace only its accepted Walk and
-        # Stand source slots. Portrait, panel, cast, death, and attack refs all
-        # remain literal stock references until their own visual gates pass.
-        for source_index, rendered in sorted(
-            approved_bundle.tiles_by_stock_slot.items()
-        ):
-            approved_private_tile_indices[source_index] = append(
-                f"ALC1Test{source_index:05d}".encode("ascii"), rendered
+        if approved_bundle.handoff_manifest_sha256 is not None:
+            # Clone the complete Warrior action topology. Each approved art
+            # record is appended privately, then only its manifest-authorized
+            # low16 occurrence words are changed. Cast/Special occurrences are
+            # intentionally disjoint even where retail Warrior aliases TILEs.
+            for record in approved_bundle.records:
+                record_index = record["record_index"]
+                approved_private_tile_indices[record_index] = append(
+                    (
+                        f"ALC1{record['kind'][:3].title()}"
+                        f"{record_index:03d}"
+                    ).encode("ascii"),
+                    record["packaged_tile"],
+                )
+            hero_imag = patch_completed_warrior_imag(
+                hero_imag,
+                approved_bundle,
+                list(approved_private_tile_indices.values()),
             )
-        hero_imag = remap_approved_warrior_imag(
-            stock, hero_imag, approved_private_tile_indices
-        )
+        else:
+            for source_index, rendered in sorted(
+                approved_bundle.tiles_by_stock_slot.items()
+            ):
+                approved_private_tile_indices[source_index] = append(
+                    f"ALC1Test{source_index:05d}".encode("ascii"), rendered
+                )
+            hero_imag = remap_approved_warrior_imag(
+                stock, hero_imag, approved_private_tile_indices
+            )
     else:
         hero_replacements: dict[int, int] = {}
         warrior_walk_geometry = {

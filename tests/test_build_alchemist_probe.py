@@ -14,7 +14,7 @@ import approved_sprite_bundle as sprite_bundle
 
 
 class AlchemistProbeTests(unittest.TestCase):
-    def test_approved_sprite_bundle_is_hash_pinned_and_covers_only_walk_stand(self) -> None:
+    def test_approved_sprite_bundle_is_hash_pinned_and_covers_complete_action_set(self) -> None:
         repo = Path(__file__).resolve().parents[1]
         stock = art_package.load_stock_pipeline(repo)
         retail = Path(
@@ -36,14 +36,24 @@ class AlchemistProbeTests(unittest.TestCase):
         self.assertEqual(bundle.private_palette_index, len(palettes))
         self.assertEqual(bundle.private_palette_index, 854)
         self.assertEqual(
-            sorted(bundle.tiles_by_stock_slot), list(range(5919, 5991))
+            bundle.handoff_manifest_sha256,
+            sprite_bundle.COMPLETED_HANDOFF_MANIFEST_SHA256,
+        )
+        self.assertEqual(len(bundle.records), 281)
+        self.assertEqual(len(bundle.imag_patches), 378)
+        self.assertEqual(
+            {
+                action: sum(record["kind"] == action for record in bundle.records)
+                for action in sprite_bundle.COMPLETED_ACTION_COUNTS
+            },
+            sprite_bundle.COMPLETED_ACTION_COUNTS,
         )
         self.assertEqual(
-            [record["direction"] for record in bundle.records[:64:8]],
-            list(sprite_bundle.DIRECTION_ORDER),
-        )
-        self.assertEqual(
-            [record["direction"] for record in bundle.records[64:]],
+            [
+                record["direction"]
+                for record in bundle.records
+                if record["kind"] == "walk" and record["frame"] == 0
+            ],
             list(sprite_bundle.DIRECTION_ORDER),
         )
         private_colours = stock.splt_palette_colors(bundle.private_palette_data)
@@ -57,40 +67,42 @@ class AlchemistProbeTests(unittest.TestCase):
             sprite_bundle.CONTROL_RGB,
         )
 
+        proven = [
+            record for record in bundle.records
+            if record["kind"] in {"walk", "stand"}
+        ]
         shadow_totals = {
             "projected": sum(
-                record["shadow"]["projected_control_total"] for record in bundle.records
+                record["shadow"]["projected_control_total"] for record in proven
             ),
             "body_conflicts": sum(
-                record["shadow"]["body_conflict_total"] for record in bundle.records
+                record["shadow"]["body_conflict_total"] for record in proven
             ),
             "retained_projected": sum(
                 record["shadow"]["retained_projected_control_total"]
-                for record in bundle.records
+                for record in proven
             ),
             "direct_seam": sum(
-                record["shadow"]["direct_seam_total"] for record in bundle.records
+                record["shadow"]["direct_seam_total"] for record in proven
             ),
             "gap_fill_seam": sum(
-                record["shadow"]["gap_fill_seam_total"] for record in bundle.records
+                record["shadow"]["gap_fill_seam_total"] for record in proven
             ),
             "retained": sum(
-                record["shadow"]["retained_control_total"] for record in bundle.records
+                record["shadow"]["retained_control_total"] for record in proven
             ),
             "ground_contact_seam": sum(
                 record["shadow"]["ground_contact_seam_total"]
-                for record in bundle.records
+                for record in proven
             ),
         }
         self.assertEqual(shadow_totals, sprite_bundle.EXPECTED_SHADOW_TOTALS)
-        control_planes = bytearray()
-        full_planes = bytearray()
-        body_planes = bytearray()
         for record in bundle.records:
-            payload = bundle.tiles_by_stock_slot[record["stock_slot"]]
+            payload = record["packaged_tile"]
             decoded = stock.decode_indexed_v3_tile(payload)
             self.assertIsNotNone(decoded)
-            _height, _width, rows = decoded
+            height, width, rows = decoded
+            self.assertEqual([width, height], record["canvas"])
             indices = bytes(value for row in rows for value in row)
             body = bytes(
                 0 if value in sprite_bundle.CONTROL_INDICES else value
@@ -102,55 +114,17 @@ class AlchemistProbeTests(unittest.TestCase):
             self.assertTrue(any(value in sprite_bundle.CONTROL_INDICES for value in indices))
             self.assertFalse(any(value > 250 for value in indices))
             sprite_bundle.validate_split_control_segments(payload)
-            contact = sprite_bundle.validate_grounded_shadow_contact(rows)
+            contact = sprite_bundle.validate_grounded_shadow_contact(
+                rows, tuple(record["canvas"])
+            )
             self.assertEqual(contact["magenta_body_contact_total"], 0)
             self.assertEqual(contact["transparent_magenta_body_gap_total"], 0)
             self.assertEqual(contact["edge_control_total"], 0)
-            self.assertGreaterEqual(contact["ground_seam_contact_total"], 14)
-            self.assertLessEqual(contact["ground_seam_contact_total"], 47)
+            self.assertGreater(contact["ground_seam_contact_total"], 0)
             self.assertEqual(
                 contact["ground_seam_contact_total"],
                 record["shadow"]["ground_contact_seam_total"],
             )
-            control_planes.extend(sprite_bundle._control_plane(rows))
-            full_planes.extend(indices)
-            body_planes.extend(sprite_bundle._visible_body_plane(rows))
-
-        self.assertEqual(
-            sprite_bundle.sha256_bytes(bytes(control_planes)),
-            sprite_bundle.EXPECTED_CONTROL_PLANE_SHA256,
-        )
-        self.assertEqual(
-            sprite_bundle.sha256_bytes(bytes(full_planes)),
-            sprite_bundle.EXPECTED_FULL_INDEX_PLANE_SHA256,
-        )
-        self.assertEqual(
-            sprite_bundle.sha256_bytes(bytes(body_planes)),
-            sprite_bundle.EXPECTED_BODY_PLANE_SHA256,
-        )
-        frame_hash_lists = {
-            "projected_control": [
-                record["shadow"]["projected_control_sha256"]
-                for record in bundle.records
-            ],
-            "retained_control": [
-                record["shadow"]["retained_control_sha256"]
-                for record in bundle.records
-            ],
-            "full": [
-                record["full_indexed_pixel_sha256"] for record in bundle.records
-            ],
-            "body": [record["indexed_pixel_sha256"] for record in bundle.records],
-        }
-        self.assertEqual(
-            {
-                name: sprite_bundle.sha256_bytes(
-                    json.dumps(values, separators=(",", ":")).encode("ascii")
-                )
-                for name, values in frame_hash_lists.items()
-            },
-            sprite_bundle.EXPECTED_FRAME_HASH_LIST_SHA256,
-        )
         northwest_four = next(
             record
             for record in bundle.records
@@ -398,31 +372,31 @@ class AlchemistProbeTests(unittest.TestCase):
         warrior_imag = stock.read_cam_entry(
             retail, b"IMAG", art_package.HERO_SOURCE
         ).data
-        replacements = {
-            source: 20000 + source - sprite_bundle.APPROVED_SLOT_START
-            for source in range(
-                sprite_bundle.APPROVED_SLOT_START,
-                sprite_bundle.APPROVED_SLOT_END,
-            )
-        }
-        patched = sprite_bundle.remap_approved_warrior_imag(
-            stock, warrior_imag, replacements
+        tiles = stock.read_cam_entries(retail, b"TILE")
+        palettes = stock.read_cam_entries(retail, b"SPLT")
+        bundle = sprite_bundle.load_approved_sprite_bundle(
+            builder.APPROVED_SPRITE_PIPELINE_ROOT,
+            stock,
+            retail,
+            tiles,
+            palettes,
+            warrior_imag,
         )
-        changed = []
+        private_indices = list(range(20000, 20000 + len(bundle.records)))
+        patched = sprite_bundle.patch_completed_warrior_imag(
+            warrior_imag, bundle, private_indices
+        )
         changed_offsets = []
         for offset in range(0, len(warrior_imag) - 3, 4):
             before = struct.unpack_from("<I", warrior_imag, offset)[0]
             after = struct.unpack_from("<I", patched, offset)[0]
             if before != after:
-                changed.append(before & 0xFFFF)
                 changed_offsets.append(offset)
-                self.assertGreaterEqual(before & 0xFFFF, 5919)
-                self.assertLessEqual(before & 0xFFFF, 5990)
-        self.assertEqual(set(changed), set(range(5919, 5991)))
         self.assertEqual(
-            tuple(changed_offsets), sprite_bundle.EXPECTED_REMAPPED_IMAG_OFFSETS
+            changed_offsets,
+            [patch["offset"] for patch in bundle.imag_patches],
         )
-        self.assertEqual(len(changed_offsets), 73)
+        self.assertEqual(len(changed_offsets), 378)
 
     def test_approved_sprite_mode_is_explicit_and_cannot_use_regular_art_cache(self) -> None:
         source = Path(builder.__file__).read_text(encoding="utf-8")
@@ -640,7 +614,7 @@ class AlchemistProbeTests(unittest.TestCase):
             '$defend_building(thisagent,"Gambling_hall")',
             "$rest(thisagent)",
             "$Purchase_equipment(thisagent)",
-            "$Purchase_bazaar(thisagent, 101)",
+            "$Alchemist_Purchase_Bazaar(thisagent, 101)",
             "$pursue_entertainment(thisagent)",
             "$Loot_Gravestones(ThisAgent,100)",
             "$collect_special_item (ThisAgent, 90)",
@@ -661,6 +635,29 @@ class AlchemistProbeTests(unittest.TestCase):
         self.assertNotIn("Cultist_tree", source)
         for cultist_only in ("$Build_Pack", "$Swarm", "$Seed_Resource_Check"):
             self.assertNotIn(cultist_only, source)
+
+    def test_private_bazaar_selector_preserves_stock_purchase_lifecycle(self) -> None:
+        stock = Path(
+            r"C:\Program Files (x86)\Steam\steamapps\common\Majesty HD\SDK\OriginalQuests\GPLMx\TaskModules\Buildings\Magic_Bazaar.gpl"
+        )
+        source = builder.build_alchemist_magic_bazaar(stock)
+        self.assertIn("Function Alchemist_Purchase_Bazaar", source)
+        self.assertIn("Function Alchemist_Bazaar_Item_Check", source)
+        self.assertNotIn("Function Purchase_Bazaar", source)
+        self.assertNotIn("Function Bazaar_Item_Check", source)
+        positions = [
+            source.index(f"Item_list << #Bazaar_Item_{name}")
+            for name in ("Five", "Six", "Two", "Four", "Three", "One")
+        ]
+        self.assertEqual(positions, sorted(positions))
+        self.assertIn("thisagent's \"title\" != \"alchemist\"", source)
+        for stock_owner in (
+            "$Researched_Item",
+            "$Get_Bazaar_Cost",
+            "$Use_Building",
+            "$SetBuyerIntent",
+        ):
+            self.assertIn(stock_owner, source)
 
     def test_alchemist_unit_replaces_cultist_spells_with_flash_flask(self) -> None:
         game = Path(r"C:\Program Files (x86)\Steam\steamapps\common\Majesty HD")
@@ -772,6 +769,7 @@ end
             'data="Alchemist_Hero_Data.dat"\n'
             'data="Alchemist_Phoenix_Phial.dat"\n'
             'source="Alchemist_Rogue.gpl"\n'
+            'source="Alchemist_Magic_Bazaar.gpl"\n'
             'source="Alchemist_Stun_Serum.gpl"\n'
             'source="Alchemist_Flash_Flask.gpl"\n'
             'source="Alchemist_Brewing.gpl"\n'

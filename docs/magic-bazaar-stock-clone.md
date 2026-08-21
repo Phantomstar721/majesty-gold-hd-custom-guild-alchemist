@@ -1,21 +1,31 @@
 # Magic Bazaar stock lifecycle
 
-The Alchemist uses the Northern Expansion Magic Bazaar without a private
-purchase controller. `Alchemist_tree` retains Rogue's stock priority position:
-`Purchase_equipment`, then `Purchase_bazaar`, then entertainment, looting,
-resource collection, and hunting. The requested stronger priority changes only
-the stock `bazaar_chance` argument to 101; this is one above the function's
-`RandomNumber(100) + 1` ceiling and therefore makes the check deterministic
-when an affordable researched item is actually available.
+The Alchemist uses the Northern Expansion Magic Bazaar with a private clone of
+only the stock item selector. `Alchemist_tree` retains Rogue's stock priority
+position: `Purchase_equipment`, then `Alchemist_Purchase_Bazaar`, then
+entertainment, looting, resource collection, and hunting. Keeping the complete
+stock `Purchase_equipment` gate first preserves ordinary Marketplace,
+Blacksmith, Library, and Wizard Guild shopping opportunities. The Bazaar chance
+is 101, one above the function's `RandomNumber(100) + 1` ceiling, so the check
+is deterministic only when a researched, affordable, not-already-held flask is
+available.
 
-`Purchase_Bazaar` remains the complete stock owner. It finds completed
+Stock `Purchase_Bazaar` checks the whole item list and the last successful
+candidate owns `TaskName`. The private clone therefore iterates candidates from
+lowest to highest priority: Invisibility, Shapeshift, Fire, Regeneration,
+Strength, Speed. The resulting purchase priority is exactly Speed > Strength >
+Regeneration > Fire > Shapeshift > Invisibility. `Alchemist_Bazaar_Item_Check`
+changes only the Fire Balm title gate to include `alchemist`; all research,
+cost, inventory, building-completion, and affordability checks remain stock.
+
+The cloned selector retains the complete stock transaction. It finds completed
 `Magic_Bazaar` buildings within the intelligence-scaled sight radius, filters
 each of the six items through its corresponding research attribute, rejects an
 item already held or unaffordable, sets the stock task and buyer intent, and
 enters through `Use_Building`. `Bazaar_Visited` and `Purchasing_at_Bazaar`
 preserve the stock 10-second visit, payment, inventory creation,
-`QItem_Stat_Boost`, exit, and task reset. No Alchemist-only purchase watcher or
-inventory path exists.
+`QItem_Stat_Boost`, exit, and task reset. No Alchemist-only purchase watcher,
+payment path, inventory path, or visit lifecycle exists.
 
 The inventory callback teaches each Bazaar item as its native one-use spell.
 Combat continues to use stock `attack_object`: `getbestspell(#list_attack)`

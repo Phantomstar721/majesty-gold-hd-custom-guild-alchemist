@@ -1,0 +1,1015 @@
+{
+  "schema_version": 1,
+  "tool": "render_mixamo_stand_gate.py",
+  "tool_version": "1.1",
+  "scope": "eight-direction local Stand approval only; no CAM/TILE/game writes",
+  "contract": {
+    "status": "pass",
+    "input": "C:\\Users\\bterr\\source\\repos\\majesty-gold-hd-sprite-art-pipeline\\output\\tripo-auto-rig-v1\\dagger-attachment-v2\\alchemist-rigged-dagger.blend",
+    "input_sha256": "09c7d40071082f2df0d074963f71517bcbd9c8f7c553e404fefe5d9396e3eeab",
+    "input_size_bytes": 23582982,
+    "v11_provenance": "C:\\Users\\bterr\\source\\repos\\majesty-gold-hd-sprite-art-pipeline\\output\\mixamo-walk-poc-v11\\pose-provenance.json",
+    "v11_provenance_sha256": "513bf7cc5274667b4e8fdf49470375d738ea4d34967b4e1c75fdce90275a4fbd",
+    "walk_renderer": "C:\\Users\\bterr\\source\\repos\\majesty-gold-hd-sprite-art-pipeline\\scripts\\render_mixamo_walk_poc.py",
+    "walk_renderer_sha256": "22f286670e7d88eb9d5d40ed7504dfe90075b10f8df586e74b87d12b9c22ea10",
+    "directions": [
+      "north",
+      "northeast",
+      "east",
+      "southeast",
+      "south",
+      "southwest",
+      "west",
+      "northwest"
+    ],
+    "stand_tiles": [
+      5983,
+      5984,
+      5985,
+      5986,
+      5987,
+      5988,
+      5989,
+      5990
+    ],
+    "source_bind_projection_height_pixels": 363.47427,
+    "target_body_height_pixels": 48,
+    "uniform_scale_factor": 0.13205886623006355,
+    "neutral_pose": {
+      "torso_forward_lean_degrees": 2.0,
+      "forearm_left_flex_degrees": 10.0,
+      "forearm_right_flex_degrees": 14.0,
+      "sagittal_degrees": {
+        "thigh_left": 1.0,
+        "thigh_right": 1.0,
+        "shin_left": 5.0,
+        "shin_right": 5.0,
+        "foot_left": 1.0,
+        "foot_right": 1.0
+      },
+      "thigh_lane_degrees": {
+        "thigh_left": 3.0,
+        "thigh_right": -3.0
+      },
+      "shin_lane_degrees": {
+        "shin_left": 0.0,
+        "shin_right": 0.0
+      },
+      "foot_heading_degrees": {
+        "foot_left": -7.15,
+        "foot_right": 16.85
+      },
+      "straight_foot_heading_max_abs_degrees": 0.25,
+      "hips_location": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "hips_yaw_degrees": 0.0,
+      "upper_arm_swing_degrees": 0.0
+    }
+  },
+  "input": {
+    "blend": "C:\\Users\\bterr\\source\\repos\\majesty-gold-hd-sprite-art-pipeline\\output\\tripo-auto-rig-v1\\dagger-attachment-v2\\alchemist-rigged-dagger.blend",
+    "sha256": "09c7d40071082f2df0d074963f71517bcbd9c8f7c553e404fefe5d9396e3eeab",
+    "size_bytes": 23582982
+  },
+  "accepted_v11": {
+    "provenance": "C:\\Users\\bterr\\source\\repos\\majesty-gold-hd-sprite-art-pipeline\\output\\mixamo-walk-poc-v11\\pose-provenance.json",
+    "sha256": "513bf7cc5274667b4e8fdf49470375d738ea4d34967b4e1c75fdce90275a4fbd",
+    "source_bind_projection_height_pixels": 363.47427,
+    "target_body_height_pixels": 48,
+    "uniform_scale_factor": 0.13205886623006355
+  },
+  "direction_order": [
+    "north",
+    "northeast",
+    "east",
+    "southeast",
+    "south",
+    "southwest",
+    "west",
+    "northwest"
+  ],
+  "source_orientation_z_degrees": -90.0,
+  "rig": {
+    "object": "Armature",
+    "bone_count": 23,
+    "semantic_bones": {
+      "root": "Root",
+      "hips": "mixamorig:Hips",
+      "spine": "mixamorig:Spine",
+      "spine1": "mixamorig:Spine1",
+      "spine2": "mixamorig:Spine2",
+      "neck": "mixamorig:Neck",
+      "head": "mixamorig:Head",
+      "upper_arm_left": "mixamorig:LeftArm",
+      "upper_arm_right": "mixamorig:RightArm",
+      "forearm_left": "mixamorig:LeftForeArm",
+      "forearm_right": "mixamorig:RightForeArm",
+      "hand_left": "mixamorig:LeftHand",
+      "hand_right": "mixamorig:RightHand",
+      "thigh_left": "mixamorig:LeftUpLeg",
+      "thigh_right": "mixamorig:RightUpLeg",
+      "shin_left": "mixamorig:LeftLeg",
+      "shin_right": "mixamorig:RightLeg",
+      "foot_left": "mixamorig:LeftFoot",
+      "foot_right": "mixamorig:RightFoot",
+      "toe_left": "mixamorig:LeftToeBase",
+      "toe_right": "mixamorig:RightToeBase"
+    },
+    "root_world": [
+      0.0,
+      0.0,
+      0.0
+    ]
+  },
+  "dagger": {
+    "weapon": "Alchemist_Dagger",
+    "attachments": [
+      {
+        "name": "Alchemist_Dagger",
+        "type": "MESH",
+        "parent": "Armature",
+        "parent_type": "BONE",
+        "parent_bone": "mixamorig:RightHand",
+        "constraints": 0,
+        "object_animation": false
+      },
+      {
+        "name": "Alchemist_DaggerGrip_ClosedGlove",
+        "type": "MESH",
+        "parent": "Armature",
+        "parent_type": "BONE",
+        "parent_bone": "mixamorig:RightHand",
+        "constraints": 0,
+        "object_animation": false
+      }
+    ],
+    "motion_contract": "rigid RightHand parenting; no object/weapon keys"
+  },
+  "character": {
+    "meshes": [
+      "tripo_node_8f2c33bd-ced5-44f8-b77f-497fa0c6e278"
+    ],
+    "bounds_min": [
+      -0.241637,
+      -0.125977,
+      -1e-06
+    ],
+    "bounds_max": [
+      0.25293,
+      0.125977,
+      0.998047
+    ],
+    "body_height_world": 0.998047
+  },
+  "materials": {
+    "contract": "true Emission -> active Material Output; no light response",
+    "converted": [],
+    "already_true_unlit": [
+      "Alchemist balanced blue",
+      "Alchemist balanced collar",
+      "Alchemist balanced green",
+      "Alchemist balanced red",
+      "Dagger_Bronze",
+      "Dagger_ClosedGlove",
+      "Dagger_Grip",
+      "Dagger_Steel",
+      "tripo_node_8f2c33bd-ced5-44f8-b77f-497fa0c6e278_material"
+    ],
+    "materials": 9
+  },
+  "camera": {
+    "type": "orthographic",
+    "elevation_degrees": 40.0,
+    "screen_north_world_azimuth_degrees": 124.0,
+    "camera_world_azimuth_degrees": -56.0,
+    "target_height_body_fraction": 0.5,
+    "ortho_scale_body_factor": 1.25,
+    "ortho_scale": 1.2475591897964478,
+    "resolution": [
+      512,
+      512
+    ],
+    "registration": {
+      "source_registration_x": 256.0,
+      "source_registration_y": 412.8861541748047
+    },
+    "color_management": {
+      "view_transform": "Standard",
+      "look": "None",
+      "exposure_stops": 0.75,
+      "gamma": 1.0
+    }
+  },
+  "calibration": {
+    "method": "accepted V11 bind height and fixed projected world root; all eight bind projections are diagnostic only",
+    "direction_projected_bind_bboxes": {
+      "north": {
+        "min_x": 152.197342,
+        "min_y": 86.22998,
+        "max_x": 355.167969,
+        "max_y": 424.479103,
+        "width": 202.970627,
+        "height": 338.249123
+      },
+      "northeast": {
+        "min_x": 188.551804,
+        "min_y": 87.902344,
+        "max_x": 340.69278,
+        "max_y": 441.303581,
+        "width": 152.140976,
+        "height": 353.401237
+      },
+      "east": {
+        "min_x": 204.298965,
+        "min_y": 93.365753,
+        "max_x": 307.701111,
+        "max_y": 456.840023,
+        "width": 103.402145,
+        "height": 363.47427
+      },
+      "southeast": {
+        "min_x": 190.25209,
+        "min_y": 92.826904,
+        "max_x": 346.119995,
+        "max_y": 461.091953,
+        "width": 155.867905,
+        "height": 368.265049
+      },
+      "south": {
+        "min_x": 156.832047,
+        "min_y": 95.13031,
+        "max_x": 359.802704,
+        "max_y": 441.997406,
+        "width": 202.970657,
+        "height": 346.867096
+      },
+      "southwest": {
+        "min_x": 171.307251,
+        "min_y": 92.961975,
+        "max_x": 323.448212,
+        "max_y": 459.520107,
+        "width": 152.140961,
+        "height": 366.558132
+      },
+      "west": {
+        "min_x": 204.29892,
+        "min_y": 93.168121,
+        "max_x": 307.70108,
+        "max_y": 453.847351,
+        "width": 103.402161,
+        "height": 360.67923
+      },
+      "northwest": {
+        "min_x": 165.88002,
+        "min_y": 87.902344,
+        "max_x": 321.747955,
+        "max_y": 440.939308,
+        "width": 155.867935,
+        "height": 353.036964
+      }
+    },
+    "source_bind_projection_height_pixels": 363.47427,
+    "target_body_height_pixels": 48,
+    "uniform_scale_factor": 0.13205886623006355,
+    "registration": {
+      "source_registration_x": 256.0,
+      "source_registration_y": 412.8861541748047
+    },
+    "per_direction_crop": false,
+    "per_direction_recenter": false,
+    "per_direction_scale": false
+  },
+  "stand_pose": {
+    "name": "neutral-planted-stand",
+    "discarded_input_action": null,
+    "action": null,
+    "frame": 0,
+    "root_motion": false,
+    "hips_translation": [
+      0.0,
+      0.0,
+      0.0
+    ],
+    "mirroring": false,
+    "per_direction_pose": false,
+    "per_direction_root": false,
+    "pose_constants": {
+      "torso_forward_lean_degrees": 2.0,
+      "forearm_left_flex_degrees": 10.0,
+      "forearm_right_flex_degrees": 14.0,
+      "sagittal_degrees": {
+        "thigh_left": 1.0,
+        "thigh_right": 1.0,
+        "shin_left": 5.0,
+        "shin_right": 5.0,
+        "foot_left": 1.0,
+        "foot_right": 1.0
+      },
+      "thigh_lane_degrees": {
+        "thigh_left": 3.0,
+        "thigh_right": -3.0
+      },
+      "shin_lane_degrees": {
+        "shin_left": 0.0,
+        "shin_right": 0.0
+      },
+      "foot_heading_degrees": {
+        "foot_left": -7.15,
+        "foot_right": 16.85
+      },
+      "straight_foot_heading_max_abs_degrees": 0.25,
+      "hips_location": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "hips_yaw_degrees": 0.0,
+      "upper_arm_swing_degrees": 0.0
+    },
+    "axis_mapping": {
+      "spine_lean": {
+        "axis": "X",
+        "sign": 1.0,
+        "probe_score": 0.999377
+      },
+      "forearm_left": {
+        "axis": "Z",
+        "sign": 1.0,
+        "probe_score": 0.745677
+      },
+      "forearm_right": {
+        "axis": "Z",
+        "sign": -1.0,
+        "probe_score": 0.808236
+      },
+      "thigh_left": {
+        "axis": "X",
+        "sign": 1.0,
+        "probe_score": 0.998853
+      },
+      "thigh_right": {
+        "axis": "X",
+        "sign": 1.0,
+        "probe_score": 0.999836
+      },
+      "shin_left": {
+        "axis": "X",
+        "sign": -1.0,
+        "probe_score": 0.983066
+      },
+      "shin_right": {
+        "axis": "X",
+        "sign": -1.0,
+        "probe_score": 0.978653
+      },
+      "foot_left": {
+        "axis": "X",
+        "sign": 1.0,
+        "probe_score": 0.394414
+      },
+      "foot_right": {
+        "axis": "X",
+        "sign": 1.0,
+        "probe_score": 0.384443
+      }
+    },
+    "foot_headings_degrees": {
+      "foot_left": 0.021132,
+      "foot_right": -0.017456,
+      "toe_left": 0.021092,
+      "toe_right": -0.017466
+    },
+    "pose_matrix_sha256": "168a350d3ac241697f1f906e50d923e41c4a75120092874af4782d83601cb7c4",
+    "pose_matrices": {
+      "Root": [
+        1.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        1.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        1.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        1.0
+      ],
+      "mixamorig:Head": [
+        1.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        1.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        1.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        1.0
+      ],
+      "mixamorig:Hips": [
+        1.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        1.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        1.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        1.0
+      ],
+      "mixamorig:LeftArm": [
+        1.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        1.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        1.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        1.0
+      ],
+      "mixamorig:LeftFoot": [
+        0.99222368,
+        0.124467537,
+        -0.0,
+        0.0,
+        -0.124448575,
+        0.992072582,
+        -0.017452313,
+        0.0,
+        -0.002172246,
+        0.017316598,
+        0.99984771,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        1.0
+      ],
+      "mixamorig:LeftForeArm": [
+        0.98480767,
+        -0.173648149,
+        0.0,
+        0.0,
+        0.173648149,
+        0.98480767,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        1.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        1.0
+      ],
+      "mixamorig:LeftHand": [
+        1.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        1.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        1.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        1.0
+      ],
+      "mixamorig:LeftLeg": [
+        1.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.99619472,
+        0.087155737,
+        0.0,
+        0.0,
+        -0.087155737,
+        0.99619472,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        1.0
+      ],
+      "mixamorig:LeftShoulder": [
+        1.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        1.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        1.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        1.0
+      ],
+      "mixamorig:LeftToeBase": [
+        1.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        1.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        1.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        1.0
+      ],
+      "mixamorig:LeftUpLeg": [
+        0.99862951,
+        -0.052335914,
+        0.0,
+        0.0,
+        0.052327942,
+        0.998477459,
+        -0.017452311,
+        0.0,
+        0.000913382,
+        0.017428393,
+        0.99984771,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        1.0
+      ],
+      "mixamorig:Neck": [
+        1.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        1.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        1.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        1.0
+      ],
+      "mixamorig:RightArm": [
+        1.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        1.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        1.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        1.0
+      ],
+      "mixamorig:RightFoot": [
+        0.957066953,
+        -0.289867073,
+        -0.0,
+        0.0,
+        0.289822936,
+        0.95692116,
+        -0.017452311,
+        0.0,
+        0.005058849,
+        0.016703028,
+        0.99984771,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        1.0
+      ],
+      "mixamorig:RightForeArm": [
+        0.970295727,
+        0.241921946,
+        0.0,
+        0.0,
+        -0.241921946,
+        0.970295727,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        1.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        1.0
+      ],
+      "mixamorig:RightHand": [
+        1.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        1.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        1.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        1.0
+      ],
+      "mixamorig:RightLeg": [
+        1.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.99619472,
+        0.087155737,
+        0.0,
+        0.0,
+        -0.087155737,
+        0.99619472,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        1.0
+      ],
+      "mixamorig:RightShoulder": [
+        1.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        1.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        1.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        1.0
+      ],
+      "mixamorig:RightToeBase": [
+        1.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        1.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        1.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        1.0
+      ],
+      "mixamorig:RightUpLeg": [
+        0.99862951,
+        0.052335914,
+        -0.0,
+        0.0,
+        -0.052327942,
+        0.998477459,
+        -0.017452311,
+        0.0,
+        -0.000913382,
+        0.017428393,
+        0.99984771,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        1.0
+      ],
+      "mixamorig:Spine": [
+        1.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.999390841,
+        -0.034899537,
+        0.0,
+        0.0,
+        0.034899537,
+        0.999390841,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        1.0
+      ],
+      "mixamorig:Spine1": [
+        1.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        1.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        1.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        1.0
+      ],
+      "mixamorig:Spine2": [
+        1.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        1.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        1.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        1.0
+      ]
+    },
+    "fcurves": 0,
+    "keyed_data_paths": []
+  },
+  "renders": [
+    {
+      "direction": "north",
+      "slot": 0,
+      "stock_stand_tile": 5983,
+      "heading_z_degrees": 214.0,
+      "pose_matrix_sha256": "168a350d3ac241697f1f906e50d923e41c4a75120092874af4782d83601cb7c4",
+      "root_world": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "source_registration_pixels": [
+        256.0,
+        412.886154175
+      ],
+      "projected_pose_bbox": {
+        "min_x": 161.306976,
+        "min_y": 83.353546,
+        "max_x": 351.429596,
+        "max_y": 426.753868,
+        "width": 190.12262,
+        "height": 343.400322
+      },
+      "png": "stand/north.png",
+      "png_sha256": "9b9aada33f77d4211d95cf9d07d091143c77c441b129dc74102eddccdcbd5a62"
+    },
+    {
+      "direction": "northeast",
+      "slot": 1,
+      "stock_stand_tile": 5984,
+      "heading_z_degrees": 169.0,
+      "pose_matrix_sha256": "168a350d3ac241697f1f906e50d923e41c4a75120092874af4782d83601cb7c4",
+      "root_world": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "source_registration_pixels": [
+        256.0,
+        412.886154175
+      ],
+      "projected_pose_bbox": {
+        "min_x": 191.266937,
+        "min_y": 85.975555,
+        "max_x": 394.812775,
+        "max_y": 447.189705,
+        "width": 203.545837,
+        "height": 361.214149
+      },
+      "png": "stand/northeast.png",
+      "png_sha256": "e57c9f7d44cc89323c441eee0555718aef494dc78b062bafce02ee57afbfe025"
+    },
+    {
+      "direction": "east",
+      "slot": 2,
+      "stock_stand_tile": 5985,
+      "heading_z_degrees": 124.0,
+      "pose_matrix_sha256": "168a350d3ac241697f1f906e50d923e41c4a75120092874af4782d83601cb7c4",
+      "root_world": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "source_registration_pixels": [
+        256.0,
+        412.886154175
+      ],
+      "projected_pose_bbox": {
+        "min_x": 206.219131,
+        "min_y": 93.11087,
+        "max_x": 364.832031,
+        "max_y": 456.595623,
+        "width": 158.6129,
+        "height": 363.484753
+      },
+      "png": "stand/east.png",
+      "png_sha256": "35b2fd3bb559cdd372edab569eaeac573457a6574b91c2025be3c999ea984a5e"
+    },
+    {
+      "direction": "southeast",
+      "slot": 3,
+      "stock_stand_tile": 5986,
+      "heading_z_degrees": 79.0,
+      "pose_matrix_sha256": "168a350d3ac241697f1f906e50d923e41c4a75120092874af4782d83601cb7c4",
+      "root_world": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "source_registration_pixels": [
+        256.0,
+        412.886154175
+      ],
+      "projected_pose_bbox": {
+        "min_x": 190.767075,
+        "min_y": 94.957397,
+        "max_x": 345.663788,
+        "max_y": 459.607498,
+        "width": 154.896713,
+        "height": 364.650101
+      },
+      "png": "stand/southeast.png",
+      "png_sha256": "b56ce87a00f4e61ad1d7413da4944de58165c6fb2700234c454794972b868744"
+    },
+    {
+      "direction": "south",
+      "slot": 4,
+      "stock_stand_tile": 5987,
+      "heading_z_degrees": 34.0,
+      "pose_matrix_sha256": "168a350d3ac241697f1f906e50d923e41c4a75120092874af4782d83601cb7c4",
+      "root_world": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "source_registration_pixels": [
+        256.0,
+        412.886154175
+      ],
+      "projected_pose_bbox": {
+        "min_x": 160.570404,
+        "min_y": 98.294342,
+        "max_x": 350.693085,
+        "max_y": 440.288818,
+        "width": 190.122681,
+        "height": 341.994476
+      },
+      "png": "stand/south.png",
+      "png_sha256": "7a9b48ee9404abae4f0dc06da90447652099cd8de947eb6dc9ad87ff301c3493"
+    },
+    {
+      "direction": "southwest",
+      "slot": 5,
+      "stock_stand_tile": 5988,
+      "heading_z_degrees": -11.0,
+      "pose_matrix_sha256": "168a350d3ac241697f1f906e50d923e41c4a75120092874af4782d83601cb7c4",
+      "root_world": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "source_registration_pixels": [
+        256.0,
+        412.886154175
+      ],
+      "projected_pose_bbox": {
+        "min_x": 117.187248,
+        "min_y": 95.065216,
+        "max_x": 320.733093,
+        "max_y": 459.733612,
+        "width": 203.545845,
+        "height": 364.668396
+      },
+      "png": "stand/southwest.png",
+      "png_sha256": "a44123dc58122a1f56000f135871bdff6ceaa17e0caaedc36d3bd36e46b615ed"
+    },
+    {
+      "direction": "west",
+      "slot": 6,
+      "stock_stand_tile": 5989,
+      "heading_z_degrees": -56.0,
+      "pose_matrix_sha256": "168a350d3ac241697f1f906e50d923e41c4a75120092874af4782d83601cb7c4",
+      "root_world": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "source_registration_pixels": [
+        256.0,
+        412.886154175
+      ],
+      "projected_pose_bbox": {
+        "min_x": 147.167984,
+        "min_y": 92.870789,
+        "max_x": 305.780884,
+        "max_y": 457.568493,
+        "width": 158.6129,
+        "height": 364.697704
+      },
+      "png": "stand/west.png",
+      "png_sha256": "ed7cabffac6a6c6712dcdb3fc7a936b818ffdce627071d72b3cb7e05c9fc9d7c"
+    },
+    {
+      "direction": "northwest",
+      "slot": 7,
+      "stock_stand_tile": 5990,
+      "heading_z_degrees": -101.0,
+      "pose_matrix_sha256": "168a350d3ac241697f1f906e50d923e41c4a75120092874af4782d83601cb7c4",
+      "root_world": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "source_registration_pixels": [
+        256.0,
+        412.886154175
+      ],
+      "projected_pose_bbox": {
+        "min_x": 166.336243,
+        "min_y": 85.971863,
+        "max_x": 321.232941,
+        "max_y": 447.2939,
+        "width": 154.896698,
+        "height": 361.322037
+      },
+      "png": "stand/northwest.png",
+      "png_sha256": "672133794a22c4efab754fb23a7698c1f955bf255a3436962d384801c602756b"
+    }
+  ]
+}

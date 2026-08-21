@@ -27,6 +27,24 @@ STAND_END = 5991
 APPROVED_SLOT_START = WALK_START
 APPROVED_SLOT_END = STAND_END
 UNTOUCHED_WARRIOR_SLOT_RANGES = ((5991, 6053), (6055, 6119))
+COMPLETED_HANDOFF_MANIFEST_SHA256 = (
+    "4fb60e6cc838ab8a2ed12c667f8f403fd0a5e877b05e4663a4774daea38164ff"
+)
+COMPLETED_HANDOFF_AGGREGATE_SHA256 = (
+    "b4be60597ee06d61a2f785c706b40aed3bccfd0cf395a777977abcb5bd3dcb53"
+)
+COMPLETED_HANDOFF_AUTHORITY_SHA256 = (
+    "66759658dfb06ff1fb87330d9d8966b31c326fc38b26546711d8ac719b7e529b"
+)
+COMPLETED_ACTION_COUNTS = {
+    "walk": 64,
+    "stand": 8,
+    "attack": 64,
+    "cast": 56,
+    "special": 56,
+    "death": 32,
+    "dead": 1,
+}
 EXPECTED_REMAPPED_IMAG_OFFSETS = (
     0x1C8,
     *(
@@ -141,6 +159,8 @@ class ApprovedSpriteBundle:
     tiles_by_stock_slot: dict[int, bytes]
     records: tuple[dict[str, Any], ...]
     source_hashes: dict[str, str]
+    imag_patches: tuple[dict[str, Any], ...] = ()
+    handoff_manifest_sha256: str | None = None
 
 
 def sha256_bytes(payload: bytes) -> str:
@@ -305,22 +325,26 @@ def rgba_to_indices(
     return bytes(indices)
 
 
-def _tile_indices(stock: Any, tile: bytes) -> bytes:
+def _tile_indices(
+    stock: Any, tile: bytes, expected_canvas: tuple[int, int] = NATIVE_CANVAS
+) -> bytes:
     decoded = stock.decode_indexed_v3_tile(tile)
     if decoded is None:
         raise ValueError("Approved payload is not an indexed TILE-v3 record")
     height, width, rows = decoded
-    if (width, height) != NATIVE_CANVAS:
+    if (width, height) != expected_canvas:
         raise ValueError(f"Approved TILE canvas changed: {(width, height)}")
     return bytes(index for row in rows for index in row)
 
 
-def _tile_rows(stock: Any, tile: bytes) -> list[list[int]]:
+def _tile_rows(
+    stock: Any, tile: bytes, expected_canvas: tuple[int, int] = NATIVE_CANVAS
+) -> list[list[int]]:
     decoded = stock.decode_indexed_v3_tile(tile)
     if decoded is None:
         raise ValueError("Approved payload is not an indexed TILE-v3 record")
     height, width, rows = decoded
-    if (width, height) != NATIVE_CANVAS:
+    if (width, height) != expected_canvas:
         raise ValueError(f"Approved TILE canvas changed: {(width, height)}")
     return [list(row) for row in rows]
 
@@ -504,10 +528,13 @@ def grounded_shadow_contact_metrics(
     }
 
 
-def validate_grounded_shadow_contact(rows: Sequence[Sequence[int]]) -> dict[str, Any]:
+def validate_grounded_shadow_contact(
+    rows: Sequence[Sequence[int]],
+    expected_canvas: tuple[int, int] = NATIVE_CANVAS,
+) -> dict[str, Any]:
     """Reject the disconnected-shadow failure seen in the first game gate."""
 
-    if (len(rows[0]) if rows else 0, len(rows)) != NATIVE_CANVAS:
+    if (len(rows[0]) if rows else 0, len(rows)) != expected_canvas:
         raise ValueError("Grounded Alchemist shadow changed the native canvas")
     metrics = grounded_shadow_contact_metrics(rows)
     if not metrics["ground_control_contact_total"]:
@@ -529,6 +556,7 @@ def validate_grounded_shadow_contact(rows: Sequence[Sequence[int]]) -> dict[str,
 
 def projected_grounded_hero_shadow(
     body_rows: Sequence[Sequence[int]],
+    expected_canvas: tuple[int, int] = NATIVE_CANVAS,
 ) -> list[list[int]]:
     """Project a grounded Majesty hero shadow from the approved body plane.
 
@@ -553,7 +581,7 @@ def projected_grounded_hero_shadow(
 
     height = len(body_rows)
     width = len(body_rows[0]) if body_rows else 0
-    if (width, height) != NATIVE_CANVAS or any(
+    if (width, height) != expected_canvas or any(
         len(row) != width for row in body_rows
     ):
         raise ValueError("Grounded shadow projection changed the approved canvas")
@@ -621,6 +649,9 @@ def project_approved_shadow_controls(
     stock: Any,
     approved_tile: bytes,
     palette_colours: Sequence[tuple[int, int, int]],
+    expected_canvas: tuple[int, int] = NATIVE_CANVAS,
+    expected_hotspot: tuple[int, int] = NATIVE_ROOT,
+    clip_edge_controls: bool = False,
 ) -> tuple[bytes, dict[str, Any]]:
     """Add grounded Majesty 247..250 controls without changing approved art."""
 
@@ -630,7 +661,7 @@ def project_approved_shadow_controls(
     if approved_decoded is None:
         raise ValueError("Approved shadow projection requires an indexed TILE-v3 record")
     approved_height, approved_width, approved_rows = approved_decoded
-    if (approved_width, approved_height) != NATIVE_CANVAS:
+    if (approved_width, approved_height) != expected_canvas:
         raise ValueError("Shadow projection changed the approved native canvas")
     if len(palette_colours) < 251:
         raise ValueError("Shadow projection palette is incomplete")
@@ -640,10 +671,23 @@ def project_approved_shadow_controls(
         for value in row
     ):
         raise ValueError("Shadow projection target must contain body indices 0..246 only")
-    if struct.unpack_from("<HH", approved_tile, 10) != NATIVE_ROOT:
+    if struct.unpack_from("<HH", approved_tile, 10) != expected_hotspot:
         raise ValueError("Shadow projection target hotspot changed")
 
-    projected_rows = projected_grounded_hero_shadow(approved_rows)
+    projected_rows = projected_grounded_hero_shadow(
+        approved_rows, expected_canvas=expected_canvas
+    )
+    if clip_edge_controls:
+        # Approved action art may legitimately reach closer to the fixed
+        # canvas edge than Walk/Stand. The stock control contract forbids
+        # encoded shadow controls on an edge, so discard only projected
+        # controls there; never crop, move, or rewrite visible body pixels.
+        for x in range(approved_width):
+            projected_rows[0][x] = 0
+            projected_rows[-1][x] = 0
+        for y in range(approved_height):
+            projected_rows[y][0] = 0
+            projected_rows[y][-1] = 0
     projected_component_sizes = _control_component_sizes(projected_rows)
     target_rows = [list(row) for row in approved_rows]
     projected_counts = {index: 0 for index in sorted(CONTROL_INDICES)}
@@ -711,7 +755,9 @@ def project_approved_shadow_controls(
         raise AssertionError("Grounded shadow projected-pixel accounting is incomplete")
     if retained_total != retained_projected_total + gap_fill_seam_total:
         raise AssertionError("Grounded shadow seam-fill accounting is incomplete")
-    contact_metrics = validate_grounded_shadow_contact(target_rows)
+    contact_metrics = validate_grounded_shadow_contact(
+        target_rows, expected_canvas=expected_canvas
+    )
 
     encoded = stock.encode_indexed_v3_tile_like_original(
         approved_tile,
@@ -726,7 +772,7 @@ def project_approved_shadow_controls(
     output = bytes(output_bytes)
     if output[:26] != approved_tile[:26]:
         raise AssertionError("Shadow projection changed TILE geometry/hotspot/palette")
-    if _tile_rows(stock, output) != target_rows:
+    if _tile_rows(stock, output, expected_canvas) != target_rows:
         raise AssertionError("Shadow projection TILE does not decode exactly")
     validate_split_control_segments(output)
     stats: dict[str, Any] = {
@@ -774,6 +820,10 @@ def project_approved_shadow_controls(
         "projected_control_sha256": sha256_bytes(_control_plane(projected_rows)),
         "retained_control_sha256": sha256_bytes(_control_plane(target_rows)),
     }
+    if clip_edge_controls:
+        stats["edge_control_policy"] = (
+            "discard projected edge controls; visible body unchanged"
+        )
     return output, stats
 
 
@@ -826,6 +876,380 @@ def _expected_walk_records(report: dict[str, Any]) -> list[dict[str, Any]]:
     return records
 
 
+def _verify_completed_handoff(root: Path) -> tuple[dict[str, Any], dict[str, Any]]:
+    manifest_path = root / "manifest.json"
+    require_sha256(
+        manifest_path,
+        COMPLETED_HANDOFF_MANIFEST_SHA256,
+        "Completed Alchemist sprite manifest",
+    )
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    if (
+        manifest.get("schema_version") != 1
+        or manifest.get("bundle_id")
+        != "majesty-alchemist-approved-humanoid-sprite-set-v1"
+        or manifest.get("approval_status") != "approved_for_packaging_and_ingame_test"
+    ):
+        raise ValueError("Completed Alchemist sprite manifest identity changed")
+    if manifest.get("direction_order") != list(DIRECTION_ORDER):
+        raise ValueError("Completed Alchemist direction order changed")
+    integrity = manifest.get("payload_integrity", {})
+    files = integrity.get("files")
+    if not isinstance(files, list) or len(files) != 290:
+        raise ValueError("Completed Alchemist payload inventory changed")
+    lines: list[str] = []
+    total_bytes = 0
+    paths: list[str] = []
+    for record in files:
+        relative = record.get("path")
+        expected_hash = record.get("sha256")
+        expected_bytes = record.get("bytes")
+        if not isinstance(relative, str) or not isinstance(expected_hash, str):
+            raise ValueError("Completed Alchemist payload record is malformed")
+        path = root / relative
+        require_sha256(path, expected_hash, f"Completed sprite payload {relative}")
+        if path.stat().st_size != expected_bytes:
+            raise ValueError(f"Completed sprite payload size changed: {relative}")
+        paths.append(relative)
+        total_bytes += expected_bytes
+        lines.append(f"{expected_hash}  {relative}")
+    if paths != sorted(paths) or len(paths) != len(set(paths)):
+        raise ValueError("Completed Alchemist payload order is not canonical")
+    aggregate = sha256_bytes(("\n".join(lines) + "\n").encode("utf-8"))
+    if (
+        total_bytes != integrity.get("total_bytes")
+        or aggregate != COMPLETED_HANDOFF_AGGREGATE_SHA256
+        or aggregate != integrity.get("aggregate_sha256")
+    ):
+        raise ValueError("Completed Alchemist payload aggregate changed")
+    authority_relative = manifest["stock_authority"]["authority_path"]
+    authority_path = root / authority_relative
+    require_sha256(
+        authority_path,
+        COMPLETED_HANDOFF_AUTHORITY_SHA256,
+        "Completed Alchemist Warrior authority",
+    )
+    authority = json.loads(authority_path.read_text(encoding="utf-8"))
+    if authority.get("authority_id") != "majesty-warrior-action-authority-v1":
+        raise ValueError("Completed Alchemist Warrior authority identity changed")
+    return manifest, authority
+
+
+def _encode_approved_rgba_tile(
+    stock: Any,
+    path: Path,
+    visible_colours: Sequence[tuple[int, int, int]],
+    private_palette_index: int,
+    canvas: tuple[int, int],
+    hotspot: tuple[int, int],
+) -> tuple[bytes, bytes]:
+    with Image.open(path) as loaded:
+        image = loaded.convert("RGBA")
+    if image.size != canvas:
+        raise ValueError(f"Approved sprite canvas changed for {path}: {image.size}")
+    indices = rgba_to_indices(image, visible_colours)
+    width, height = canvas
+    rows = [list(indices[y * width : (y + 1) * width]) for y in range(height)]
+    tile = stock.encode_indexed_v3_tile(
+        rows,
+        private_palette_index,
+        (3, height, width, 0, 32, hotspot[0], hotspot[1], 1),
+    )
+    if _tile_indices(stock, tile, canvas) != indices:
+        raise AssertionError(f"Approved sprite TILE did not round-trip: {path}")
+    return tile, indices
+
+
+def _authority_by_key(authority: dict[str, Any]) -> dict[str, dict[str, Any]]:
+    values = authority.get("action_authorities")
+    if not isinstance(values, list):
+        raise ValueError("Warrior action authority has no action table")
+    return {
+        value["authority_key"]: value
+        for value in values
+        if value.get("actor_key") == "warrior"
+    }
+
+
+def _authority_offsets(
+    authority: dict[str, Any], authority_key: str
+) -> list[list[int]]:
+    records = authority.get("records")
+    if not isinstance(records, list):
+        raise ValueError("Warrior action authority has no occurrence records")
+    grouped: dict[int, list[tuple[int, int]]] = {}
+    for record in records:
+        if record.get("authority_key") != authority_key:
+            continue
+        grouped.setdefault(record["direction_slot"], []).append(
+            (record["frame"], record["tile_reference"]["field_offset"])
+        )
+    return [
+        [offset for _frame, offset in sorted(grouped[slot])]
+        for slot in sorted(grouped)
+    ]
+
+
+def load_completed_handoff_bundle(
+    root: Path,
+    stock: Any,
+    stock_cam: Path,
+    stock_tiles: Sequence[Any],
+    stock_palettes: Sequence[Any],
+    warrior_imag: bytes,
+) -> ApprovedSpriteBundle:
+    """Import the approved complete humanoid set through Warrior's exact topology."""
+
+    manifest, authority = _verify_completed_handoff(root)
+    if sha256_file(stock_cam) != RETAIL_MAINDATA_SHA256:
+        raise ValueError("Installed maindata.cam does not match the approved retail authority")
+    if sha256_bytes(warrior_imag) != WARRIOR_IMAG_SHA256:
+        raise ValueError("Stock AVL1Warrior IMAG changed from the approved authority")
+    if len(stock_palettes) != EXPECTED_RETAIL_SPLT_COUNT:
+        raise ValueError("Retail SPLT table changed from the approved authority")
+
+    palette_manifest = _load_json(
+        root / "palette" / "candidate-palette.json",
+        PALETTE_MANIFEST_SHA256,
+        "Completed Alchemist candidate palette",
+    )
+    visible_colours = _load_visible_palette(palette_manifest)
+    private_palette_index = len(stock_palettes)
+    private_palette_data = build_private_splt(
+        stock_palettes[427].data, visible_colours
+    )
+    private_colours = stock.splt_palette_colors(private_palette_data)
+
+    action_authorities = _authority_by_key(authority)
+    required_authorities = {
+        "attack": "warrior_attack_16",
+        "special": "warrior_special_64",
+        "cast": "warrior_cast_128",
+        "death": "warrior_die_96",
+        "dead": "warrior_dead_224",
+    }
+    if not set(required_authorities.values()).issubset(action_authorities):
+        raise ValueError("Warrior action authority is incomplete")
+
+    records: list[dict[str, Any]] = []
+    patches: list[dict[str, Any]] = []
+    tiles_by_stock_slot: dict[int, bytes] = {}
+
+    def add_record(
+        *,
+        action: str,
+        direction: str,
+        frame: int,
+        source_path: Path,
+        source_stock_slot: int,
+        imag_offsets: Sequence[int],
+        canvas: tuple[int, int] = NATIVE_CANVAS,
+        hotspot: tuple[int, int] = NATIVE_ROOT,
+        source_tile: bytes | None = None,
+    ) -> None:
+        if source_tile is None:
+            tile, body_indices = _encode_approved_rgba_tile(
+                stock,
+                source_path,
+                visible_colours,
+                private_palette_index,
+                canvas,
+                hotspot,
+            )
+        else:
+            tile = _patch_walk_palette(source_tile, private_palette_index)
+            body_indices = _tile_indices(stock, tile)
+            if any(index > 246 for index in body_indices):
+                raise ValueError(f"Approved Walk uses reserved indices: {source_path}")
+        try:
+            shadowed_tile, shadow_stats = project_approved_shadow_controls(
+                stock,
+                tile,
+                private_colours,
+                expected_canvas=canvas,
+                expected_hotspot=hotspot,
+                clip_edge_controls=action not in {"walk", "stand"},
+            )
+        except ValueError as error:
+            raise ValueError(
+                f"Approved {action} shadow failed for {source_path}: {error}"
+            ) from error
+        full_indices = _tile_indices(stock, shadowed_tile, canvas)
+        relative = source_path.relative_to(root).as_posix()
+        record_index = len(records)
+        record = {
+            "record_index": record_index,
+            "kind": action,
+            "direction": direction,
+            "frame": frame,
+            "stock_slot": source_stock_slot,
+            "source": relative,
+            "source_sha256": sha256_file(source_path),
+            "indexed_pixel_sha256": sha256_bytes(body_indices),
+            "full_indexed_pixel_sha256": sha256_bytes(full_indices),
+            "shadow": shadow_stats,
+            "packaged_tile_sha256": sha256_bytes(shadowed_tile),
+            "packaged_tile": shadowed_tile,
+            "imag_offsets": list(imag_offsets),
+            "canvas": list(canvas),
+            "hotspot": list(hotspot),
+            "clip_edge_controls": action not in {"walk", "stand"},
+        }
+        records.append(record)
+        for offset in imag_offsets:
+            before = struct.unpack_from("<I", warrior_imag, offset)[0]
+            if (before & 0xFFFF) != source_stock_slot:
+                raise ValueError(
+                    f"Warrior {action} authority changed at IMAG offset {offset:#x}"
+                )
+            patches.append(
+                {
+                    "offset": offset,
+                    "record_index": record_index,
+                    "source_stock_slot": source_stock_slot,
+                    "source_word": before,
+                }
+            )
+        tiles_by_stock_slot.setdefault(source_stock_slot, shadowed_tile)
+
+    # Walk and Stand were already live-proven. Their copied handoff payloads
+    # retain the exact established order, plus set 400's stock reuse of Walk 0.
+    for direction_slot, direction in enumerate(DIRECTION_ORDER):
+        for frame in range(8):
+            stock_slot = WALK_START + direction_slot * 8 + frame
+            path = root / "walk" / direction / f"frame-{frame:02d}-a128.tile"
+            offsets = [0x630 + direction_slot * 0x58 + frame * 8]
+            if stock_slot == WALK_START:
+                offsets.insert(0, 0x1C8)
+            add_record(
+                action="walk",
+                direction=direction,
+                frame=frame,
+                source_path=path,
+                source_stock_slot=stock_slot,
+                imag_offsets=offsets,
+                source_tile=path.read_bytes(),
+            )
+        stock_slot = STAND_START + direction_slot
+        add_record(
+            action="stand",
+            direction=direction,
+            frame=0,
+            source_path=root / "stand" / direction / "frame-00-soft-b.png",
+            source_stock_slot=stock_slot,
+            imag_offsets=[0x960 + direction_slot * 0x30],
+        )
+
+    attack_offsets = _authority_offsets(authority, required_authorities["attack"])
+    for direction_slot, direction in enumerate(DIRECTION_ORDER):
+        for frame, offset in enumerate(attack_offsets[direction_slot]):
+            add_record(
+                action="attack",
+                direction=direction,
+                frame=frame,
+                source_path=root / "attack" / direction / f"frame-{frame:02d}-soft-b.png",
+                source_stock_slot=6055 + direction_slot * 8 + frame,
+                imag_offsets=[offset],
+            )
+
+    cast_offsets = _authority_offsets(authority, required_authorities["cast"])
+    cast_keys = ("A", "B", "C", "B", "D", "E", "F")
+    special_offsets = _authority_offsets(authority, required_authorities["special"])
+    special_keys = ("A", "B", "C", "D", "E", "F", "G")
+    for action, offsets_by_direction, keys in (
+        ("cast", cast_offsets, cast_keys),
+        ("special", special_offsets, special_keys),
+    ):
+        for direction_slot, direction in enumerate(DIRECTION_ORDER):
+            if len(offsets_by_direction[direction_slot]) != len(keys):
+                raise ValueError(f"Warrior {action} occurrence count changed")
+            for frame, (offset, key) in enumerate(
+                zip(offsets_by_direction[direction_slot], keys)
+            ):
+                source_slot = struct.unpack_from("<I", warrior_imag, offset)[0] & 0xFFFF
+                add_record(
+                    action=action,
+                    direction=direction,
+                    frame=frame,
+                    source_path=root / action / direction / f"key-{key}-soft-b.png",
+                    source_stock_slot=source_slot,
+                    imag_offsets=[offset],
+                )
+
+    death_offsets = _authority_offsets(authority, required_authorities["death"])
+    for direction_slot, direction in enumerate(DIRECTION_ORDER):
+        keys = ("a", "b", "c", "d")
+        for frame, key in enumerate(keys):
+            offsets = death_offsets[direction_slot][frame : frame + 1]
+            if frame == 3:
+                offsets = death_offsets[direction_slot][3:]
+            source_slot = struct.unpack_from("<I", warrior_imag, offsets[0])[0] & 0xFFFF
+            add_record(
+                action="death",
+                direction=direction,
+                frame=frame,
+                source_path=root / "death" / direction / f"key-{key}.png",
+                source_stock_slot=source_slot,
+                imag_offsets=offsets,
+                canvas=(112, 92),
+                hotspot=(62, 57),
+            )
+
+    dead_offset = _authority_offsets(authority, required_authorities["dead"])[0][0]
+    dead_slot = struct.unpack_from("<I", warrior_imag, dead_offset)[0] & 0xFFFF
+    add_record(
+        action="dead",
+        direction="shared",
+        frame=0,
+        source_path=root / "dead" / "alchemist-gravestone-B-native-35x33.png",
+        source_stock_slot=dead_slot,
+        imag_offsets=[dead_offset],
+        canvas=(35, 33),
+        hotspot=(22, 15),
+    )
+
+    actual_counts = {
+        action: sum(record["kind"] == action for record in records)
+        for action in COMPLETED_ACTION_COUNTS
+    }
+    if actual_counts != COMPLETED_ACTION_COUNTS:
+        raise ValueError(f"Completed Alchemist action counts changed: {actual_counts}")
+    if len(records) != 281 or len(patches) != 378:
+        raise ValueError("Completed Alchemist private TILE/occurrence topology changed")
+    if len({patch["offset"] for patch in patches}) != len(patches):
+        raise ValueError("Completed Alchemist IMAG authority overlaps itself")
+
+    # Preserve the already-live-proven Walk/Stand conversion bit-for-bit.
+    proven = [record for record in records if record["kind"] in {"walk", "stand"}]
+    shadow_totals = {
+        "projected": sum(r["shadow"]["projected_control_total"] for r in proven),
+        "body_conflicts": sum(r["shadow"]["body_conflict_total"] for r in proven),
+        "retained_projected": sum(r["shadow"]["retained_projected_control_total"] for r in proven),
+        "direct_seam": sum(r["shadow"]["direct_seam_total"] for r in proven),
+        "gap_fill_seam": sum(r["shadow"]["gap_fill_seam_total"] for r in proven),
+        "retained": sum(r["shadow"]["retained_control_total"] for r in proven),
+        "ground_contact_seam": sum(r["shadow"]["ground_contact_seam_total"] for r in proven),
+    }
+    if shadow_totals != EXPECTED_SHADOW_TOTALS:
+        raise ValueError("Completed handoff changed the proven Walk/Stand shadows")
+
+    return ApprovedSpriteBundle(
+        private_palette_index=private_palette_index,
+        private_palette_data=private_palette_data,
+        tiles_by_stock_slot=tiles_by_stock_slot,
+        records=tuple(records),
+        source_hashes={
+            "manifest.json": COMPLETED_HANDOFF_MANIFEST_SHA256,
+            "payload aggregate": COMPLETED_HANDOFF_AGGREGATE_SHA256,
+            "authority/warrior-action-authority-v1.json": COMPLETED_HANDOFF_AUTHORITY_SHA256,
+            "retail_maindata.cam": RETAIL_MAINDATA_SHA256,
+            "AVL1Warrior IMAG": WARRIOR_IMAG_SHA256,
+        },
+        imag_patches=tuple(sorted(patches, key=lambda value: value["offset"])),
+        handoff_manifest_sha256=COMPLETED_HANDOFF_MANIFEST_SHA256,
+    )
+
+
 def load_approved_sprite_bundle(
     sprite_pipeline_root: Path,
     stock: Any,
@@ -843,6 +1267,15 @@ def load_approved_sprite_bundle(
     """
 
     sprite_pipeline_root = sprite_pipeline_root.resolve()
+    if (sprite_pipeline_root / "manifest.json").is_file():
+        return load_completed_handoff_bundle(
+            sprite_pipeline_root,
+            stock,
+            stock_cam,
+            stock_tiles,
+            stock_palettes,
+            warrior_imag,
+        )
     walk_checkpoint_path = (
         sprite_pipeline_root / "references" / "alchemist-walk-full-v4-checkpoint.json"
     )
@@ -1219,6 +1652,129 @@ def remap_approved_warrior_imag(
     return patched
 
 
+def patch_completed_warrior_imag(
+    warrior_imag: bytes,
+    bundle: ApprovedSpriteBundle,
+    private_tile_indices: Sequence[int],
+) -> bytes:
+    """Patch only the manifest-authorized low16 occurrence words."""
+
+    if bundle.handoff_manifest_sha256 is None:
+        raise ValueError("Completed Warrior patch requires the handoff bundle")
+    if len(private_tile_indices) != len(bundle.records):
+        raise ValueError("Completed Warrior private TILE map is incomplete")
+    patched = bytearray(warrior_imag)
+    expected_offsets = {patch["offset"] for patch in bundle.imag_patches}
+    for patch in bundle.imag_patches:
+        offset = patch["offset"]
+        before = struct.unpack_from("<I", warrior_imag, offset)[0]
+        if before != patch["source_word"]:
+            raise ValueError(f"Warrior source word changed at IMAG offset {offset:#x}")
+        private_index = private_tile_indices[patch["record_index"]]
+        if not 0 <= private_index <= 0xFFFF:
+            raise ValueError("Completed Warrior private TILE index exceeds low16")
+        struct.pack_into("<I", patched, offset, (before & 0xFFFF0000) | private_index)
+    changed_offsets = {
+        offset
+        for offset in range(0, len(warrior_imag) - 3, 4)
+        if warrior_imag[offset : offset + 4] != patched[offset : offset + 4]
+    }
+    if changed_offsets != expected_offsets:
+        raise ValueError("Completed Warrior patch changed an unauthorized IMAG word")
+    return bytes(patched)
+
+
+def _validate_completed_sprite_cam(
+    stock: Any,
+    output_cam: Path,
+    stock_tiles: Sequence[Any],
+    stock_palettes: Sequence[Any],
+    warrior_imag: bytes,
+    bundle: ApprovedSpriteBundle,
+    private_tile_indices: Sequence[int],
+    interface_tile_indices: dict[int, int],
+    interface_records: Sequence[dict[str, Any]],
+) -> None:
+    output_palettes = stock.read_cam_entries(output_cam, b"SPLT")
+    if len(output_palettes) != bundle.private_palette_index + 1:
+        raise ValueError("Completed package does not end at its private SPLT")
+    if output_palettes[bundle.private_palette_index].data != bundle.private_palette_data:
+        raise ValueError("Completed package changed its private SPLT")
+    if output_palettes[427].data != stock_palettes[427].data:
+        raise ValueError("Completed package changed stock Warrior SPLT 427")
+
+    output_tiles = stock.read_cam_entries(output_cam, b"TILE")
+    first_private = len(stock_tiles)
+    if any(entry.data for entry in output_tiles[:first_private]):
+        raise ValueError("Completed package overwrites a retail TILE slot")
+    expected_private = list(range(first_private, first_private + len(bundle.records)))
+    if list(private_tile_indices) != expected_private:
+        raise ValueError("Completed humanoid TILEs are not the first private block")
+    private_colours = stock.splt_palette_colors(bundle.private_palette_data)
+    for record, private_index in zip(bundle.records, private_tile_indices):
+        payload = output_tiles[private_index].data
+        if sha256_bytes(payload) != record["packaged_tile_sha256"]:
+            raise ValueError(
+                f"Completed {record['kind']} TILE {record['record_index']} changed"
+            )
+        if stock.tile_palette_index(payload) != bundle.private_palette_index:
+            raise ValueError("Completed humanoid TILE uses the wrong private SPLT")
+        rows = _tile_rows(stock, payload, tuple(record["canvas"]))
+        flat = bytes(value for row in rows for value in row)
+        if sha256_bytes(flat) != record["full_indexed_pixel_sha256"]:
+            raise ValueError("Completed humanoid indexed pixels changed")
+        if any(value > 250 for value in flat):
+            raise ValueError("Completed humanoid TILE uses index 251..255")
+        if not any(value in CONTROL_INDICES for value in flat):
+            raise ValueError("Completed humanoid TILE has no grounded shadow")
+        validate_split_control_segments(payload)
+        validate_grounded_shadow_contact(rows, tuple(record["canvas"]))
+        body_rows = [
+            [0 if value in CONTROL_INDICES else value for value in row]
+            for row in rows
+        ]
+        body_tile = stock.encode_indexed_v3_tile_like_original(
+            payload, body_rows, split_shadow_controls=True
+        )
+        rebuilt, shadow = project_approved_shadow_controls(
+            stock,
+            body_tile,
+            private_colours,
+            expected_canvas=tuple(record["canvas"]),
+            expected_hotspot=tuple(record["hotspot"]),
+            clip_edge_controls=record["clip_edge_controls"],
+        )
+        if (
+            _tile_rows(stock, rebuilt, tuple(record["canvas"])) != rows
+            or shadow != record["shadow"]
+        ):
+            raise ValueError("Completed humanoid grounded-shadow clone changed")
+
+    if tuple(interface_tile_indices) != INTERFACE_SOURCE_SLOTS:
+        raise ValueError("Completed interface TILE mapping is incomplete")
+    if list(interface_tile_indices.values()) != list(
+        range(len(output_tiles) - len(INTERFACE_SOURCE_SLOTS), len(output_tiles))
+    ):
+        raise ValueError("Completed interface TILEs are not the final private block")
+    if len(interface_records) != len(INTERFACE_SOURCE_SLOTS):
+        raise ValueError("Completed interface provenance is incomplete")
+    for record in interface_records:
+        payload = output_tiles[record["private_tile_index"]].data
+        if not payload or sha256_bytes(payload) != record["packaged_tile_sha256"]:
+            raise ValueError("Completed interface TILE changed")
+
+    expected_imag = patch_completed_warrior_imag(
+        warrior_imag, bundle, private_tile_indices
+    )
+    expected_imag = stock.remap_imag_low16_tile_indices(
+        expected_imag, interface_tile_indices
+    )
+    packaged_imag = stock.read_cam_entry(output_cam, b"IMAG", b"ALC1Alchemist").data
+    if packaged_imag != expected_imag:
+        raise ValueError("Completed ALC1 IMAG differs from the stock-authorized clone")
+
+
+
 def validate_packaged_approved_sprite_cam(
     stock: Any,
     output_cam: Path,
@@ -1231,6 +1787,20 @@ def validate_packaged_approved_sprite_cam(
     interface_records: Sequence[dict[str, Any]],
 ) -> None:
     """Re-read the emitted CAM and prove the narrow stock clone survived I/O."""
+
+    if bundle.handoff_manifest_sha256 is not None:
+        _validate_completed_sprite_cam(
+            stock,
+            output_cam,
+            stock_tiles,
+            stock_palettes,
+            warrior_imag,
+            bundle,
+            list(private_tile_indices.values()),
+            interface_tile_indices,
+            interface_records,
+        )
+        return
 
     output_palettes = stock.read_cam_entries(output_cam, b"SPLT")
     if len(output_palettes) != bundle.private_palette_index + 1:
@@ -1373,6 +1943,52 @@ def package_provenance(
     interface_records: Sequence[dict[str, Any]],
     output_cam: Path,
 ) -> dict[str, Any]:
+    if bundle.handoff_manifest_sha256 is not None:
+        if list(private_tile_indices) != list(range(len(bundle.records))):
+            raise ValueError("Completed private TILE mapping is incomplete or reordered")
+        records = []
+        for record in bundle.records:
+            item = {
+                key: value
+                for key, value in record.items()
+                if key != "packaged_tile"
+            }
+            item["private_tile_index"] = private_tile_indices[record["record_index"]]
+            records.append(item)
+        return {
+            "schema": "majesty-alchemist-approved-sprite-test-set-v2",
+            "scope": "local compiled package; validated for deployment",
+            "cache_policy": "fresh build; regular art cache bypassed and not updated",
+            "handoff": {
+                "manifest_sha256": bundle.handoff_manifest_sha256,
+                "payload_aggregate_sha256": COMPLETED_HANDOFF_AGGREGATE_SHA256,
+                "source_hashes": bundle.source_hashes,
+            },
+            "stock_clone": {
+                "source_imag": "AVL1Warrior",
+                "private_imag": "ALC1Alchemist",
+                "private_tile_count": len(bundle.records),
+                "patched_occurrence_count": len(bundle.imag_patches),
+                "action_counts": COMPLETED_ACTION_COUNTS,
+                "direction_order": list(DIRECTION_ORDER),
+                "runtime_timing": "inherited byte-for-byte from stock AVL1Warrior IMAG",
+                "mutation_boundary": "authorized low16 TILE words only",
+            },
+            "palette": {
+                "private_splt_index": bundle.private_palette_index,
+                "retail_splt_count": EXPECTED_RETAIL_SPLT_COUNT,
+                "visible_palette_content_sha256": PALETTE_CONTENT_SHA256,
+                "visible_indices": [1, 246],
+                "reserved_controls": {
+                    str(index): list(colour) for index, colour in CONTROL_RGB.items()
+                },
+            },
+            "interface_frames": list(interface_records),
+            "records": records,
+            "output": {
+                "maindata_cam_sha256": sha256_file(output_cam),
+            },
+        }
     if sorted(private_tile_indices) != list(range(APPROVED_SLOT_START, APPROVED_SLOT_END)):
         raise ValueError("Packaged private TILE mapping is incomplete")
     records = []

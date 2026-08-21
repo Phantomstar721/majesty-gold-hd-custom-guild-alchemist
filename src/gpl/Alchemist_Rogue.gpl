@@ -31,7 +31,7 @@ begin
 	// Literal stock Rogue Magic Bazaar priority.  A value above the stock
 	// RandomNumber(100)+1 ceiling makes the requested pre-hunt purchase check
 	// deterministic whenever a researched, affordable item is available.
-	if ($Purchase_bazaar(thisagent, 101) == False)
+	if ($Alchemist_Purchase_Bazaar(thisagent, 101) == False)
 
 	if ($pursue_entertainment(thisagent) == False)
 

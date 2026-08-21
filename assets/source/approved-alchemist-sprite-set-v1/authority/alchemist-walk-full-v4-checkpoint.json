@@ -1,0 +1,139 @@
+{
+  "schema_version": 1,
+  "checkpoint_id": "alchemist-walk-full-v4",
+  "accepted_on": "2026-08-20",
+  "approval_status": "accepted_for_ingame_test",
+  "approval_scope": "Full eight-direction, eight-frame Alchemist Walk using one shared V11 action, the accepted right-hand dagger rig, fixed registration, true-color Soft B review treatment, and one shared alpha128 indexed palette candidate",
+  "predecessor_checkpoints": [
+    {
+      "path": "references/alchemist-poc-v11-checkpoint.json",
+      "sha256": "9ac9557314ea24f112ae71bbb3937018613b9d507c37e712b1370cbe080025bc"
+    },
+    {
+      "path": "references/alchemist-stand-v5-checkpoint.json",
+      "sha256": "9ee4d85617cb63d4a5a775b4dafc605c7808c039ab372c1f44437d1742b39783"
+    },
+    {
+      "path": "references/alchemist-indexed-pilot-v3-checkpoint.json",
+      "sha256": "87c62a2db58b7d0fc511704baebebebe00d3745ebfd05becbcbe9e9e7d0c9a5a"
+    }
+  ],
+  "stock_contract": {
+    "source": "AVL1Warrior Walk set 1",
+    "cam_sha256": "92b1a4caa111495aebe483e5617c7cc4f291eb1d897877860cfbdbc632a0d213",
+    "imag_sha256": "2aec8bc57ebbb385daf46a4d4fa0abbf6563e0be4adb232003a7a6418ed829ba",
+    "direction_order": [
+      "north",
+      "northeast",
+      "east",
+      "southeast",
+      "south",
+      "southwest",
+      "west",
+      "northwest"
+    ],
+    "frames_per_direction": 8,
+    "tile_range": [5919, 5982],
+    "authority_path": "references/warrior-walk-authority-v1.json",
+    "authority_sha256": "e3a63d9ffafb4d307d891a2af13dde50d43c594fb2a1f71acbdc17aea34d3337",
+    "authority_record_contract_sha256": "e13827b582e5f7cfbb12080ace3db1cb694a61479dc3856511195d89d5686e4f"
+  },
+  "motion_contract": {
+    "one_shared_action": true,
+    "heading_rotation_only": true,
+    "mirroring": false,
+    "per_direction_pose": false,
+    "per_direction_root": false,
+    "per_direction_crop": false,
+    "per_direction_recenter": false,
+    "per_direction_scale": false,
+    "root_hotspot": [48, 70],
+    "native_canvas": [96, 92],
+    "fixed_scale_factor": 0.13205886623006355,
+    "dagger_parent": "mixamorig:RightHand",
+    "review_cadence_ms": 110,
+    "review_cadence_note": "The review cadence is constant but is not asserted to be retail engine milliseconds; runtime timing remains inherited from the cloned Warrior IMAG."
+  },
+  "indexed_contract": {
+    "coverage_rule": "source alpha >= 128 becomes visible; source alpha < 128 becomes transparent index 0",
+    "visible_indices": [1, 246],
+    "reserved_control_indices": [247, 248, 249, 250],
+    "unused_indices": [251, 252, 253, 254, 255],
+    "shared_palette_across_all_64_frames": true,
+    "palette_content_sha256": "cd5b84c48cb6531d4610037e9509928cd048b5db036d1f4c61221f4b23061647",
+    "semantic_core_retention": {
+      "red": 1.0,
+      "green": 1.0,
+      "blue": 1.0,
+      "steel": 1.0
+    },
+    "tile_version": 3,
+    "local_review_palette_reference": "0xFFFFFFFF",
+    "local_review_tiles_game_loadable": false
+  },
+  "accepted_caveats": [
+    "The anatomical-right dagger is naturally rear-occluded in Northwest; its steel is unreadable at native/indexed size in F2-F7, while high-resolution frames and transform provenance prove it remains attached.",
+    "The local indexed fixtures have no assigned SPLT record and are not loadable until a private CAM package patches their palette reference.",
+    "In-game registration, palette loading, playback, and compositing remain the next approval gate."
+  ],
+  "source_tools": [
+    {
+      "path": "scripts/build_warrior_walk_authority.py",
+      "bytes": 31418,
+      "sha256": "4e18863b955c12ef32966ee0301a6226d85e6c89df97c96b37a3b511fba0123a"
+    },
+    {
+      "path": "scripts/render_mixamo_walk_full_gate.py",
+      "bytes": 59718,
+      "sha256": "219f08d3028a5a23fe7ce16079c8cd402dd135839c46abba2916a3234791fc4f"
+    },
+    {
+      "path": "scripts/assemble_mixamo_walk_full_gate.py",
+      "bytes": 99350,
+      "sha256": "199b42586f548c05c5df9ea48718c13e42ab75445e55d2961a9194a3a59a2615"
+    }
+  ],
+  "ignored_derived_artifacts": [
+    {
+      "path": "output/mixamo-walk-full-gate-v3/full-walk-render-provenance.json",
+      "bytes": 308198,
+      "sha256": "4a78784c6ff402611eb151ab460a9091dc896509a9b746e8295c497a9fd51e79"
+    },
+    {
+      "path": "output/mixamo-walk-full-gate-v4-review/full-walk-gate-provenance.json",
+      "bytes": 751138,
+      "sha256": "f3c70bf14d593580065bdfb4ec1139592d12d1e14d413f678b91f2151482d76e",
+      "normalized_sha256": "1a839164deafa185438114073f24f253f48f45cf7bc327c02e4e89b8f29c3376"
+    },
+    {
+      "path": "output/mixamo-walk-full-gate-v4-review/indexed/candidate-palette.json",
+      "bytes": 76263,
+      "sha256": "0b5d73b0e17aea6f82fd278c09ca966f280d689c0a1907ade93d9f34cdb58d60"
+    },
+    {
+      "path": "output/mixamo-walk-full-gate-v4-review/review/apng/all-directions-alchemist-soft-b-4x.apng",
+      "bytes": 251466,
+      "sha256": "b7abd0a75776df5e44d7883bbf3444a150bb17248123449206cd3f32bf8ac029"
+    },
+    {
+      "path": "output/mixamo-walk-full-gate-v4-review/review/apng/all-directions-alchemist-indexed-4x.apng",
+      "bytes": 247531,
+      "sha256": "c3c43f50c5ea340796ed54019086c6b300b1519e4a03fedb91f4c356d02ba0d0"
+    },
+    {
+      "path": "output/mixamo-walk-full-gate-v4-review/review/walk-full-native-comparison-1x.png",
+      "bytes": 249746,
+      "sha256": "e8f12d31f547667f919d6cb1bc635ea0b547f58612f47a33a4dbe3e122917117"
+    },
+    {
+      "path": "output/mixamo-walk-full-gate-v4-review/review/walk-full-highres-comparison.png",
+      "bytes": 1344185,
+      "sha256": "17bf1d03d98bca457339ddd6f19249d33e86610d01286cc6a1f544130b5d35ba"
+    },
+    {
+      "path": "output/mixamo-walk-full-gate-v4-review/review/gif/all-directions-alchemist-soft-b-4x.gif",
+      "bytes": 246055,
+      "sha256": "2efc29f6cf46b4737938f7d2836cd1f765745784517c718e95b5b4fb958addb3"
+    }
+  ]
+}

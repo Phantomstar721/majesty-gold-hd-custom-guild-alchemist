@@ -6,7 +6,7 @@
 // the death location, and hands the restored hero to stock flee behavior.
 ///////////////////////////////////////////////////////////////////////////////
 
-expression #Intent_Purchasing_Phoenix_Phial 178
+expression #Intent_Purchasing_Phoenix_Phial 310
 expression #Phoenix_Phial_Price 1000
 expression #Phoenix_Phial_Revive_Chance 75
 

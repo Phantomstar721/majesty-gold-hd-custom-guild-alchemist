@@ -108,9 +108,11 @@ BREWING_PHOENIX_PHIAL_PROGRESS_CONTROL_ID = 0x2A17
 BREWING_PHOENIX_PHIAL_ACTIVE_DISPLAY_CONTROL_ID = 0x2A18
 BREWING_PHOENIX_PHIAL_ICON_CONTROL_ID = BREWING_PHOENIX_PHIAL_CONTROL_ID + 500
 BREWING_PHOENIX_PHIAL_PRICE_CONTROL_ID = BREWING_PHOENIX_PHIAL_CONTROL_ID + 1000
-ALCHEMY_OIL_INTENT_INDEX = 177
+# Northern Expansion's final stock AITX table contains 309 records. Private
+# intents append after it so expansion statuses are never replaced.
+ALCHEMY_OIL_INTENT_INDEX = 309
 ALCHEMY_OIL_INTENT_TEXT = "Applying weapon oil at the alchemy lab"
-PHOENIX_PHIAL_INTENT_INDEX = 178
+PHOENIX_PHIAL_INTENT_INDEX = 310
 PHOENIX_PHIAL_INTENT_TEXT = "Purchasing a Phoenix Phial at the alchemy lab"
 FLASH_FLASK_ACTION_ID = "AFa1"
 FLASH_FLASK_ACTION_NAME = "flash_flask"
@@ -2254,7 +2256,9 @@ def validate_output(
         raise ValueError("Alchemist must use Warrior's stock basic melee action")
     if "(attacktype 1)" not in hero_data:
         raise ValueError("Alchemist must use stock hand-to-hand hit resolution")
-    if "special_attack_action" in hero_data or "Cultist_Dagger" in hero_data:
+    if "(special_attack_action basic_attack)" not in hero_data:
+        raise ValueError("Alchemist Fire Balm must retain a valid stock melee action")
+    if "Cultist_Dagger" in hero_data or "Fire_Dagger" in hero_data:
         raise ValueError("Alchemist must not retain Cultist projectile attacks")
     alchemist_tree = (output_root / "GPL" / "Alchemist_Rogue.gpl").read_text(
         encoding="utf-8"
@@ -2395,7 +2399,7 @@ def build(
         enable_unsafe_brewing_control,
     )
     build_gpl_text_cam(
-        game_data / "gpltext.cam",
+        game_path / "DataMX" / "mx_gpltext.cam",
         data_dir / "alchemist_probe_gpltext.cam",
     )
     build_misc_cam(
@@ -2512,6 +2516,7 @@ def build(
             path.relative_to(output_root).as_posix(): sha256_file(path)
             for path in sorted(output_root.rglob("*"))
             if path.is_file()
+            and path != output_root / APPROVED_SPRITE_PROVENANCE_NAME
         }
         (output_root / APPROVED_SPRITE_PROVENANCE_NAME).write_text(
             json.dumps(approved_art_provenance, indent=2) + "\n",

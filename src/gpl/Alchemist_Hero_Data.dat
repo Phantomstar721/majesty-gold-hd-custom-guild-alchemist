@@ -7,6 +7,7 @@
 		(EnemyType monster)
 		(Idle_action	basic_idle)
 		(attack_action basic_attack)
+		(special_attack_action basic_attack)
 		(Cast_Action Basic_Cast)
 		(Pickup_Action Basic_Pickup)
 		(PrimaryStat ATTRIB_Artifice)

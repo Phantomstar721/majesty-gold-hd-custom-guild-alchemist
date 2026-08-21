@@ -6,7 +6,7 @@
 // the upgraded attribute is stock WeaponPoisoned rather than a magic bonus.
 ///////////////////////////////////////////////////////////////////////////////
 
-expression #Intent_Applying_Weapon_Oil 177
+expression #Intent_Applying_Weapon_Oil 309
 expression #Alchemy_Weapon_Oil_Price 100
 expression #Alchemy_Transmutation_Greed 20
 

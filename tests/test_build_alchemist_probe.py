@@ -595,7 +595,7 @@ class AlchemistProbeTests(unittest.TestCase):
         self.assertIn("(castingrange 130)", data)
         self.assertNotIn("Cultist_Dagger", data)
         self.assertNotIn("Fire_Dagger", data)
-        self.assertNotIn("special_attack_action", data)
+        self.assertIn("(special_attack_action basic_attack)", data)
         self.assertIn("(Greed 30)", data)
         self.assertIn("(Upgrade_Armor_Chance\t100)", data)
         self.assertIn("(Upgrade_Weapon_Chance\t100)", data)
@@ -854,7 +854,7 @@ end
         self.assertIn("$Done_Enhancing_Equipment", source)
         self.assertNotIn("#ATTRIB_Weapon_Magic_Bonus", source)
         self.assertNotIn("#ATTRIB_Armor_Magic_Bonus", source)
-        self.assertIn("expression #Intent_Applying_Weapon_Oil 177", source)
+        self.assertIn("expression #Intent_Applying_Weapon_Oil 309", source)
         self.assertIn(
             "$SpecifyIntent (ThisAgent, #Intent_Applying_Weapon_Oil)", source
         )
@@ -880,15 +880,27 @@ end
 
     def test_private_oil_intent_appends_to_stock_aitx(self) -> None:
         stock = Path(
-            r"C:\Program Files (x86)\Steam\steamapps\common\Majesty HD\Data\gpltext.cam"
+            r"C:\Program Files (x86)\Steam\steamapps\common\Majesty HD\DataMX\mx_gpltext.cam"
         )
         with tempfile.TemporaryDirectory() as directory:
             output = Path(directory) / "oil_gpltext.cam"
             builder.build_gpl_text_cam(stock, output)
             intents = builder.read_cam_entry(output, b"STRT", b"AITX").data
+        stock_intents = builder.read_cam_entry(stock, b"STRT", b"AITX").data
+        stock_count = struct.unpack_from("<H", stock_intents, 0)[0]
+        self.assertEqual(stock_count, builder.ALCHEMY_OIL_INTENT_INDEX)
         count = struct.unpack_from("<H", intents, 0)[0]
         self.assertEqual(count, builder.PHOENIX_PHIAL_INTENT_INDEX + 1)
+        stock_offsets = struct.unpack_from(f"<{stock_count}I", stock_intents, 4)
         offsets = struct.unpack_from(f"<{count}I", intents, 4)
+        for index in range(stock_count):
+            stock_end = stock_intents.index(b"\x00", stock_offsets[index] + 4)
+            output_end = intents.index(b"\x00", offsets[index] + 4)
+            self.assertEqual(
+                stock_intents[stock_offsets[index] + 4 : stock_end],
+                intents[offsets[index] + 4 : output_end],
+                f"stock AITX entry {index} changed",
+            )
         offset = offsets[builder.ALCHEMY_OIL_INTENT_INDEX]
         end = intents.index(b"\x00", offset + 4)
         self.assertEqual(

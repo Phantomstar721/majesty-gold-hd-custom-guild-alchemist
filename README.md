@@ -21,6 +21,10 @@ stealing branch removed, while dagger combat uses Warrior's direct
 removed at the stock `AllowedSpells` declaration. The exact ownership and call
 paths are recorded in
 [the Alchemist hero stock-clone notes](docs/alchemist-hero-stock-clone.md).
+Stun Serum's Rogue-range engagement and native five-second freeze lifecycle
+are recorded in [the Stun Serum stock-clone notes](docs/stun-serum-stock-clone.md).
+The completed greed-based Paralytic/Transmutation split is recorded in
+[the Weapon Oil stock-clone notes](docs/weapon-oil-stock-clone.md).
 
 Invigorating Elixer is intentionally scoped to true recruitable heroes. Its
 activation, targeting, timed effector, Palace-side count, expiry cleanup, and

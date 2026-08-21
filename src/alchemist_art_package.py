@@ -65,6 +65,9 @@ BUFF_ICON_TEMPLATE_SOURCE = b"XR25plague_icon"
 VIGOR_EFFECT_CUSTOM = b"ALV1Vigor Spark"
 FLASH_FLASK_BUFF_CUSTOM = b"AFF1Flash Flask Icon"
 FLASH_FLASK_ACTIVATION_CUSTOM = b"AFF2Flash Flask Cast"
+STUN_SERUM_IMPACT_CUSTOM = b"ASS1Stun Serum Hit"
+STUN_SERUM_RESTRAINT_CUSTOM = b"ASS2Stun Serum Bind"
+STUN_SERUM_DEBUFF_CUSTOM = b"ASS3Stun Serum Icon"
 BUFF_ICON_PALETTE = 560
 FLASH_FLASK_ACTIVATION_PALETTE = 505
 FLASH_FLASK_ACTIVATION_HEADER = (3, 99, 103, 0, 32, 56, 43, 8)
@@ -673,6 +676,13 @@ def write_maindata(
     vigor_effect_imag = buff_icon_template_imag
     flash_flask_buff_imag = buff_icon_template_imag
     flash_flask_activation_imag = phoenix_effect_template_imag
+    stun_serum_impact_imag = phoenix_effect_template_imag
+    stun_serum_restraint_imag = stock.read_cam_entry(
+        source, b"IMAG", b"CRB1vines_e"
+    ).data
+    stun_serum_debuff_imag = stock.read_cam_entry(
+        source, b"IMAG", b"QRc1poison_IC"
+    ).data
 
     approved_bundle = (
         load_approved_sprite_bundle(
@@ -916,10 +926,18 @@ def write_maindata(
     flash_activation_source_png = (
         repo / "assets/source/spells/flash-flask/activation-strip.png"
     )
+    stun_impact_source_png = repo / "assets/source/spells/stun-serum/impact-strip.png"
+    stun_restraint_source_png = (
+        repo / "assets/source/spells/stun-serum/restraint-strip.png"
+    )
+    stun_debuff_source_png = repo / "assets/source/spells/stun-serum/debuff-strip.png"
     for source_png in (
         vigor_source_png,
         flash_buff_source_png,
         flash_activation_source_png,
+        stun_impact_source_png,
+        stun_restraint_source_png,
+        stun_debuff_source_png,
     ):
         if not source_png.is_file():
             raise FileNotFoundError(source_png)
@@ -986,6 +1004,78 @@ def write_maindata(
     flash_flask_activation_imag = stock.remap_imag_animation_tiles(
         flash_flask_activation_imag,
         flash_activation_replacements,
+    )
+
+    # Stun Serum's instantaneous bottle impact uses the same six-frame,
+    # attachment-point-2 stock scaffold proven by Eternal Soul and Flash Flask.
+    stun_impact_indices = stock.animation_tile_indices(
+        stun_serum_impact_imag, len(mx_tiles)
+    )
+    if len(stun_impact_indices) != 6:
+        raise ValueError("Stock XR30 Stun Serum impact scaffold changed")
+    stun_impact_template = mx_tiles[stun_impact_indices[-1]].data
+    stun_impact_replacements: dict[int, int] = {}
+    for frame, source_index in enumerate(stun_impact_indices):
+        stun_impact_replacements[source_index] = append(
+            f"ASS1Impact{frame:02d}".encode("ascii"),
+            generated_approved_strip_tile(
+                stock,
+                stun_impact_template,
+                palettes,
+                stun_impact_source_png,
+                8,
+                frame,
+                len(stun_impact_indices),
+                FLASH_FLASK_ACTIVATION_PALETTE,
+                FLASH_FLASK_ACTIVATION_HEADER,
+            ),
+        )
+    stun_serum_impact_imag = stock.remap_imag_animation_tiles(
+        stun_serum_impact_imag, stun_impact_replacements
+    )
+
+    # CRB1 is Vines' literal 30-TILE restraint presentation. Preserve its
+    # table/ordering and privatize only those named Vines TILEs.
+    stun_restraint_source_indices = tuple(range(2578, 2608))
+    stun_restraint_replacements: dict[int, int] = {}
+    for frame, source_index in enumerate(stun_restraint_source_indices):
+        stun_restraint_replacements[source_index] = append(
+            f"ASS2Bind{frame:02d}".encode("ascii"),
+            generated_approved_strip_tile(
+                stock,
+                tiles[source_index].data,
+                palettes,
+                stun_restraint_source_png,
+                8,
+                frame,
+                len(stun_restraint_source_indices),
+                FLASH_FLASK_ACTIVATION_PALETTE,
+            ),
+        )
+    stun_serum_restraint_imag = stock.remap_imag_low16_tile_indices(
+        stun_serum_restraint_imag, stun_restraint_replacements
+    )
+
+    # QRc1 is stock Poison's animated overhead-status scaffold (eight TILE
+    # records). It supplies the requested debuff-icon placement and cadence.
+    stun_debuff_source_indices = tuple(range(17020, 17028))
+    stun_debuff_replacements: dict[int, int] = {}
+    for frame, source_index in enumerate(stun_debuff_source_indices):
+        stun_debuff_replacements[source_index] = append(
+            f"ASS3Icon{frame:02d}".encode("ascii"),
+            generated_approved_strip_tile(
+                stock,
+                tiles[source_index].data,
+                palettes,
+                stun_debuff_source_png,
+                8,
+                frame,
+                len(stun_debuff_source_indices),
+                BUFF_ICON_PALETTE,
+            ),
+        )
+    stun_serum_debuff_imag = stock.remap_imag_low16_tile_indices(
+        stun_serum_debuff_imag, stun_debuff_replacements
     )
 
     profile_index = append(
@@ -1154,6 +1244,11 @@ def write_maindata(
             stock.pad_name(FLASH_FLASK_ACTIVATION_CUSTOM),
             flash_flask_activation_imag,
         ),
+        stock.CamEntry(stock.pad_name(STUN_SERUM_IMPACT_CUSTOM), stun_serum_impact_imag),
+        stock.CamEntry(
+            stock.pad_name(STUN_SERUM_RESTRAINT_CUSTOM), stun_serum_restraint_imag
+        ),
+        stock.CamEntry(stock.pad_name(STUN_SERUM_DEBUFF_CUSTOM), stun_serum_debuff_imag),
     )
     stock.write_cam(
         (

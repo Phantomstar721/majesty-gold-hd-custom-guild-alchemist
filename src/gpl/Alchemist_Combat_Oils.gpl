@@ -1,0 +1,80 @@
+///////////////////////////////////////////////////////////////////////////////
+// Weapon Oil hit behavior. Stock damage dispatch calls these only after a
+// confirmed hit, beside its untouched native WeaponPoisoned == 1 branch.
+///////////////////////////////////////////////////////////////////////////////
+
+expression #Alchemy_Paralytic_Immunity_Duration 10000
+expression #Alchemy_Transmutation_Gold_Per_Hit 5
+
+Function Alchemy_Paralytic_Oil_Begin (agent ThisAgent, agent Target)
+Declare
+	integer Stage;
+	integer Duration;
+
+Begin
+	If ($IsDead (Target))
+		Return;
+
+	If ((Target's "Type" == "Building") || (Target's "Type" == "Lair"))
+		Return;
+
+	If ($HasAttribute ("Immune_to_poison", Target))
+		If (Target's "Immune_to_poison" == True)
+			Return;
+
+	If ($GetAttribute (Target, #ATTRIB_HasEffectParalyticGaze) != 0)
+		Return;
+
+	If ($HasAttribute ("Alchemy_Paralytic_Stage", Target))
+		Stage = Target's "Alchemy_Paralytic_Stage";
+
+	If (Stage >= 3)
+		Return;
+
+	If (Stage == 0)
+		Duration = 3000;
+	Else If (Stage == 1)
+		Duration = 2000;
+	Else
+		Duration = 1000;
+
+	Target's "Alchemy_Paralytic_Stage" = Stage + 1;
+	$CreateEffector (Target, "alchemist_stun_serum_impact", 0);
+	$CreateEffector (Target, "alchemist_stun_serum_restraint", Duration);
+	$CreateEffector (Target, "alchemist_paralytic_oil_icon", Duration);
+	$SetAttribute (Target, #ATTRIB_HasEffectParalyticGaze, 1);
+	$Freeze_Unit (Target);
+	$SpecifyIntent (Target, #intent_paralyized);
+End
+
+
+Function Alchemy_Paralytic_Oil_End (agent ThisAgent)
+Declare
+
+Begin
+	$SetAttribute (ThisAgent, #ATTRIB_HasEffectParalyticGaze, 0);
+	$UnFreeze_Unit (ThisAgent);
+	If (ThisAgent's "Alchemy_Paralytic_Stage" >= 3)
+		$CreateEffector (
+			ThisAgent,
+			"alchemist_paralytic_oil_immunity",
+			#Alchemy_Paralytic_Immunity_Duration
+		);
+End
+
+
+Function Alchemy_Paralytic_Oil_Immunity_End (agent ThisAgent)
+Declare
+
+Begin
+	ThisAgent's "Alchemy_Paralytic_Stage" = 0;
+End
+
+
+Function Alchemy_Transmutation_Oil_Hit (agent ThisAgent, agent Target)
+Declare
+
+Begin
+	// Stock Give_Gold owns both the hero-gold adjustment and floating feedback.
+	$Give_Gold (ThisAgent, #Alchemy_Transmutation_Gold_Per_Hit);
+End

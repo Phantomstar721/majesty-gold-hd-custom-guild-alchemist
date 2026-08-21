@@ -21,6 +21,9 @@ from alchemist_art_package import (
     PHOENIX_LIFECYCLE_CUSTOM,
     PHOENIX_LIFECYCLE_FRAMES,
     PHOENIX_VISIBLE_FRAMES,
+    STUN_SERUM_DEBUFF_CUSTOM,
+    STUN_SERUM_IMPACT_CUSTOM,
+    STUN_SERUM_RESTRAINT_CUSTOM,
     VIGOR_EFFECT_CUSTOM,
     load_stock_pipeline,
     write_interfacedata,
@@ -115,6 +118,13 @@ FLASH_FLASK_ICON_ID = "AFF1"
 FLASH_FLASK_EFFECT_ID = "AFF2"
 FLASH_FLASK_DURATION_MS = "20000"
 FLASH_FLASK_COOLDOWN_MS = "60000"
+STUN_SERUM_ACTION_ID = "ASs1"
+STUN_SERUM_ACTION_NAME = "stun_serum"
+STUN_SERUM_IMPACT_ID = "ASS1"
+STUN_SERUM_RESTRAINT_ID = "ASS2"
+STUN_SERUM_DEBUFF_ID = "ASS3"
+STUN_SERUM_DURATION_MS = "5000"
+STUN_SERUM_COOLDOWN_MS = "45000"
 WEAPON_OIL_PROGRESS_OUTER_RECT = (30, 62, 162, 20)
 WEAPON_OIL_PROGRESS_LABEL_RECT = (31, 65, 160, 14)
 PHOENIX_PHIAL_PROGRESS_OUTER_RECT = (30, 87, 162, 20)
@@ -336,13 +346,43 @@ def build_alchemist_economy(stock_purchase_equipment: Path) -> str:
     return function.replace(market_anchor, phoenix_after_market, 1) + "\n"
 
 
+def build_alchemist_damage(stock_make_attack: Path) -> str:
+    """Clone stock damage and extend only its confirmed-hit coating branch."""
+    source = stock_make_attack.read_text(encoding="cp1252")
+    function = extract_gpl_function(source, "damage")
+    stock_poison = (
+        '\t\t\t\t\tif ( $getattribute ( attacker, #ATTRIB_weaponpoisoned ) == 1 )\n'
+        "\t\t\t\t\t\tbegin\n"
+        "\t\t\t\t\t\t\tdo_poison = TRUE;\n"
+        '\t\t\t\t\t\t\tif ( $hasattribute ( "Immune_to_poison", defender ))\n'
+        '\t\t\t\t\t\t\t\tif ( defender\'s "immune_to_poison" == TRUE )\n'
+        "\t\t\t\t\t\t\t\t\tdo_poison = FALSE;\n\n"
+        "\t\t\t\t\t\t\tif ( do_poison )\n"
+        "\t\t\t\t\t\t\t\t$poison_begin ( attacker, defender );\n"
+        "\t\t\t\t\t\tend"
+    )
+    if function.count(stock_poison) != 1:
+        raise ValueError("Stock damage poison-on-hit branch changed")
+    private_oils = (
+        stock_poison
+        + "\n\n\t\t\t\t\tIf ( $GetAttribute (Attacker, #ATTRIB_WeaponPoisoned) == 2 )"
+        + "\n\t\t\t\t\t\t$Alchemy_Paralytic_Oil_Begin (Attacker, Defender);"
+        + "\n\n\t\t\t\t\tIf ( $GetAttribute (Attacker, #ATTRIB_WeaponPoisoned) == 3 )"
+        + "\n\t\t\t\t\t\t$Alchemy_Transmutation_Oil_Hit (Attacker, Defender);"
+    )
+    return function.replace(stock_poison, private_oils, 1) + "\n"
+
+
 def build_gpl_project(include_siege_test_fixture: bool) -> str:
     sources = [
         'source="Alchemist_Rogue.gpl"',
+        'source="Alchemist_Stun_Serum.gpl"',
         'source="Alchemist_Flash_Flask.gpl"',
         'source="Alchemist_Brewing.gpl"',
         'source="Alchemist_Economy.gpl"',
         'source="Alchemist_Weapon_Oil.gpl"',
+        'source="Alchemist_Combat_Oils.gpl"',
+        'source="Alchemist_Damage.gpl"',
         'source="Alchemist_Phoenix_Phial.gpl"',
     ]
     if include_siege_test_fixture:
@@ -531,7 +571,8 @@ def build_units_xml(stock_buildings_xml: Path, stock_characters_xml: Path) -> by
     movement.set("ID", "Class 1")
     # Do not inherit the Cultist's class-local spell surface. Replace its three
     # spells with the Alchemist's one private Shield-of-Light-derived combat
-    # spell, preserving the stock AllowedSpells dispatch contract.
+    # spells, preserving the stock AllowedSpells dispatch contract. Paralytic
+    # Gaze's rank-5 Stun Serum precedes the rank-1 Flash Flask at combat entry.
     allowed_spells = alchemist.find("./Game/AllowedSpells")
     if allowed_spells is None:
         raise ValueError("Stock Cultist AllowedSpells contract is missing")
@@ -540,7 +581,12 @@ def build_units_xml(stock_buildings_xml: Path, stock_characters_xml: Path) -> by
     ET.SubElement(
         allowed_spells,
         "Spell",
-        {"ID": "0", "Value": FLASH_FLASK_ACTION_NAME},
+        {"ID": "0", "Value": STUN_SERUM_ACTION_NAME},
+    )
+    ET.SubElement(
+        allowed_spells,
+        "Spell",
+        {"ID": "1", "Value": FLASH_FLASK_ACTION_NAME},
     )
     # Warrior's direct bladed-melee contract is attacktype 1 (in GPL),
     # attack_action basic_attack (in GPL), and a 1..1 engine attack range.
@@ -707,6 +753,107 @@ def build_flash_flask_xml(stock_actions_xml: Path, stock_overlays_xml: Path) -> 
 
     output = ET.Element("Majesty")
     output.extend((action, icon, effect))
+    ET.indent(output, space="\t")
+    return ET.tostring(output, encoding="utf-8", xml_declaration=False) + b"\n"
+
+
+def build_stun_serum_xml(stock_actions_xml: Path, stock_overlays_xml: Path) -> bytes:
+    """Privatize stock Paralytic Gaze/Vines freeze ownership for Stun Serum."""
+    actions_root = ET.parse(stock_actions_xml).getroot()
+    overlays_root = ET.parse(stock_overlays_xml).getroot()
+    stock_action = actions_root.find('.//Description[@Name="paralytic_gaze"]')
+    stock_impact = overlays_root.find(
+        './/Description[@Name="paralytic_gaze_effector"]'
+    )
+    stock_restraint = overlays_root.find('.//Description[@Name="vines_effector"]')
+    stock_icon = overlays_root.find('.//Description[@Name="Poison_icon"]')
+    stock_invisible_icon = overlays_root.find('.//Description[@Name="vines_icon"]')
+    if any(
+        item is None
+        for item in (
+            stock_action,
+            stock_impact,
+            stock_restraint,
+            stock_icon,
+            stock_invisible_icon,
+        )
+    ):
+        raise ValueError("Stock Stun Serum action/freeze/art lifecycle is incomplete")
+
+    action = ET.fromstring(ET.tostring(stock_action, encoding="utf-8"))
+    action.set("ID", STUN_SERUM_ACTION_ID)
+    action.set("Name", STUN_SERUM_ACTION_NAME)
+    action.set("Description", "Stun Serum")
+    action.find("./Engine/Script").set("GPLFunction", "Alchemist_Stun_Serum_Begin")
+    action.find("./Game/EffectorDuration").set("value", STUN_SERUM_DURATION_MS)
+    action.find("./Game/TimeoutDuration").set("value", STUN_SERUM_COOLDOWN_MS)
+    level = action.find("./Game/CharacterLevel")
+    if level is None:
+        level = ET.SubElement(action.find("./Game"), "CharacterLevel")
+    level.set("value", "5")
+
+    impact = ET.fromstring(ET.tostring(stock_impact, encoding="utf-8"))
+    impact.set("ID", STUN_SERUM_IMPACT_ID)
+    impact.set("Name", "alchemist_stun_serum_impact")
+    impact.set("Description", "Stun Serum Impact")
+    impact.find("./Engine/ImageIDBase").set(
+        "value", STUN_SERUM_IMPACT_CUSTOM[:4].decode("ascii")
+    )
+
+    restraint = ET.fromstring(ET.tostring(stock_restraint, encoding="utf-8"))
+    restraint.set("ID", STUN_SERUM_RESTRAINT_ID)
+    restraint.set("Name", "alchemist_stun_serum_restraint")
+    restraint.set("Description", "Stun Serum Restraint")
+    restraint.find("./Engine/ImageIDBase").set(
+        "value", STUN_SERUM_RESTRAINT_CUSTOM[:4].decode("ascii")
+    )
+    restraint.find("./Engine/DefaultSound").set("value", "0")
+    restraint_script = restraint.find("./Engine/Script")
+    if restraint_script is not None:
+        restraint.find("./Engine").remove(restraint_script)
+
+    icon = ET.fromstring(ET.tostring(stock_icon, encoding="utf-8"))
+    icon.set("ID", STUN_SERUM_DEBUFF_ID)
+    icon.set("Name", "alchemist_stun_serum_icon")
+    icon.set("Description", "Stun Serum")
+    icon.find("./Engine/ImageIDBase").set(
+        "value", STUN_SERUM_DEBUFF_CUSTOM[:4].decode("ascii")
+    )
+    ET.SubElement(
+        icon.find("./Engine"),
+        "Script",
+        {"type": "0", "cProc": "0", "GPLFunction": "Alchemist_Stun_Serum_End"},
+    )
+
+    oil_icon = ET.fromstring(ET.tostring(stock_icon, encoding="utf-8"))
+    oil_icon.set("ID", "ASO1")
+    oil_icon.set("Name", "alchemist_paralytic_oil_icon")
+    oil_icon.set("Description", "Paralytic Oil")
+    oil_icon.find("./Engine/ImageIDBase").set(
+        "value", STUN_SERUM_DEBUFF_CUSTOM[:4].decode("ascii")
+    )
+    ET.SubElement(
+        oil_icon.find("./Engine"),
+        "Script",
+        {"type": "0", "cProc": "0", "GPLFunction": "Alchemy_Paralytic_Oil_End"},
+    )
+
+    immunity = ET.fromstring(ET.tostring(stock_invisible_icon, encoding="utf-8"))
+    immunity.set("ID", "ASO2")
+    immunity.set("Name", "alchemist_paralytic_oil_immunity")
+    immunity.set("Description", "Paralytic Oil Immunity")
+    ET.SubElement(
+        immunity.find("./Engine"),
+        "Script",
+        {
+            "type": "0",
+            "cProc": "0",
+            "GPLFunction": "Alchemy_Paralytic_Oil_Immunity_End",
+        },
+    )
+
+    output = ET.Element("Majesty")
+    output.extend((action, impact, restraint, icon, oil_icon, immunity))
     ET.indent(output, space="\t")
     return ET.tostring(output, encoding="utf-8", xml_declaration=False) + b"\n"
 
@@ -1467,16 +1614,20 @@ def build_manifest(
 \t\t\t\t\t<Descriptions>Data\\alchemist_brewing_overlays.xml</Descriptions>
 \t\t\t\t\t<Descriptions>Data\\alchemist_brewing_sounds.xml</Descriptions>
 \t\t\t\t\t<Descriptions>Data\\alchemist_flash_flask.xml</Descriptions>
+\t\t\t\t\t<Descriptions>Data\\alchemist_stun_serum.xml</Descriptions>
 \t\t\t\t\t<GPL>
 \t\t\t\t\t\t<Target>Data\\Alchemist.bcd</Target>
 \t\t\t\t\t\t<Source>GPL\\Alchemist_Building_Data.dat</Source>
 \t\t\t\t\t\t<Source>GPL\\Alchemist_Hero_Data.dat</Source>
 \t\t\t\t\t\t<Source>GPL\\Alchemist_Phoenix_Phial.dat</Source>
 \t\t\t\t\t\t<Source>GPL\\Alchemist_Rogue.gpl</Source>
+\t\t\t\t\t\t<Source>GPL\\Alchemist_Stun_Serum.gpl</Source>
 \t\t\t\t\t\t<Source>GPL\\Alchemist_Flash_Flask.gpl</Source>
 \t\t\t\t\t\t<Source>GPL\\Alchemist_Brewing.gpl</Source>
 \t\t\t\t\t\t<Source>GPL\\Alchemist_Economy.gpl</Source>
 \t\t\t\t\t\t<Source>GPL\\Alchemist_Weapon_Oil.gpl</Source>
+\t\t\t\t\t\t<Source>GPL\\Alchemist_Combat_Oils.gpl</Source>
+\t\t\t\t\t\t<Source>GPL\\Alchemist_Damage.gpl</Source>
 \t\t\t\t\t\t<Source>GPL\\Alchemist_Phoenix_Phial.gpl</Source>{siege_source}
 \t\t\t\t\t</GPL>
 \t\t\t\t</Load>
@@ -1502,6 +1653,7 @@ def validate_output(
         output_root / "Data" / "alchemist_brewing_overlays.xml",
         output_root / "Data" / "alchemist_brewing_sounds.xml",
         output_root / "Data" / "alchemist_flash_flask.xml",
+        output_root / "Data" / "alchemist_stun_serum.xml",
         output_root / "Data" / "alchemist_probe_textdata.cam",
         output_root / "Data" / "alchemist_probe_gpltext.cam",
         output_root / "Data" / "alchemist_probe_miscdata.cam",
@@ -1514,9 +1666,12 @@ def validate_output(
         output_root / "GPL" / "Alchemist_Phoenix_Phial.dat",
         output_root / "GPL" / "Alchemist_Rogue.gpl",
         output_root / "GPL" / "Alchemist_Flash_Flask.gpl",
+        output_root / "GPL" / "Alchemist_Stun_Serum.gpl",
         output_root / "GPL" / "Alchemist_Brewing.gpl",
         output_root / "GPL" / "Alchemist_Economy.gpl",
         output_root / "GPL" / "Alchemist_Weapon_Oil.gpl",
+        output_root / "GPL" / "Alchemist_Combat_Oils.gpl",
+        output_root / "GPL" / "Alchemist_Damage.gpl",
         output_root / "GPL" / "Alchemist_Phoenix_Phial.gpl",
     }
     if include_siege_test_fixture:
@@ -1570,9 +1725,10 @@ def validate_output(
         raise ValueError("Alchemist must use the stock Warrior movement class")
     allowed_spells = hero.findall("./Game/AllowedSpells/Spell")
     if [(spell.get("ID"), spell.get("Value")) for spell in allowed_spells] != [
-        ("0", FLASH_FLASK_ACTION_NAME)
+        ("0", STUN_SERUM_ACTION_NAME),
+        ("1", FLASH_FLASK_ACTION_NAME),
     ]:
-        raise ValueError("Alchemist must expose only its private Flash Flask spell")
+        raise ValueError("Alchemist private combat-spell order changed")
     attack_range = hero.find("./Game/AttackRange")
     if (
         attack_range is None
@@ -1617,6 +1773,40 @@ def validate_output(
         flash_effect.find("./Engine/AttachmentPointID").get("value") != "2"
     ):
         raise ValueError("Flash Flask activation lost its stock self-cast contract")
+    stun_root = ET.parse(output_root / "Data" / "alchemist_stun_serum.xml").getroot()
+    stun_action = stun_root.find('./Description[@Name="stun_serum"]')
+    stun_impact = stun_root.find(
+        './Description[@Name="alchemist_stun_serum_impact"]'
+    )
+    stun_restraint = stun_root.find(
+        './Description[@Name="alchemist_stun_serum_restraint"]'
+    )
+    stun_icon = stun_root.find('./Description[@Name="alchemist_stun_serum_icon"]')
+    if any(item is None for item in (stun_action, stun_impact, stun_restraint, stun_icon)):
+        raise ValueError("Private Stun Serum stock-clone descriptions are incomplete")
+    if (
+        stun_action.find("./Engine/ImageSet").get("value") != "Cast"
+        or stun_action.find("./Game/EffectorDuration").get("value")
+        != STUN_SERUM_DURATION_MS
+        or stun_action.find("./Game/TimeoutDuration").get("value")
+        != STUN_SERUM_COOLDOWN_MS
+        or stun_action.find("./Game/CharacterLevel").get("value") != "5"
+        or stun_action.find("./Game/SpellRank").get("value") != "5"
+    ):
+        raise ValueError("Stun Serum lost Paralytic Gaze's stock action contract")
+    if stun_impact.find("./Engine/ImageIDBase").get("value") != "ASS1":
+        raise ValueError("Stun Serum impact lost its private art")
+    if (
+        stun_restraint.find("./Engine/ImageIDBase").get("value") != "ASS2"
+        or stun_restraint.find("./Engine/Script") is not None
+    ):
+        raise ValueError("Stun Serum restraint must be callback-free private art")
+    if (
+        stun_icon.find("./Engine/ImageIDBase").get("value") != "ASS3"
+        or stun_icon.find("./Engine/Script").get("GPLFunction")
+        != "Alchemist_Stun_Serum_End"
+    ):
+        raise ValueError("Stun Serum icon lost its sole cleanup callback")
     overlays = ET.parse(
         output_root / "Data" / "alchemist_brewing_overlays.xml"
     ).getroot()
@@ -1709,6 +1899,9 @@ def validate_output(
         VIGOR_EFFECT_CUSTOM,
         FLASH_FLASK_BUFF_CUSTOM,
         FLASH_FLASK_ACTIVATION_CUSTOM,
+        STUN_SERUM_IMPACT_CUSTOM,
+        STUN_SERUM_RESTRAINT_CUSTOM,
+        STUN_SERUM_DEBUFF_CUSTOM,
     ):
         if not read_cam_entry(main_art, b"IMAG", name).data:
             raise ValueError(f"Private main art record is empty: {name!r}")
@@ -2005,6 +2198,8 @@ def validate_output(
     for symbol in (
         b"Alchemist_Flash_Flask_Begin",
         b"Alchemist_Flash_Flask_End",
+        b"Alchemist_Stun_Serum_Begin",
+        b"Alchemist_Stun_Serum_End",
     ):
         if symbol not in compiled_symbols:
             raise ValueError(f"Compiled Alchemist bytecode lost Flash Flask symbol {symbol!r}")
@@ -2014,6 +2209,11 @@ def validate_output(
         b"Alchemy_Oil_Check",
         b"Alchemy_Oil_Enchant_Equipment",
         b"Obtain_Alchemy_Oil",
+        b"Alchemy_Paralytic_Oil_Begin",
+        b"Alchemy_Paralytic_Oil_End",
+        b"Alchemy_Paralytic_Oil_Immunity_End",
+        b"Alchemy_Transmutation_Oil_Hit",
+        b"damage",
         b"Phoenix_Phial_Check",
         b"Purchase_Phoenix_Phial",
         b"Phoenix_Phial_Resurrection_End",
@@ -2089,6 +2289,12 @@ def build(
             sdk_data / "M_Overlays.xml",
         )
     )
+    (data_dir / "alchemist_stun_serum.xml").write_bytes(
+        build_stun_serum_xml(
+            sdk_data / "M_Actions.xml",
+            sdk_data / "M_Overlays.xml",
+        )
+    )
     build_text_cam(
         game_data / "textdata.cam",
         data_dir / "alchemist_probe_textdata.cam",
@@ -2146,9 +2352,17 @@ def build(
     shutil.copy2(GPL_SOURCE_ROOT / "Alchemist_Hero_Data.dat", gpl_dir)
     shutil.copy2(GPL_SOURCE_ROOT / "Alchemist_Phoenix_Phial.dat", gpl_dir)
     shutil.copy2(GPL_SOURCE_ROOT / "Alchemist_Rogue.gpl", gpl_dir)
+    shutil.copy2(GPL_SOURCE_ROOT / "Alchemist_Stun_Serum.gpl", gpl_dir)
     shutil.copy2(GPL_SOURCE_ROOT / "Alchemist_Flash_Flask.gpl", gpl_dir)
     shutil.copy2(GPL_SOURCE_ROOT / "Alchemist_Brewing.gpl", gpl_dir)
     shutil.copy2(GPL_SOURCE_ROOT / "Alchemist_Weapon_Oil.gpl", gpl_dir)
+    shutil.copy2(GPL_SOURCE_ROOT / "Alchemist_Combat_Oils.gpl", gpl_dir)
+    damage_source = build_alchemist_damage(
+        sdk_data.parent / "GPLMx" / "TaskModules" / "Subtasks" / "mx_make_attack.gpl"
+    )
+    (gpl_dir / "Alchemist_Damage.gpl").write_text(
+        damage_source, encoding="utf-8"
+    )
     shutil.copy2(GPL_SOURCE_ROOT / "Alchemist_Phoenix_Phial.gpl", gpl_dir)
     economy_source = build_alchemist_economy(
         sdk_data.parent

@@ -618,11 +618,11 @@ class AlchemistProbeTests(unittest.TestCase):
         self.assertEqual(data.count("Alchemist_tree"), 3)
         self.assertIn("(attack_action basic_attack)", data)
         self.assertIn("(attacktype 1)", data)
-        self.assertIn("(castingrange 25)", data)
+        self.assertIn("(castingrange 130)", data)
         self.assertNotIn("Cultist_Dagger", data)
         self.assertNotIn("Fire_Dagger", data)
         self.assertNotIn("special_attack_action", data)
-        self.assertIn("(Greed 26)", data)
+        self.assertIn("(Greed 30)", data)
         self.assertIn("(Upgrade_Armor_Chance\t100)", data)
         self.assertIn("(Upgrade_Weapon_Chance\t100)", data)
         self.assertIn("(evaluationScript\teval_enemies_nearby)", data)
@@ -673,7 +673,7 @@ class AlchemistProbeTests(unittest.TestCase):
         spells = hero.findall("./Game/AllowedSpells/Spell")
         self.assertEqual(
             [(spell.get("ID"), spell.get("Value")) for spell in spells],
-            [("0", "flash_flask")],
+            [("0", "stun_serum"), ("1", "flash_flask")],
         )
         units_text = units.decode("utf-8")
         for cultist_spell in ("camouflage", "change_shape", "charm_monster"):
@@ -759,10 +759,13 @@ end
             'data="Alchemist_Hero_Data.dat"\n'
             'data="Alchemist_Phoenix_Phial.dat"\n'
             'source="Alchemist_Rogue.gpl"\n'
+            'source="Alchemist_Stun_Serum.gpl"\n'
             'source="Alchemist_Flash_Flask.gpl"\n'
             'source="Alchemist_Brewing.gpl"\n'
             'source="Alchemist_Economy.gpl"\n'
             'source="Alchemist_Weapon_Oil.gpl"\n'
+            'source="Alchemist_Combat_Oils.gpl"\n'
+            'source="Alchemist_Damage.gpl"\n'
             'source="Alchemist_Phoenix_Phial.gpl"\n',
         )
         self.assertIn(
@@ -825,7 +828,7 @@ end
             generated.index("$Alchemy_Oil_Check"), generated.index("$Poison_Check")
         )
 
-    def test_weapon_oil_is_a_single_stock_poison_purchase(self) -> None:
+    def test_weapon_oil_selects_private_coating_from_stock_greed(self) -> None:
         source = (builder.GPL_SOURCE_ROOT / "Alchemist_Weapon_Oil.gpl").read_text(
             encoding="utf-8"
         )
@@ -845,6 +848,24 @@ end
             "$SpecifyIntent (ThisAgent, #Intent_Applying_Weapon_Oil)", source
         )
         self.assertNotIn("#Intent_Poisoning_Weapon", source)
+        self.assertIn("expression #Alchemy_Transmutation_Greed 20", source)
+        self.assertIn('ThisAgent\'s "Greed" > #Alchemy_Transmutation_Greed', source)
+        self.assertIn("Upgrade = 2", source)
+        self.assertIn("Upgrade = 3", source)
+
+    def test_damage_is_a_literal_stock_clone_with_two_private_oil_branches(self) -> None:
+        stock = Path(
+            r"C:\Program Files (x86)\Steam\steamapps\common\Majesty HD\SDK\OriginalQuests"
+            r"\GPLMx\TaskModules\Subtasks\mx_make_attack.gpl"
+        )
+        generated = builder.build_alchemist_damage(stock)
+        self.assertEqual(generated.count("function damage"), 1)
+        self.assertIn("#ATTRIB_weaponpoisoned ) == 1", generated)
+        self.assertEqual(generated.count("$poison_begin ( attacker, defender )"), 1)
+        self.assertIn("#ATTRIB_WeaponPoisoned) == 2", generated)
+        self.assertIn("$Alchemy_Paralytic_Oil_Begin (Attacker, Defender)", generated)
+        self.assertIn("#ATTRIB_WeaponPoisoned) == 3", generated)
+        self.assertIn("$Alchemy_Transmutation_Oil_Hit (Attacker, Defender)", generated)
 
     def test_private_oil_intent_appends_to_stock_aitx(self) -> None:
         stock = Path(
@@ -985,6 +1006,40 @@ end
         ):
             self.assertIn(begin, source)
             self.assertIn(end, source)
+        for forbidden in ("$RunThread", "$Sleep", "$CheckEffector"):
+            self.assertNotIn(forbidden, source)
+
+    def test_stun_serum_clones_paralytic_gaze_and_vines_cleanup(self) -> None:
+        game = Path(r"C:\Program Files (x86)\Steam\steamapps\common\Majesty HD")
+        data = game / "SDK" / "OriginalQuests" / "Data"
+        output = ET.fromstring(
+            builder.build_stun_serum_xml(
+                data / "M_Actions.xml",
+                data / "M_Overlays.xml",
+            )
+        )
+        action = output.find('./Description[@Name="stun_serum"]')
+        self.assertEqual(action.find("./Engine/ImageSet").get("value"), "Cast")
+        self.assertEqual(action.find("./Game/EffectorDuration").get("value"), "5000")
+        self.assertEqual(action.find("./Game/TimeoutDuration").get("value"), "45000")
+        self.assertEqual(action.find("./Game/CharacterLevel").get("value"), "5")
+        self.assertEqual(action.find("./Game/SpellRank").get("value"), "5")
+        restraint = output.find(
+            './Description[@Name="alchemist_stun_serum_restraint"]'
+        )
+        self.assertEqual(restraint.find("./Engine/ImageIDBase").get("value"), "ASS2")
+        self.assertIsNone(restraint.find("./Engine/Script"))
+        icon = output.find('./Description[@Name="alchemist_stun_serum_icon"]')
+        self.assertEqual(icon.find("./Engine/ImageIDBase").get("value"), "ASS3")
+        self.assertEqual(
+            icon.find("./Engine/Script").get("GPLFunction"),
+            "Alchemist_Stun_Serum_End",
+        )
+        source = (builder.GPL_SOURCE_ROOT / "Alchemist_Stun_Serum.gpl").read_text(
+            encoding="utf-8"
+        )
+        for stock_call in ("$Freeze_Unit (Target)", "$UnFreeze_Unit (ThisAgent)"):
+            self.assertIn(stock_call, source)
         for forbidden in ("$RunThread", "$Sleep", "$CheckEffector"):
             self.assertNotIn(forbidden, source)
 

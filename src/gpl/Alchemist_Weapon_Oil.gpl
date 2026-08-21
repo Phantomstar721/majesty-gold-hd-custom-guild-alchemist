@@ -8,6 +8,7 @@
 
 expression #Intent_Applying_Weapon_Oil 177
 expression #Alchemy_Weapon_Oil_Price 100
+expression #Alchemy_Transmutation_Greed 20
 
 Function Alchemy_Oil_Check (agent ThisAgent, list AlchemyLabs) is boolean
 Declare
@@ -16,7 +17,9 @@ Declare
 	integer Gold_Needed;
 
 Begin
-	If ($GetAttribute (ThisAgent, #ATTRIB_WeaponPoisoned) >= 1)
+	// Stock poison remains value 1. Private oil values 2 and 3 leave the
+	// Rogues Guild's poison path fully intact.
+	If ($GetAttribute (ThisAgent, #ATTRIB_WeaponPoisoned) >= 2)
 		begin
 			$DebugOut ("My weapon already has an alchemical oil!");
 			return False;
@@ -97,11 +100,17 @@ Begin
 
 	$SetThreadInterval (ThisAgent's "ActiveScript", #Normal_Cycle);
 
-	If ($GetAttribute (ThisAgent, What_To_Upgrade) == 0 && Total_Gold >= #Alchemy_Weapon_Oil_Price)
+	If ($GetAttribute (ThisAgent, What_To_Upgrade) < 2 && Total_Gold >= #Alchemy_Weapon_Oil_Price)
 		begin
 			Total_Gold -= #Alchemy_Weapon_Oil_Price;
 			Gold += #Alchemy_Weapon_Oil_Price;
-			Upgrade = 1;
+			// Greed over 20 selects Transmutation Oil. This keeps Warriors,
+			// Rangers, Barbarians, and Dwarves on Paralytic Oil while the
+			// stock-greedy Elf/Rogue and greed-30 Alchemist transmute hits.
+			If (ThisAgent's "Greed" > #Alchemy_Transmutation_Greed)
+				Upgrade = 3;
+			Else
+				Upgrade = 2;
 		end
 
 	If (Upgrade > 0)

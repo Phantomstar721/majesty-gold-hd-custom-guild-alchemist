@@ -71,6 +71,33 @@ the on-hit effect. This checkpoint exists solely to prove autonomous hero
 selection, travel, payment, building revenue, persistent coating, and the
 existing poison combat result before privatizing the effect as Paralytic Oil.
 
+## Private oil split
+
+The completed implementation preserves native Rogues Guild poison as
+`WeaponPoisoned == 1`. The Laboratory assigns `2` for Paralytic Oil and `3` for
+Transmutation Oil, allowing the stock poison branch to remain present and
+independently functional.
+
+The stock `Obtain_Enchantment` transaction still owns travel, visit duration,
+payment, building revenue, exit, and decision-tree restart. Its only new choice
+uses the hero's existing stock `Greed` property: values greater than 20 receive
+Transmutation Oil; all other eligible weapon users receive Paralytic Oil. This
+puts stock Warriors, Rangers, Barbarians, and Dwarves on Paralytic Oil while
+Elves, Rogues, and the greed-30 Alchemist choose Transmutation Oil.
+
+The packaged `damage` function is generated from an exact stock clone. Its
+native `WeaponPoisoned == 1 -> Poison_begin` block is unchanged; two adjacent
+branches are the only modifications. Value 2 uses Paralytic Gaze/Vines'
+effector-owned `Freeze_Unit` lifecycle. Consecutive completed applications last
+3, 2, then 1 game-second, after which a stock duration-owned invisible effector
+provides 10 seconds of immunity and resets the sequence. Value 3 calls stock
+`Give_Gold` for 5 gold on each confirmed physical hit, preserving the native
+gold adjustment and floating-gold feedback.
+
+`damage` is a global GPL symbol, like `Purchase_Equipment`, so CAM merger output
+must merge this narrow stock-derived branch with any other mod that replaces
+the same function.
+
 Live proof on 2026-08-11 used a Siege-only QA Rogue beside a pre-researched
 Laboratory. Its ordinary earlier equipment upgrades were marked complete and
 its affordability was guaranteed. The normal `Purchase_Equipment` entry

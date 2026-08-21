@@ -1,0 +1,40 @@
+///////////////////////////////////////////////////////////////////////////////
+// Private clone of stock Paralytic Gaze, using the same Freeze_Unit /
+// UnFreeze_Unit lifecycle as Vines. The duration-owned icon is the sole
+// cleanup owner; the impact and restraint effectors are presentation-only.
+///////////////////////////////////////////////////////////////////////////////
+
+Function Alchemist_Stun_Serum_Begin (agent ThisAgent, agent Target)
+Declare
+
+Begin
+	If ($IsDead (Target))
+		Return;
+
+	If ((Target's "Type" != "Building") && (Target's "Type" != "Lair"))
+		begin
+			$CreateEffector (Target, "alchemist_stun_serum_impact", 0);
+			$CreateEffector (
+				Target,
+				"alchemist_stun_serum_restraint",
+				$GetSpellAttribute ("stun_serum", "effector_duration")
+			);
+			$CreateEffector (
+				Target,
+				"alchemist_stun_serum_icon",
+				$GetSpellAttribute ("stun_serum", "effector_duration")
+			);
+			$SetAttribute (Target, #ATTRIB_HasEffectParalyticGaze, 1);
+			$Freeze_Unit (Target);
+			$SpecifyIntent (Target, #intent_paralyized);
+		end
+End
+
+
+Function Alchemist_Stun_Serum_End (agent ThisAgent)
+Declare
+
+Begin
+	$SetAttribute (ThisAgent, #ATTRIB_HasEffectParalyticGaze, 0);
+	$UnFreeze_Unit (ThisAgent);
+End

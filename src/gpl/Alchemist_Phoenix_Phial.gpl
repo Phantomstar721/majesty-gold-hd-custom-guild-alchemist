@@ -8,7 +8,7 @@
 
 expression #Intent_Purchasing_Phoenix_Phial 178
 expression #Phoenix_Phial_Price 1000
-expression #Phoenix_Phial_Revive_Chance 70
+expression #Phoenix_Phial_Revive_Chance 75
 
 Function Phoenix_Phial_Check (agent ThisAgent, list Potentials) is boolean
 Declare
@@ -84,7 +84,7 @@ End
 
 ///////////////////////////////////////////////////////////////////////////////
 // Stock gravestone with one approved prelude. A carried Phial is consumed on
-// the first lethal event whether the 70% roll succeeds or fails. Success uses
+// the first lethal event whether the 75% roll succeeds or fails. Success uses
 // Healer_Death's dead-state preparation and Resurrection_Begin's exact shared
 // engine cleanup, but creates a private callback effector at the death site.
 ///////////////////////////////////////////////////////////////////////////////
@@ -101,6 +101,7 @@ begin
 					ThisAgent's "Type" = "Dead";
 					$StopMoving (ThisAgent);
 					$SpecifyIntent (ThisAgent, #Intent_Resurrecting);
+					// Literal HRC1 1500-ms callback owner with all 29 art frames private.
 					$CreateEffector (ThisAgent, "phoenix_phial_resurrection_effector", 1500);
 					$Shared_Begin_Resurrect (ThisAgent);
 					return;

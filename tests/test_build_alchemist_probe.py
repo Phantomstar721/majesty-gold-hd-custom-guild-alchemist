@@ -261,8 +261,8 @@ class AlchemistProbeTests(unittest.TestCase):
             packaged_imag = stock.read_cam_entry(
                 output, b"IMAG", art_package.HERO_CUSTOM
             ).data
-            phoenix_effect_imag = stock.read_cam_entry(
-                output, b"IMAG", art_package.PHOENIX_EFFECT_CUSTOM
+            phoenix_lifecycle_imag = stock.read_cam_entry(
+                output, b"IMAG", art_package.PHOENIX_LIFECYCLE_CUSTOM
             ).data
             stock_imag = stock.read_cam_entry(
                 game_data / "maindata.cam", b"IMAG", art_package.HERO_SOURCE
@@ -292,19 +292,34 @@ class AlchemistProbeTests(unittest.TestCase):
                 record["packaged_tile_sha256"],
             )
         self.assertGreater(len(output_tiles), len(stock_tiles))
-        phoenix_sets = stock.single_direction_imag_animation_sets(
-            phoenix_effect_imag
+        lifecycle_sets = stock.single_direction_imag_animation_sets(
+            phoenix_lifecycle_imag
         )
-        self.assertEqual(len(phoenix_sets), 1)
-        self.assertEqual(phoenix_sets[0][0], 64)
-        self.assertEqual(len(phoenix_sets[0][1]), 29)
-        phoenix_indices = [
-            tile_index
-            for _record_offset, tile_index in phoenix_sets[0][1]
-            if tile_index
-        ]
-        self.assertEqual(len(phoenix_indices), 28)
-        for tile_index in phoenix_indices:
+        self.assertEqual(len(lifecycle_sets), 1)
+        self.assertEqual(
+            lifecycle_sets[0][0],
+            art_package.PHOENIX_LIFECYCLE_ANIMATION_SET,
+        )
+        lifecycle_indices = stock.animation_tile_indices(
+            phoenix_lifecycle_imag,
+            len(output_tiles),
+        )
+        self.assertEqual(
+            len(lifecycle_indices), art_package.PHOENIX_LIFECYCLE_FRAMES
+        )
+        self.assertEqual(
+            len(set(lifecycle_indices)), art_package.PHOENIX_LIFECYCLE_FRAMES
+        )
+        self.assertTrue(
+            all(
+                output_tiles[tile_index].name.rstrip(b"\x00").startswith(
+                    b"PXE1Phoenix"
+                )
+                for tile_index in lifecycle_indices
+            )
+        )
+        visible_pixel_counts = []
+        for tile_index in lifecycle_indices:
             tile = output_tiles[tile_index].data
             self.assertEqual(
                 struct.unpack_from("<8H", tile, 0),
@@ -314,6 +329,21 @@ class AlchemistProbeTests(unittest.TestCase):
                 stock.tile_palette_index(tile),
                 art_package.PHOENIX_EFFECT_PALETTE,
             )
+            decoded = stock.decode_indexed_v3_tile(tile)
+            self.assertIsNotNone(decoded)
+            visible_pixel_counts.append(
+                sum(value != 0 for row in decoded[2] for value in row)
+            )
+        visible_phase_counts = visible_pixel_counts[
+            : art_package.PHOENIX_VISIBLE_FRAMES
+        ]
+        transparent_tail_counts = visible_pixel_counts[
+            art_package.PHOENIX_VISIBLE_FRAMES :
+        ]
+        self.assertTrue(all(visible_phase_counts[:-1]))
+        self.assertEqual(visible_phase_counts[-1], 0)
+        self.assertTrue(all(value == 0 for value in transparent_tail_counts))
+        self.assertGreater(max(visible_phase_counts), visible_phase_counts[0])
 
     def test_approved_sprite_imag_remap_preserves_every_other_warrior_word(self) -> None:
         repo = Path(__file__).resolve().parents[1]
@@ -652,12 +682,17 @@ end
         self.assertIn('"Temple_Krolm"', fixture)
         self.assertIn('"Wizards_Guild3"', fixture)
         self.assertIn('"AlchemistsLaboratory1"', fixture)
-        self.assertEqual(fixture.count('"MaxHP"'), 4)
+        self.assertIn('rogueGuild = $SpawnUnit ( palace, "Rogues_Guild1"', fixture)
+        self.assertIn('warriorGuild = $SpawnUnit ( palace, "Warriors_Guild"', fixture)
+        self.assertEqual(fixture.count('"MaxHP"'), 6)
         self.assertIn('$AdjustPlayerData ( palace, "gold", 100000 )', fixture)
         self.assertNotIn("#ATTRIB_ResearchArrows, 1", fixture)
-        self.assertIn('oilRogue = $SpawnUnit ( palace, "Rogue"', fixture)
-        self.assertIn('oilWarrior = $SpawnUnit ( palace, "Warrior"', fixture)
-        self.assertIn('oilAlchemist = $SpawnUnit ( palace, "Alchemist"', fixture)
+        self.assertIn('oilRogue = $SpawnUnit ( rogueGuild, "Rogue"', fixture)
+        self.assertIn('oilWarrior = $SpawnUnit ( warriorGuild, "Warrior"', fixture)
+        self.assertIn('oilAlchemist = $SpawnUnit ( alchemyLab, "Alchemist"', fixture)
+        self.assertNotIn('$SpawnUnit ( palace, "Rogue"', fixture)
+        self.assertNotIn('$SpawnUnit ( palace, "Warrior"', fixture)
+        self.assertNotIn('$SpawnUnit ( palace, "Alchemist"', fixture)
         self.assertEqual(fixture.count("$Advance_To_Level"), 3)
         self.assertEqual(fixture.count("#ATTRIB_Gold, 5000"), 3)
         self.assertEqual(fixture.count("#ATTRIB_Intelligence, 100"), 3)
@@ -815,7 +850,7 @@ end
         )
 
     def test_brewing_overlay_has_a_private_callback(self) -> None:
-        stock = """<Majesty><Description type="Unit" subType="Overlay" ID="QRa1" Name="Rage_icon" Description="Rage of Krolm"><Engine><Info value="Directionless"/><Info value="DontBlock"/><ImageIDBase value="QRa1"/><Script type="0" cProc="0" GPLFunction="rage_end"/></Engine><Game><StackPriority value="1"/></Game></Description><Description type="Unit" subType="Overlay" ID="HRC1" Name="resurrection_effector" Description="Resurrection"><Engine><Info value="Directionless"/><Info value="DontBlock"/><ImageIDBase value="HRC1"/><Script type="0" cProc="0" GPLFunction="Resurrection_End"/></Engine><Game><StackPriority value="0"/></Game></Description></Majesty>"""
+        stock = """<Majesty><Description type="Unit" subType="Overlay" ID="QRa1" Name="Rage_icon" Description="Rage of Krolm"><Engine><Info value="Directionless"/><Info value="DontBlock"/><ImageIDBase value="QRa1"/><Script type="0" cProc="0" GPLFunction="rage_end"/></Engine><Game><StackPriority value="1"/></Game></Description><Description type="Unit" subType="Overlay" ID="HRC1" Name="resurrection_effector" Description="Resurrection"><Engine><Info value="Directionless"/><Info value="DontBlock"/><Menu value="11"/><ImageIDBase value="HRC1"/><DefaultSound value="Resurrection"/><Script type="0" cProc="0" GPLFunction="Resurrection_End"/></Engine><Game><StackPriority value="0"/><Flags value="TransparentToMouse"/></Game></Description><Description type="Unit" subType="Overlay" ID="XR30" Name="Frost_Field_Hit_Effector" Description="Frost Field"><Engine><Info value="Directionless"/><Info value="DontBlock"/><Menu value="11"/><ImageIDBase value="XR30"/><AttachmentPointID value="2"/><DefaultSound value="Frost_Field_hit"/></Engine><Game><DialogID value="0"/><StackPriority value="0"/><Flags value="TransparentToMouse"/></Game></Description></Majesty>"""
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "M_Overlays.xml"
             path.write_text(stock, encoding="utf-8")
@@ -840,18 +875,29 @@ end
         self.assertEqual(
             resurrection.find("./Engine/AttachmentPointID").get("value"), "2"
         )
+        self.assertEqual(len(output.findall("Description")), 2)
+        self.assertIsNone(
+            output.find('./Description[@Name="phoenix_phial_visual_effector"]')
+        )
 
     def test_phoenix_phial_composes_stock_purchase_rebirth_and_flee(self) -> None:
         source = (builder.GPL_SOURCE_ROOT / "Alchemist_Phoenix_Phial.gpl").read_text(
             encoding="utf-8"
         )
         self.assertIn("expression #Phoenix_Phial_Price 1000", source)
-        self.assertIn("expression #Phoenix_Phial_Revive_Chance 70", source)
+        self.assertIn("expression #Phoenix_Phial_Revive_Chance 75", source)
         self.assertIn('$AgentHasInventoryItem ("PhoenixPhial", ThisAgent)', source)
         self.assertIn('$CreateNewInventoryItem ("PhoenixPhial"', source)
         self.assertIn('$DeleteInventoryItem ("PhoenixPhial", ThisAgent)', source)
         self.assertIn("$Shared_Begin_Resurrect (ThisAgent)", source)
         self.assertIn("$Shared_End_Resurrect (ThisAgent)", source)
+        self.assertEqual(
+            source.count(
+                '$CreateEffector (ThisAgent, "phoenix_phial_resurrection_effector", 1500)'
+            ),
+            1,
+        )
+        self.assertNotIn("phoenix_phial_visual_effector", source)
         self.assertIn("$Flee (ThisAgent, #Intent_Flee)", source)
         self.assertIn("function gravestone(agent thisagent)", source)
         self.assertNotIn("$RunThread", source)

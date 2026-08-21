@@ -30,7 +30,7 @@ paths select them inconsistently across casts. The complete test record is in
 [the Invigorating Elixer research log](docs/invigorating-elixer-research.md).
 
 Phoenix Phial is the third Brewing prototype: a researched, 1,000-gold,
-single-charge hero inventory item with a 70-percent chance to resurrect its
+single-charge hero inventory item with a 75-percent chance to resurrect its
 owner in place and dispatch the revived hero through stock fleeing. Its exact
 research, purchase, inventory, Healer/Agrela resurrection, and escape contract
 is recorded in [the Phoenix Phial stock-clone notes](docs/phoenix-phial-stock-clone.md).

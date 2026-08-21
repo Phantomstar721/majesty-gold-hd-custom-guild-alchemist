@@ -1,8 +1,8 @@
 # Phoenix Phial stock-clone contract
 
 Phoenix Phial combines only traced Majesty mechanisms. Its two custom seams are
-the user-approved 70-percent lethal-event roll and the dispatch between those
-stock lifecycles.
+the user-approved 75-percent lethal-event success roll and the dispatch between
+those stock lifecycles.
 
 ## Research
 
@@ -56,7 +56,7 @@ used by Weapon Oil and points it at private `ALPI` art.
 ## Death, resurrection, and escape
 
 The package overrides the global `gravestone` symbol, which is therefore a CAM
-merger symbol. With no Phial, or after the 30-percent failure roll, its body is
+merger symbol. With no Phial, or after the 25-percent failure roll, its body is
 the literal stock `gravestone` lifecycle.
 
 With a Phial, the item is deleted before the roll, so both success and failure
@@ -78,19 +78,33 @@ The original private descriptor changed the callback identity but accidentally
 left `ImageIDBase="HRC1"`, so it could only display stock Healer/Agrela
 resurrection art. No committed private Phoenix animation existed.
 
-The repaired effector keeps HRC1's exact set-64 timing table: one initial blank
-slot followed by 28 visible frames during the unchanged 1500-ms resurrection
-window. Only those visible TILEs are replaced. Every private frame uses the
-live-proven Eternal Soul self-cast geometry—a fixed 103 by 99 canvas, hotspot
-`(56,43)`, and attachment point 2—rather than HRC1's moving per-frame canvases
-and hotspots. That prevents the growing art from appearing above-left and then
-jumping back onto the hero during its fade.
+The first repair incorrectly composed Agrela's full 1500-ms callback owner with
+a separate duration-0 Eternal Soul presenter. In game, the short Phoenix ended
+while the underlying resurrection animation continued, exposing stock HRC1 art
+for the rest of the revival. That two-owner composition is forbidden.
 
-The Phoenix is quantized through stock fireball palette 505, not HRC1's cool
-resurrection palettes 189-192. The package validator requires all 28 frames to
-retain the same canvas, hotspot, and fiery palette, requires the PXE1 descriptor
-to point at private `PXE1Phoenix Cast`, and rejects a private override of stock
-HRC1. The generated source master lives at
+The corrected art uses one literal stock resurrection owner. Private `PXE1`
+retains Agrela resurrection's set-64, 29-frame, 1500-ms table,
+`Resurrection` sound, `Phoenix_Phial_Resurrection_End` callback, attachment
+point 2, flags, and ordering. All 29 HRC1 frame references are redirected to 29
+distinct private Phoenix TILEs. There is no second visual effector.
+
+Every Phoenix TILE uses Eternal Soul's proven fixed 103 by 99 canvas, attachment
+point 2, and stock fireball palette 505. Its private hotspot is `(56,49)`: the
+PHe2 anchor raised by the six pixels confirmed in the death-site test. Eternal
+Soul's initialization, smooth growth, peak pulse, reduction, and fade function
+is sampled across HRC1 slots 0 through 14. Live testing established that filling
+HRC1's complete 29-slot table left Phoenix art visible after stock
+`Shared_End_Resurrect` restored movement, so slots 15 through 28 remain in the
+literal table but point to private transparent TILEs. No callback timing,
+owner, or cleanup behavior is changed.
+
+The package validator requires PXE1 set 64 with all 29 slots mapped to distinct
+private TILEs on the common canvas/hotspot and palette 505. It requires the
+first 14 to carry the growing/peak/fading art, the fifteenth to complete the
+fade, and the remaining fourteen to be transparent. PXE1 alone owns the art,
+callback, and audio; stock HRC1, XR30, and the obsolete PXV1 channel are
+rejected. The recovered detailed source master lives at
 `assets/source/spells/phoenix-phial/flaming-phoenix-source.png`.
 
 No polling thread, resurrection watcher, custom destination search, custom
@@ -103,6 +117,13 @@ be tested. Its Rogue, Warrior, and Alchemist are advanced to level 10, receive
 5,000 gold and 100 Intelligence, and continue through the existing stock
 `Purchase_Equipment` probe. Once research completes and earlier purchases are
 satisfied, they should autonomously buy one Phial.
+
+Each fixture hero has the same stock home relationship as an ordinarily
+recruited hero: the Rogue belongs to a completed Rogues Guild, the Warrior to a
+completed Warriors Guild, and the Alchemist to the Laboratory. Parenting test
+heroes to the Palace is forbidden because stock `hero_birth` deliberately
+clears a Palace parent from `Home`; a subsequently resurrected homeless hero
+can then reach stock `Flee`'s no-safe-building `Berserking` fallback.
 
 For repeatable lethal testing, the fixture adds 100,000 sovereign gold through
 stock `$AdjustPlayerData` and spawns a completed level-3 Wizard's Guild through

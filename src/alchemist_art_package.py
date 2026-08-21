@@ -43,14 +43,24 @@ RESEARCH_ICON_CUSTOM = b"ALWIweapon oil icon"
 PHOENIX_RESEARCH_ICON_CUSTOM = b"ALPIphial icon"
 INVENTORY_ITEM_SOURCE = b"AVk4Res Item"
 INVENTORY_ITEM_CUSTOM = b"PXF1Phoenix Phial"
-PHOENIX_EFFECT_SOURCE = b"HRC1resurrect_e"
-PHOENIX_EFFECT_CUSTOM = b"PXE1Phoenix Cast"
+PHOENIX_LIFECYCLE_SOURCE = b"HRC1resurrect_e"
+PHOENIX_LIFECYCLE_CUSTOM = b"PXE1Phoenix Life"
+PHOENIX_EFFECT_TEMPLATE_SOURCE = b"XR30frost_fld_hit"
 PHOENIX_EFFECT_PALETTE = 505
-# Phantoms Haunt's live-proven Eternal Soul cast keeps every animation frame
-# on this one fixed canvas.  The stock HRC1 resurrection animation instead
-# changes canvas and hotspot on every frame, which made the discarded Phoenix
-# experiment jump from the upper-left back onto its hero as it shrank.
-PHOENIX_EFFECT_HEADER = (3, 99, 103, 0, 32, 56, 43, 8)
+# Agrela's 29-frame/1500-ms table remains the sole resurrection owner. Its
+# complete visual table is privatized with Eternal Soul's phased artwork so
+# the Phoenix and callback share the exact same stock lifetime.
+PHOENIX_LIFECYCLE_ANIMATION_SET = 64
+PHOENIX_LIFECYCLE_FRAMES = 29
+# Keep HRC1's complete 29-slot owner/table literal. Live testing established
+# that painting every slot leaves custom art visible after stock
+# Shared_End_Resurrect restores movement, so the approved presentation occupies
+# its first 15 slots and the remaining private slots are transparent. No timer,
+# callback, or second effector is introduced.
+PHOENIX_VISIBLE_FRAMES = 15
+PHOENIX_EFFECT_TEMPLATE_ANIMATION_SET = 96
+PHOENIX_EFFECT_TEMPLATE_FRAMES = 6
+PHOENIX_EFFECT_HEADER = (3, 99, 103, 0, 32, 56, 49, 8)
 VIGOR_EFFECT_SOURCE = b"XR01Speed_tonic_ico"
 VIGOR_EFFECT_CUSTOM = b"XR01Speed_tonic_ico"
 PROGRESS_SOURCE = b"INSrreasearch"
@@ -99,58 +109,80 @@ WARRIOR_WALK_END = 5983
 
 def generated_phoenix_resurrection_tile(
     stock,
+    template_tile: bytes,
     palettes,
     source_png: Path,
     frame_index: int,
     frame_count: int,
 ) -> bytes:
-    """Render one fixed-anchor frame for the private resurrection effector.
-
-    HRC1 still owns the exact stock 29-slot animation timing.  Only its 28
-    visible TILEs are replaced.  Every replacement uses Eternal Soul's proven
-    fixed self-cast geometry and stock fireball palette 505, so growth and
-    fading come from the Phoenix drawing rather than moving tile origins.
-    """
+    """Render the approved Phoenix phases, then HRC1's private transparent tail."""
     from PIL import ImageEnhance
 
-    _version, height, width, _field_6, _depth, _hot_x, _hot_y, _field_14 = (
-        PHOENIX_EFFECT_HEADER
-    )
+    height = struct.unpack_from("<H", template_tile, 2)[0]
+    width = struct.unpack_from("<H", template_tile, 4)[0]
     with Image.open(source_png) as loaded:
         source = loaded.convert("RGBA")
-
-    # Ignore isolated near-transparent generation fringe when choosing the
-    # crop, while retaining the original antialiased alpha inside that crop.
-    crop_mask = source.getchannel("A").point(lambda value: 255 if value >= 64 else 0)
-    bbox = crop_mask.getbbox()
+    bbox = source.getchannel("A").getbbox()
     if bbox is None:
         raise ValueError("Phoenix resurrection source has no visible alpha")
     source = source.crop(bbox)
 
-    progress = frame_index / max(1, frame_count - 1)
-    if progress <= 0.48:
-        growth = progress / 0.48
+    if frame_count != PHOENIX_LIFECYCLE_FRAMES:
+        raise ValueError(
+            f"Phoenix resurrection expected {PHOENIX_LIFECYCLE_FRAMES} visible "
+            f"frames, found {frame_count}"
+        )
+
+    header = (
+        3,
+        height,
+        width,
+        struct.unpack_from("<H", template_tile, 6)[0],
+        32,
+        min(width - 1, struct.unpack_from("<H", template_tile, 10)[0] + 6),
+        min(height - 1, struct.unpack_from("<H", template_tile, 12)[0] + 18),
+        struct.unpack_from("<H", template_tile, 14)[0],
+    )
+    if frame_index >= PHOENIX_VISIBLE_FRAMES:
+        return stock.rgba_to_indexed_tile(
+            Image.new("RGBA", (width, height), (0, 0, 0, 0)),
+            palettes,
+            PHOENIX_EFFECT_PALETTE,
+            header,
+        )
+
+    # Literal copy of Phantoms Haunt's live-proven Eternal Soul cast phases.
+    # It is sampled across the 15 live-approved visible slots; the source
+    # master, private IDs, fiery palette, and phase sampling are the only art
+    # substitutions.
+    progress = frame_index / max(1, PHOENIX_VISIBLE_FRAMES - 1)
+    if progress <= 0.60:
+        growth = progress / 0.60
         smooth_growth = growth * growth * (3.0 - 2.0 * growth)
-        scale = 0.12 + 0.88 * smooth_growth
-        visible_alpha = 0.30 + 0.70 * growth
-    elif progress <= 0.72:
-        hold = (progress - 0.48) / 0.24
-        scale = 1.0 + 0.035 * math.sin(math.pi * hold)
+        scale = 0.18 + 0.82 * smooth_growth
+        visible_alpha = 0.32 + 0.68 * growth
+    elif progress <= 0.82:
+        pulse = (progress - 0.60) / 0.22
+        scale = 1.0 + 0.08 * math.sin(math.pi * pulse)
         visible_alpha = 1.0
     else:
-        fade = (progress - 0.72) / 0.28
-        scale = 1.02 - 0.30 * fade
+        fade = (progress - 0.82) / 0.18
+        scale = 1.03 - 0.15 * fade
         visible_alpha = max(0.06, 1.0 - 0.94 * fade)
 
-    max_width = round(width * 0.90 * scale)
-    max_height = round(height * 0.90 * scale)
-    source.thumbnail(
-        (max(3, max_width), max(3, max_height)),
-        Image.Resampling.LANCZOS,
+    target_height = max(4, round(height * 0.74 * scale))
+    target_width = max(
+        3,
+        round(source.width * target_height / max(1, source.height)),
     )
-    source = ImageEnhance.Brightness(source).enhance(
-        0.92 + 0.10 * visible_alpha
-    )
+    if target_width > round(width * 0.94):
+        target_width = max(3, round(width * 0.94))
+        target_height = max(
+            4,
+            round(source.height * target_width / max(1, source.width)),
+        )
+    source = source.resize((target_width, target_height), Image.Resampling.LANCZOS)
+    source = ImageEnhance.Brightness(source).enhance(0.48 + 0.50 * visible_alpha)
     alpha = source.getchannel("A").point(
         lambda value: round(value * visible_alpha)
     )
@@ -158,14 +190,13 @@ def generated_phoenix_resurrection_tile(
 
     canvas = Image.new("RGBA", (width, height), (0, 0, 0, 0))
     left = (width - source.width) // 2
-    # Eternal Soul grows upward from a stable foot/attachment anchor.
-    top = height - source.height - 2
+    top = height - source.height - 1
     canvas.alpha_composite(source, (left, top))
     return stock.rgba_to_indexed_tile(
         canvas,
         palettes,
         PHOENIX_EFFECT_PALETTE,
-        PHOENIX_EFFECT_HEADER,
+        header,
     )
 
 
@@ -523,8 +554,8 @@ def write_maindata(
     phoenix_item_imag = stock.read_cam_entry(
         source, b"IMAG", INVENTORY_ITEM_SOURCE
     ).data
-    phoenix_effect_imag = stock.read_cam_entry(
-        source, b"IMAG", PHOENIX_EFFECT_SOURCE
+    phoenix_lifecycle_imag = stock.read_cam_entry(
+        source, b"IMAG", PHOENIX_LIFECYCLE_SOURCE
     ).data
     # XR01 is the stock Northern Expansion Speed Tonic icon that the proven
     # Vigor overlay has always referenced. It is not present in retail
@@ -535,6 +566,9 @@ def write_maindata(
         raise FileNotFoundError(f"Stock Northern Expansion maindata is missing: {mx_source}")
     mx_tiles = stock.read_cam_entries(mx_source, b"TILE")
     mx_palettes = stock.read_cam_entries(mx_source, b"SPLT")
+    phoenix_effect_template_imag = stock.read_cam_entry(
+        mx_source, b"IMAG", PHOENIX_EFFECT_TEMPLATE_SOURCE
+    ).data
     vigor_effect_imag = stock.read_cam_entry(
         mx_source, b"IMAG", VIGOR_EFFECT_SOURCE
     ).data
@@ -705,21 +739,41 @@ def write_maindata(
         phoenix_item_imag, phoenix_item_replacements
     )
 
-    # Preserve HRC1's exact stock set-64 timing table and first blank slot.
-    # Its 28 visible frames are the only privatized seam.  Unlike the failed
-    # variable-canvas experiment, every frame shares the proven Eternal Soul
-    # canvas/hotspot and fiery stock palette.
-    phoenix_sets = stock.single_direction_imag_animation_sets(
-        phoenix_effect_imag
+    # Agrela's private 1500-ms callback owner keeps the complete HRC1 table.
+    # Every playable slot receives a private Phoenix TILE so the phased art,
+    # Resurrection sound, and callback all share one stock-owned lifetime.
+    phoenix_lifecycle_sets = stock.single_direction_imag_animation_sets(
+        phoenix_lifecycle_imag
     )
-    if len(phoenix_sets) != 1 or phoenix_sets[0][0] != 64:
+    if (
+        len(phoenix_lifecycle_sets) != 1
+        or phoenix_lifecycle_sets[0][0] != PHOENIX_LIFECYCLE_ANIMATION_SET
+    ):
         raise ValueError("Stock HRC1 resurrection animation set changed")
-    phoenix_frame_slots = phoenix_sets[0][1]
-    phoenix_source_indices = [
-        tile_index for _record_offset, tile_index in phoenix_frame_slots if tile_index
-    ]
-    if len(phoenix_frame_slots) != 29 or len(phoenix_source_indices) != 28:
+    phoenix_lifecycle_indices = stock.animation_tile_indices(
+        phoenix_lifecycle_imag,
+        len(tiles),
+    )
+    if len(phoenix_lifecycle_indices) != PHOENIX_LIFECYCLE_FRAMES:
         raise ValueError("Stock HRC1 resurrection frame contract changed")
+
+    # Eternal Soul's XR30/PHe2 scaffold supplies its proven fixed canvas and
+    # hotspot. The apparent zero at offset 120 is attachment data; the six
+    # template TILEs occupy offsets 128 through 168.
+    phoenix_template_sets = stock.single_direction_imag_animation_sets(
+        phoenix_effect_template_imag
+    )
+    if (
+        len(phoenix_template_sets) != 1
+        or phoenix_template_sets[0][0] != PHOENIX_EFFECT_TEMPLATE_ANIMATION_SET
+    ):
+        raise ValueError("Stock XR30 Eternal Soul visual set changed")
+    phoenix_template_indices = stock.animation_tile_indices(
+        phoenix_effect_template_imag,
+        len(mx_tiles),
+    )
+    if len(phoenix_template_indices) != PHOENIX_EFFECT_TEMPLATE_FRAMES:
+        raise ValueError("Stock XR30 Eternal Soul visual frames changed")
     if PHOENIX_EFFECT_PALETTE >= len(palettes):
         raise ValueError("Stock fireball palette 505 is missing")
     phoenix_effect_source_png = (
@@ -732,21 +786,23 @@ def write_maindata(
     )
     if not phoenix_effect_source_png.is_file():
         raise FileNotFoundError(phoenix_effect_source_png)
-    phoenix_effect_replacements: dict[int, int] = {}
-    for frame_index, source_index in enumerate(phoenix_source_indices):
-        phoenix_effect_replacements[source_index] = append(
+    phoenix_effect_template_tile = mx_tiles[phoenix_template_indices[-1]].data
+    phoenix_lifecycle_replacements: dict[int, int] = {}
+    for frame_index, source_index in enumerate(phoenix_lifecycle_indices):
+        phoenix_lifecycle_replacements[source_index] = append(
             f"PXE1Phoenix{frame_index:02d}".encode("ascii"),
             generated_phoenix_resurrection_tile(
                 stock,
+                phoenix_effect_template_tile,
                 palettes,
                 phoenix_effect_source_png,
                 frame_index,
-                len(phoenix_source_indices),
+                len(phoenix_lifecycle_indices),
             ),
         )
-    phoenix_effect_imag = stock.remap_imag_animation_tiles(
-        phoenix_effect_imag,
-        phoenix_effect_replacements,
+    phoenix_lifecycle_imag = stock.remap_imag_animation_tiles(
+        phoenix_lifecycle_imag,
+        phoenix_lifecycle_replacements,
     )
 
     vigor_effect_replacements: dict[int, int] = {}
@@ -935,7 +991,7 @@ def write_maindata(
         stock.CamEntry(stock.pad_name(HERO_CUSTOM), hero_imag),
         *(stock.CamEntry(stock.pad_name(name), imag) for name, imag in zip(BUILDING_CUSTOM, building_imags)),
         stock.CamEntry(stock.pad_name(INVENTORY_ITEM_CUSTOM), phoenix_item_imag),
-        stock.CamEntry(stock.pad_name(PHOENIX_EFFECT_CUSTOM), phoenix_effect_imag),
+        stock.CamEntry(stock.pad_name(PHOENIX_LIFECYCLE_CUSTOM), phoenix_lifecycle_imag),
         stock.CamEntry(stock.pad_name(VIGOR_EFFECT_CUSTOM), vigor_effect_imag),
     )
     stock.write_cam(

@@ -14,6 +14,20 @@ sys.path.insert(0, str(ROOT / "src"))
 import alchemist_art_package as package  # noqa: E402
 
 
+def phoenix_phase(frame_index: int, frame_count: int) -> str:
+    if frame_index >= package.PHOENIX_VISIBLE_FRAMES:
+        return "Private transparent tail"
+    frame_count = package.PHOENIX_VISIBLE_FRAMES
+    progress = frame_index / max(1, frame_count - 1)
+    if frame_index == 0:
+        return "Initialization"
+    if progress <= 0.60:
+        return "Growth"
+    if progress <= 0.82:
+        return "Peak"
+    return "Reduction / fade"
+
+
 def render_tile(stock, tile: bytes, palettes) -> Image.Image:
     decoded = stock.decode_indexed_v3_tile(tile)
     colors = stock.tile_palette_colors(tile, palettes)
@@ -62,27 +76,51 @@ def main() -> int:
     stock = package.load_stock_pipeline(ROOT)
     tiles = stock.read_cam_entries(args.cam, b"TILE")
     palettes = stock.read_cam_entries(args.cam, b"SPLT")
-    imag = stock.read_cam_entry(args.cam, b"IMAG", package.PHOENIX_EFFECT_CUSTOM).data
-    animation_sets = dict(stock.single_direction_imag_animation_sets(imag))
-    frames = animation_sets.get(64)
-    if frames is None:
-        raise ValueError("Private Phoenix IMAG has no stock Resurrection animation set 64")
-    tile_indices = [value & 0xFFFF for _offset, value in frames if (value & 0xFFFF)]
-    if len(tile_indices) != 28:
-        raise ValueError(f"Expected 28 visible Phoenix frames, found {len(tile_indices)}")
+    imag = stock.read_cam_entry(
+        args.cam, b"IMAG", package.PHOENIX_LIFECYCLE_CUSTOM
+    ).data
+    animation_sets = stock.single_direction_imag_animation_sets(imag)
+    if (
+        len(animation_sets) != 1
+        or animation_sets[0][0] != package.PHOENIX_LIFECYCLE_ANIMATION_SET
+    ):
+        raise ValueError("Private Phoenix IMAG is not the stock HRC1 set-64 lifecycle")
+    tile_indices = stock.animation_tile_indices(imag, len(tiles))
+    if len(tile_indices) != package.PHOENIX_LIFECYCLE_FRAMES:
+        raise ValueError(
+            f"Expected {package.PHOENIX_LIFECYCLE_FRAMES} Phoenix frames, "
+            f"found {len(tile_indices)}"
+        )
 
-    rendered = [render_tile(stock, tiles[index].data, palettes) for index in tile_indices]
-    expected_size = (package.PHOENIX_EFFECT_HEADER[2], package.PHOENIX_EFFECT_HEADER[1])
-    if any(frame.size != expected_size for frame in rendered):
-        raise ValueError("Phoenix frames do not share the fixed self-cast canvas")
+    rendered_visible: list[Image.Image] = []
+    for frame_number, tile_index in enumerate(tile_indices, start=1):
+        tile = tiles[tile_index].data
+        header = struct.unpack_from("<8H", tile, 0)
+        if header != package.PHOENIX_EFFECT_HEADER:
+            raise ValueError(
+                f"Phoenix frame {frame_number} has header {header}, expected "
+                f"{package.PHOENIX_EFFECT_HEADER}"
+            )
+        if stock.tile_palette_index(tile) != package.PHOENIX_EFFECT_PALETTE:
+            raise ValueError(
+                f"Phoenix frame {frame_number} is not using fire palette "
+                f"{package.PHOENIX_EFFECT_PALETTE}"
+            )
+        rendered_visible.append(render_tile(stock, tile, palettes))
+
+    expected_size = (
+        package.PHOENIX_EFFECT_HEADER[2],
+        package.PHOENIX_EFFECT_HEADER[1],
+    )
+    rendered = rendered_visible
 
     args.out_dir.mkdir(parents=True, exist_ok=True)
     scale = 3
     cell_width = expected_size[0] * scale
     cell_height = expected_size[1] * scale
     label_height = 22
-    columns = 7
-    rows = 4
+    columns = 6
+    rows = (len(rendered) + columns - 1) // columns
     contact = Image.new(
         "RGB",
         (columns * cell_width, rows * (cell_height + label_height)),
@@ -90,17 +128,26 @@ def main() -> int:
     )
     draw = ImageDraw.Draw(contact)
     animation: list[Image.Image] = []
-    for index, frame in enumerate(rendered):
+    for frame in rendered:
         background = review_background(expected_size)
         background.paste(frame, (0, 0), frame)
-        scaled = background.resize(
-            (cell_width, cell_height), Image.Resampling.NEAREST
+        animation.append(
+            background.resize(
+                (cell_width, cell_height), Image.Resampling.NEAREST
+            )
         )
-        x = (index % columns) * cell_width
-        y = (index // columns) * (cell_height + label_height)
-        contact.paste(scaled, (x, y))
-        draw.text((x + 5, y + cell_height + 3), f"Frame {index + 1}", fill=(235, 224, 190))
-        animation.append(scaled)
+
+    for frame_index in range(len(rendered)):
+        column = frame_index % columns
+        row = frame_index // columns
+        x = column * cell_width
+        y = row * (cell_height + label_height)
+        contact.paste(animation[frame_index], (x, y))
+        draw.text(
+            (x + 5, y + cell_height + 3),
+            f"{frame_index + 1}: {phoenix_phase(frame_index, len(rendered))}",
+            fill=(235, 224, 190),
+        )
 
     contact_path = args.out_dir / "phoenix-phial-animation-contact-sheet.png"
     gif_path = args.out_dir / "phoenix-phial-animation.gif"
@@ -109,7 +156,7 @@ def main() -> int:
         gif_path,
         save_all=True,
         append_images=animation[1:],
-        duration=54,
+        duration=52,
         loop=0,
         optimize=False,
     )

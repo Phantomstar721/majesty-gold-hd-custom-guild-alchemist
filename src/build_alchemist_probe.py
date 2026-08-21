@@ -12,9 +12,12 @@ import sys
 import xml.etree.ElementTree as ET
 
 from alchemist_art_package import (
-    PHOENIX_EFFECT_CUSTOM,
     PHOENIX_EFFECT_HEADER,
     PHOENIX_EFFECT_PALETTE,
+    PHOENIX_LIFECYCLE_ANIMATION_SET,
+    PHOENIX_LIFECYCLE_CUSTOM,
+    PHOENIX_LIFECYCLE_FRAMES,
+    PHOENIX_VISIBLE_FRAMES,
     load_stock_pipeline,
     write_interfacedata,
     write_maindata,
@@ -182,7 +185,8 @@ def build_siege_test_fixture(stock_quests: Path) -> str:
         raise ValueError("The Siege agent declarations no longer match the SDK fixture")
     function = function.replace(
         declare_anchor,
-        "\tagent palace, enemypalace, alchemyLab, oilRogue, oilWarrior, oilAlchemist;",
+        "\tagent palace, enemypalace, alchemyLab, rogueGuild, warriorGuild, "
+        "oilRogue, oilWarrior, oilAlchemist;",
         1,
     )
     anchor = '\tpalace = $GetPlayerOnePalace ();'
@@ -199,11 +203,15 @@ def build_siege_test_fixture(stock_quests: Path) -> str:
         '$RandomCoord ( palace, 700, 900 ), "MaxHP" );'
         + '\n\talchemyLab = $SpawnUnit ( palace, "AlchemistsLaboratory1", '
         '$RandomCoord ( palace, 850, 1050 ), "MaxHP" );'
-        + '\n\toilRogue = $SpawnUnit ( palace, "Rogue", '
+        + '\n\trogueGuild = $SpawnUnit ( palace, "Rogues_Guild1", '
+        '$RandomCoord ( palace, 1000, 1200 ), "MaxHP" );'
+        + '\n\twarriorGuild = $SpawnUnit ( palace, "Warriors_Guild", '
+        '$RandomCoord ( palace, 1150, 1350 ), "MaxHP" );'
+        + '\n\toilRogue = $SpawnUnit ( rogueGuild, "Rogue", '
         '$RandomCoord ( alchemyLab, 100, 150 ) );'
-        + '\n\toilWarrior = $SpawnUnit ( palace, "Warrior", '
+        + '\n\toilWarrior = $SpawnUnit ( warriorGuild, "Warrior", '
         '$RandomCoord ( alchemyLab, 150, 200 ) );'
-        + '\n\toilAlchemist = $SpawnUnit ( palace, "Alchemist", '
+        + '\n\toilAlchemist = $SpawnUnit ( alchemyLab, "Alchemist", '
         '$RandomCoord ( alchemyLab, 200, 250 ) );'
     )
     setup = ""
@@ -1530,6 +1538,8 @@ def validate_output(
         raise ValueError("Phoenix resurrection effector lost its private callback")
     if phoenix_overlay.find("./Engine/DefaultSound").get("value") != "Resurrection":
         raise ValueError("Phoenix resurrection effector lost the stock resurrection sound")
+    if overlays.find('./Description[@Name="phoenix_phial_visual_effector"]') is not None:
+        raise ValueError("Obsolete second Phoenix visual effector is still packaged")
     if [item.find("./Engine/ImageIDBase").get("value") for item in buildings] != list(BUILDING_IDS):
         raise ValueError("Every Laboratory level must use its private image record")
     text_cam = output_root / "Data" / "alchemist_probe_textdata.cam"
@@ -1597,39 +1607,63 @@ def validate_output(
         b"ALB2Alchemy Lab 2",
         b"ALB3Alchemy Lab 3",
         b"PXF1Phoenix Phial",
-        PHOENIX_EFFECT_CUSTOM,
+        PHOENIX_LIFECYCLE_CUSTOM,
         b"XR01Speed_tonic_ico",
     ):
         if not read_cam_entry(main_art, b"IMAG", name).data:
             raise ValueError(f"Private main art record is empty: {name!r}")
 
     art_stock = load_stock_pipeline(SOURCE_ROOT.parent)
-    phoenix_effect_imag = art_stock.read_cam_entry(
-        main_art, b"IMAG", PHOENIX_EFFECT_CUSTOM
+    phoenix_lifecycle_imag = art_stock.read_cam_entry(
+        main_art, b"IMAG", PHOENIX_LIFECYCLE_CUSTOM
     ).data
-    phoenix_effect_tiles = art_stock.read_cam_entries(main_art, b"TILE")
-    phoenix_sets = art_stock.single_direction_imag_animation_sets(
-        phoenix_effect_imag
+    phoenix_tiles = art_stock.read_cam_entries(main_art, b"TILE")
+    lifecycle_sets = art_stock.single_direction_imag_animation_sets(
+        phoenix_lifecycle_imag
     )
-    if len(phoenix_sets) != 1 or phoenix_sets[0][0] != 64:
-        raise ValueError("Private Phoenix animation lost stock HRC1 set-64 timing")
-    phoenix_frame_slots = phoenix_sets[0][1]
-    phoenix_tile_indices = [
-        tile_index for _record_offset, tile_index in phoenix_frame_slots if tile_index
-    ]
-    if len(phoenix_frame_slots) != 29 or len(phoenix_tile_indices) != 28:
-        raise ValueError("Private Phoenix animation lost HRC1's 29-slot lifecycle")
-    for tile_index in phoenix_tile_indices:
-        tile = phoenix_effect_tiles[tile_index].data
+    if (
+        len(lifecycle_sets) != 1
+        or lifecycle_sets[0][0] != PHOENIX_LIFECYCLE_ANIMATION_SET
+    ):
+        raise ValueError("Private Phoenix animation lost stock HRC1 timing")
+    lifecycle_indices = art_stock.animation_tile_indices(
+        phoenix_lifecycle_imag,
+        len(phoenix_tiles),
+    )
+    if len(lifecycle_indices) != PHOENIX_LIFECYCLE_FRAMES:
+        raise ValueError("Private Phoenix animation lost HRC1's 29-frame lifecycle")
+    if len(set(lifecycle_indices)) != PHOENIX_LIFECYCLE_FRAMES:
+        raise ValueError("Phoenix resurrection does not own 29 private frame TILEs")
+    visible_pixel_counts: list[int] = []
+    for tile_index in lifecycle_indices:
+        tile_entry = phoenix_tiles[tile_index]
+        if not tile_entry.name.rstrip(b"\x00").startswith(b"PXE1Phoenix"):
+            raise ValueError("Phoenix resurrection references non-private artwork")
+        tile = tile_entry.data
         if struct.unpack_from("<8H", tile, 0) != PHOENIX_EFFECT_HEADER:
             raise ValueError("Phoenix animation frame lost its fixed Eternal Soul anchor")
         if art_stock.tile_palette_index(tile) != PHOENIX_EFFECT_PALETTE:
             raise ValueError("Phoenix animation frame is not using stock fire palette 505")
+        decoded = art_stock.decode_indexed_v3_tile(tile)
+        if decoded is None:
+            raise ValueError("Phoenix animation frame is not a valid indexed TILE")
+        visible_pixel_counts.append(
+            sum(value != 0 for row in decoded[2] for value in row)
+        )
+    visible_phase_counts = visible_pixel_counts[:PHOENIX_VISIBLE_FRAMES]
+    transparent_tail_counts = visible_pixel_counts[PHOENIX_VISIBLE_FRAMES:]
+    if (
+        not all(visible_phase_counts[:-1])
+        or visible_phase_counts[-1] != 0
+        or max(visible_phase_counts) <= visible_phase_counts[0]
+        or any(transparent_tail_counts)
+    ):
+        raise ValueError("Phoenix animation lost its growth/peak/fade progression")
     if any(
-        entry.name.startswith(b"HRC1")
+        entry.name.startswith((b"HRC1", b"XR30", b"PXV1"))
         for entry in art_stock.read_cam_entries(main_art, b"IMAG")
     ):
-        raise ValueError("Alchemist art CAM must not override stock HRC1")
+        raise ValueError("Alchemist art CAM contains a stock or obsolete Phoenix channel")
 
     for name in (
         b"ALTIraw textures",
@@ -1645,7 +1679,15 @@ def validate_output(
     for art_path, prefixes in (
         (
             main_art,
-            (b"ALC1", b"ALB1", b"ALB2", b"ALB3", b"PXF1", b"PXE1", b"XR01"),
+            (
+                b"ALC1",
+                b"ALB1",
+                b"ALB2",
+                b"ALB3",
+                b"PXF1",
+                b"PXE1",
+                b"XR01",
+            ),
         ),
         (
             interface_art,

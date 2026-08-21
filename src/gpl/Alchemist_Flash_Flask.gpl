@@ -1,0 +1,37 @@
+///////////////////////////////////////////////////////////////////////////////
+// Private clone of stock Paladin Shield of Light's automatic combat spell.
+// Shield of Light owns AllowedSpells dispatch, level/cooldown timing, a
+// duration-owned cleanup icon, and a duration-0 activation effector. The stat
+// family is the requested subset of stock Vigilance.
+///////////////////////////////////////////////////////////////////////////////
+
+function Alchemist_Flash_Flask_Begin(agent ThisAgent, agent Target)
+
+declare
+
+begin
+
+	$CreateEffector(
+		ThisAgent,
+		"alchemist_flash_flask_icon",
+		$GetSpellAttribute("flash_flask", "effector_duration")
+	);
+	$CreateEffector(ThisAgent, "alchemist_flash_flask_effector", 0);
+	$MagicalAdjustAttribute(ThisAgent, #ATTRIB_Dodge, 10);
+	$MagicalAdjustAttribute(ThisAgent, #ATTRIB_Parry, 10);
+	$AdjustAttribute(ThisAgent, #ATTRIB_ActionRateModifier, -500);
+
+end
+
+
+function Alchemist_Flash_Flask_End(agent ThisAgent)
+
+declare
+
+begin
+
+	$MagicalAdjustAttribute(ThisAgent, #ATTRIB_Dodge, -10);
+	$MagicalAdjustAttribute(ThisAgent, #ATTRIB_Parry, -10);
+	$AdjustAttribute(ThisAgent, #ATTRIB_ActionRateModifier, 500);
+
+end

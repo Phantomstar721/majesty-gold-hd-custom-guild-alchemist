@@ -264,6 +264,14 @@ class AlchemistProbeTests(unittest.TestCase):
             phoenix_lifecycle_imag = stock.read_cam_entry(
                 output, b"IMAG", art_package.PHOENIX_LIFECYCLE_CUSTOM
             ).data
+            packaged_effects = {
+                name: stock.read_cam_entry(output, b"IMAG", name).data
+                for name in (
+                    art_package.VIGOR_EFFECT_CUSTOM,
+                    art_package.FLASH_FLASK_BUFF_CUSTOM,
+                    art_package.FLASH_FLASK_ACTIVATION_CUSTOM,
+                )
+            }
             stock_imag = stock.read_cam_entry(
                 game_data / "maindata.cam", b"IMAG", art_package.HERO_SOURCE
             ).data
@@ -343,6 +351,42 @@ class AlchemistProbeTests(unittest.TestCase):
         self.assertTrue(all(visible_phase_counts[:-1]))
         self.assertEqual(visible_phase_counts[-1], 0)
         self.assertTrue(all(value == 0 for value in transparent_tail_counts))
+        for name, prefix, frame_count, palette in (
+            (art_package.VIGOR_EFFECT_CUSTOM, b"ALV1Spark", 29, 560),
+            (art_package.FLASH_FLASK_BUFF_CUSTOM, b"AFF1Flask", 29, 560),
+            (art_package.FLASH_FLASK_ACTIVATION_CUSTOM, b"AFF2Flash", 6, 505),
+        ):
+            indices = stock.animation_tile_indices(
+                packaged_effects[name], len(output_tiles)
+            )
+            self.assertEqual(len(indices), frame_count)
+            self.assertEqual(len(set(indices)), frame_count)
+            self.assertTrue(
+                all(
+                    output_tiles[index].name.rstrip(b"\x00").startswith(prefix)
+                    and stock.tile_palette_index(output_tiles[index].data) == palette
+                    for index in indices
+                )
+            )
+            self.assertTrue(
+                all(
+                    any(value != 0 for row in stock.decode_indexed_v3_tile(
+                        output_tiles[index].data
+                    )[2] for value in row)
+                    for index in indices
+                )
+            )
+        activation_indices = stock.animation_tile_indices(
+            packaged_effects[art_package.FLASH_FLASK_ACTIVATION_CUSTOM],
+            len(output_tiles),
+        )
+        self.assertTrue(
+            all(
+                struct.unpack_from("<8H", output_tiles[index].data, 0)
+                == art_package.FLASH_FLASK_ACTIVATION_HEADER
+                for index in activation_indices
+            )
+        )
         self.assertGreater(max(visible_phase_counts), visible_phase_counts[0])
 
     def test_approved_sprite_imag_remap_preserves_every_other_warrior_word(self) -> None:
@@ -617,7 +661,7 @@ class AlchemistProbeTests(unittest.TestCase):
         for cultist_only in ("$Build_Pack", "$Swarm", "$Seed_Resource_Check"):
             self.assertNotIn(cultist_only, source)
 
-    def test_alchemist_unit_strips_cultist_spells_and_uses_stock_melee_range(self) -> None:
+    def test_alchemist_unit_replaces_cultist_spells_with_flash_flask(self) -> None:
         game = Path(r"C:\Program Files (x86)\Steam\steamapps\common\Majesty HD")
         units = builder.build_units_xml(
             game / "SDK" / "OriginalQuests" / "Data" / "M_Buildings.xml",
@@ -626,7 +670,14 @@ class AlchemistProbeTests(unittest.TestCase):
         root = ET.fromstring(units)
         hero = root.find('./Description[@Name="Alchemist"]')
         self.assertIsNotNone(hero)
-        self.assertIsNone(hero.find("./Game/AllowedSpells"))
+        spells = hero.findall("./Game/AllowedSpells/Spell")
+        self.assertEqual(
+            [(spell.get("ID"), spell.get("Value")) for spell in spells],
+            [("0", "flash_flask")],
+        )
+        units_text = units.decode("utf-8")
+        for cultist_spell in ("camouflage", "change_shape", "charm_monster"):
+            self.assertNotIn(cultist_spell, units_text)
         attack_range = hero.find("./Game/AttackRange")
         self.assertIsNotNone(attack_range)
         self.assertEqual((attack_range.get("min"), attack_range.get("max")), ("1", "1"))
@@ -708,6 +759,7 @@ end
             'data="Alchemist_Hero_Data.dat"\n'
             'data="Alchemist_Phoenix_Phial.dat"\n'
             'source="Alchemist_Rogue.gpl"\n'
+            'source="Alchemist_Flash_Flask.gpl"\n'
             'source="Alchemist_Brewing.gpl"\n'
             'source="Alchemist_Economy.gpl"\n'
             'source="Alchemist_Weapon_Oil.gpl"\n'
@@ -862,7 +914,7 @@ end
             overlay.find("./Engine/Script").get("GPLFunction"),
             "Alchemist_Invigorating_Elixer_End",
         )
-        self.assertEqual(overlay.find("./Engine/ImageIDBase").get("value"), "XR01")
+        self.assertEqual(overlay.find("./Engine/ImageIDBase").get("value"), "ALV1")
         resurrection = output.findall("Description")[1]
         self.assertEqual(resurrection.get("Name"), "phoenix_phial_resurrection_effector")
         self.assertEqual(
@@ -879,6 +931,62 @@ end
         self.assertIsNone(
             output.find('./Description[@Name="phoenix_phial_visual_effector"]')
         )
+
+    def test_flash_flask_is_a_private_shield_of_light_clone(self) -> None:
+        game = Path(r"C:\Program Files (x86)\Steam\steamapps\common\Majesty HD")
+        data = game / "SDK" / "OriginalQuests" / "Data"
+        output = ET.fromstring(
+            builder.build_flash_flask_xml(
+                data / "M_Actions.xml",
+                data / "M_Overlays.xml",
+            )
+        )
+        action, icon, effect = output.findall("Description")
+        self.assertEqual(
+            (action.get("ID"), action.get("Name"), action.get("Description")),
+            ("AFa1", "flash_flask", "Flash Flask"),
+        )
+        self.assertEqual(action.find("./Engine/ImageSet").get("value"), "Special")
+        self.assertEqual(
+            action.find("./Engine/CompletionImageSet").get("value"), "Stand"
+        )
+        self.assertEqual(
+            action.find("./Engine/Script").get("GPLFunction"),
+            "Alchemist_Flash_Flask_Begin",
+        )
+        self.assertEqual(action.find("./Game/EffectorDuration").get("value"), "20000")
+        self.assertEqual(action.find("./Game/TimeoutDuration").get("value"), "60000")
+        self.assertEqual(action.find("./Game/SpellType").get("value"), "Attack")
+        self.assertEqual(action.find("./Game/CharacterLevel").get("value"), "3")
+        self.assertEqual(icon.get("Name"), "alchemist_flash_flask_icon")
+        self.assertEqual(icon.find("./Engine/ImageIDBase").get("value"), "AFF1")
+        self.assertEqual(
+            icon.find("./Engine/Script").get("GPLFunction"),
+            "Alchemist_Flash_Flask_End",
+        )
+        self.assertEqual(effect.get("Name"), "alchemist_flash_flask_effector")
+        self.assertEqual(effect.find("./Engine/ImageIDBase").get("value"), "AFF2")
+        self.assertEqual(effect.find("./Engine/AttachmentPointID").get("value"), "2")
+
+    def test_flash_flask_copies_stock_duration_owned_stat_cleanup(self) -> None:
+        source = (builder.GPL_SOURCE_ROOT / "Alchemist_Flash_Flask.gpl").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn(
+            '$GetSpellAttribute("flash_flask", "effector_duration")', source
+        )
+        self.assertIn(
+            '$CreateEffector(ThisAgent, "alchemist_flash_flask_effector", 0)', source
+        )
+        for begin, end in (
+            ("#ATTRIB_Dodge, 10", "#ATTRIB_Dodge, -10"),
+            ("#ATTRIB_Parry, 10", "#ATTRIB_Parry, -10"),
+            ("#ATTRIB_ActionRateModifier, -500", "#ATTRIB_ActionRateModifier, 500"),
+        ):
+            self.assertIn(begin, source)
+            self.assertIn(end, source)
+        for forbidden in ("$RunThread", "$Sleep", "$CheckEffector"):
+            self.assertNotIn(forbidden, source)
 
     def test_phoenix_phial_composes_stock_purchase_rebirth_and_flee(self) -> None:
         source = (builder.GPL_SOURCE_ROOT / "Alchemist_Phoenix_Phial.gpl").read_text(

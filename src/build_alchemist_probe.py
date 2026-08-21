@@ -12,12 +12,16 @@ import sys
 import xml.etree.ElementTree as ET
 
 from alchemist_art_package import (
+    FLASH_FLASK_ACTIVATION_CUSTOM,
+    FLASH_FLASK_ACTIVATION_HEADER,
+    FLASH_FLASK_BUFF_CUSTOM,
     PHOENIX_EFFECT_HEADER,
     PHOENIX_EFFECT_PALETTE,
     PHOENIX_LIFECYCLE_ANIMATION_SET,
     PHOENIX_LIFECYCLE_CUSTOM,
     PHOENIX_LIFECYCLE_FRAMES,
     PHOENIX_VISIBLE_FRAMES,
+    VIGOR_EFFECT_CUSTOM,
     load_stock_pipeline,
     write_interfacedata,
     write_maindata,
@@ -105,6 +109,12 @@ ALCHEMY_OIL_INTENT_INDEX = 177
 ALCHEMY_OIL_INTENT_TEXT = "Applying weapon oil at the alchemy lab"
 PHOENIX_PHIAL_INTENT_INDEX = 178
 PHOENIX_PHIAL_INTENT_TEXT = "Purchasing a Phoenix Phial at the alchemy lab"
+FLASH_FLASK_ACTION_ID = "AFa1"
+FLASH_FLASK_ACTION_NAME = "flash_flask"
+FLASH_FLASK_ICON_ID = "AFF1"
+FLASH_FLASK_EFFECT_ID = "AFF2"
+FLASH_FLASK_DURATION_MS = "20000"
+FLASH_FLASK_COOLDOWN_MS = "60000"
 WEAPON_OIL_PROGRESS_OUTER_RECT = (30, 62, 162, 20)
 WEAPON_OIL_PROGRESS_LABEL_RECT = (31, 65, 160, 14)
 PHOENIX_PHIAL_PROGRESS_OUTER_RECT = (30, 87, 162, 20)
@@ -329,6 +339,7 @@ def build_alchemist_economy(stock_purchase_equipment: Path) -> str:
 def build_gpl_project(include_siege_test_fixture: bool) -> str:
     sources = [
         'source="Alchemist_Rogue.gpl"',
+        'source="Alchemist_Flash_Flask.gpl"',
         'source="Alchemist_Brewing.gpl"',
         'source="Alchemist_Economy.gpl"',
         'source="Alchemist_Weapon_Oil.gpl"',
@@ -518,15 +529,19 @@ def build_units_xml(stock_buildings_xml: Path, stock_characters_xml: Path) -> by
     # The private IMAG is a literal Warrior animation/timing clone, so retain
     # Warrior's matching stock movement class rather than Cultist Class 3.
     movement.set("ID", "Class 1")
-    # Do not inherit the Cultist's class-local spell surface.  This is the
-    # complete stock declaration that makes camouflage, change_shape, and
-    # charm_monster available to Cultists; removing the whole node keeps those
-    # three actions out of the Alchemist while leaving the shared Rogue tree
-    # and its ordinary Library checks untouched.
+    # Do not inherit the Cultist's class-local spell surface. Replace its three
+    # spells with the Alchemist's one private Shield-of-Light-derived combat
+    # spell, preserving the stock AllowedSpells dispatch contract.
     allowed_spells = alchemist.find("./Game/AllowedSpells")
     if allowed_spells is None:
         raise ValueError("Stock Cultist AllowedSpells contract is missing")
-    alchemist.find("./Game").remove(allowed_spells)
+    for inherited_spell in list(allowed_spells):
+        allowed_spells.remove(inherited_spell)
+    ET.SubElement(
+        allowed_spells,
+        "Spell",
+        {"ID": "0", "Value": FLASH_FLASK_ACTION_NAME},
+    )
     # Warrior's direct bladed-melee contract is attacktype 1 (in GPL),
     # attack_action basic_attack (in GPL), and a 1..1 engine attack range.
     # ALC1 already clones Warrior's Attack animation/timing table.
@@ -611,7 +626,7 @@ def build_brewing_overlays_xml(stock_overlays_xml: Path) -> bytes:
     script = overlay.find("./Engine/Script")
     if image is None or script is None:
         raise ValueError("Stock Rage_icon overlay contract changed")
-    image.set("value", "XR01")
+    image.set("value", VIGOR_EFFECT_CUSTOM[:4].decode("ascii"))
     script.set("GPLFunction", "Alchemist_Invigorating_Elixer_End")
     output = ET.Element("Majesty")
     output.append(overlay)
@@ -645,6 +660,53 @@ def build_brewing_overlays_xml(stock_overlays_xml: Path) -> bytes:
         attachment.set("value", "2")
     resurrection_script.set("GPLFunction", "Phoenix_Phial_Resurrection_End")
     output.append(resurrection)
+    ET.indent(output, space="\t")
+    return ET.tostring(output, encoding="utf-8", xml_declaration=False) + b"\n"
+
+
+def build_flash_flask_xml(stock_actions_xml: Path, stock_overlays_xml: Path) -> bytes:
+    """Privatize Shield of Light's full action/effector lifecycle."""
+    actions_root = ET.parse(stock_actions_xml).getroot()
+    overlays_root = ET.parse(stock_overlays_xml).getroot()
+    stock_action = actions_root.find('.//Description[@Name="shield_of_light"]')
+    stock_icon = overlays_root.find('.//Description[@Name="shield_of_light_icon"]')
+    stock_effect = overlays_root.find('.//Description[@Name="shield_of_light_effector"]')
+    if stock_action is None or stock_icon is None or stock_effect is None:
+        raise ValueError("Stock Shield of Light lifecycle is incomplete")
+
+    action = ET.fromstring(ET.tostring(stock_action, encoding="utf-8"))
+    action.set("ID", FLASH_FLASK_ACTION_ID)
+    action.set("Name", FLASH_FLASK_ACTION_NAME)
+    action.set("Description", "Flash Flask")
+    action.find("./Engine/ImageSet").set("value", "Special")
+    action.find("./Engine/Script").set(
+        "GPLFunction", "Alchemist_Flash_Flask_Begin"
+    )
+    action.find("./Game/EffectorDuration").set("value", FLASH_FLASK_DURATION_MS)
+    action.find("./Game/TimeoutDuration").set("value", FLASH_FLASK_COOLDOWN_MS)
+    action.find("./Game/CharacterLevel").set("value", "3")
+
+    icon = ET.fromstring(ET.tostring(stock_icon, encoding="utf-8"))
+    icon.set("ID", FLASH_FLASK_ICON_ID)
+    icon.set("Name", "alchemist_flash_flask_icon")
+    icon.set("Description", "Flash Flask")
+    icon.find("./Engine/ImageIDBase").set(
+        "value", FLASH_FLASK_BUFF_CUSTOM[:4].decode("ascii")
+    )
+    icon.find("./Engine/Script").set(
+        "GPLFunction", "Alchemist_Flash_Flask_End"
+    )
+
+    effect = ET.fromstring(ET.tostring(stock_effect, encoding="utf-8"))
+    effect.set("ID", FLASH_FLASK_EFFECT_ID)
+    effect.set("Name", "alchemist_flash_flask_effector")
+    effect.set("Description", "Flash Flask")
+    effect.find("./Engine/ImageIDBase").set(
+        "value", FLASH_FLASK_ACTIVATION_CUSTOM[:4].decode("ascii")
+    )
+
+    output = ET.Element("Majesty")
+    output.extend((action, icon, effect))
     ET.indent(output, space="\t")
     return ET.tostring(output, encoding="utf-8", xml_declaration=False) + b"\n"
 
@@ -1404,12 +1466,14 @@ def build_manifest(
 \t\t\t\t\t<Descriptions>Data\\alchemist_probe_units.xml</Descriptions>
 \t\t\t\t\t<Descriptions>Data\\alchemist_brewing_overlays.xml</Descriptions>
 \t\t\t\t\t<Descriptions>Data\\alchemist_brewing_sounds.xml</Descriptions>
+\t\t\t\t\t<Descriptions>Data\\alchemist_flash_flask.xml</Descriptions>
 \t\t\t\t\t<GPL>
 \t\t\t\t\t\t<Target>Data\\Alchemist.bcd</Target>
 \t\t\t\t\t\t<Source>GPL\\Alchemist_Building_Data.dat</Source>
 \t\t\t\t\t\t<Source>GPL\\Alchemist_Hero_Data.dat</Source>
 \t\t\t\t\t\t<Source>GPL\\Alchemist_Phoenix_Phial.dat</Source>
 \t\t\t\t\t\t<Source>GPL\\Alchemist_Rogue.gpl</Source>
+\t\t\t\t\t\t<Source>GPL\\Alchemist_Flash_Flask.gpl</Source>
 \t\t\t\t\t\t<Source>GPL\\Alchemist_Brewing.gpl</Source>
 \t\t\t\t\t\t<Source>GPL\\Alchemist_Economy.gpl</Source>
 \t\t\t\t\t\t<Source>GPL\\Alchemist_Weapon_Oil.gpl</Source>
@@ -1437,6 +1501,7 @@ def validate_output(
         output_root / "Data" / "alchemist_probe_units.xml",
         output_root / "Data" / "alchemist_brewing_overlays.xml",
         output_root / "Data" / "alchemist_brewing_sounds.xml",
+        output_root / "Data" / "alchemist_flash_flask.xml",
         output_root / "Data" / "alchemist_probe_textdata.cam",
         output_root / "Data" / "alchemist_probe_gpltext.cam",
         output_root / "Data" / "alchemist_probe_miscdata.cam",
@@ -1448,6 +1513,7 @@ def validate_output(
         output_root / "GPL" / "Alchemist_Hero_Data.dat",
         output_root / "GPL" / "Alchemist_Phoenix_Phial.dat",
         output_root / "GPL" / "Alchemist_Rogue.gpl",
+        output_root / "GPL" / "Alchemist_Flash_Flask.gpl",
         output_root / "GPL" / "Alchemist_Brewing.gpl",
         output_root / "GPL" / "Alchemist_Economy.gpl",
         output_root / "GPL" / "Alchemist_Weapon_Oil.gpl",
@@ -1502,8 +1568,11 @@ def validate_output(
     movement = hero.find('./Engine/Attachment[@kind="Movement"]')
     if movement is None or movement.get("ID") != "Class 1":
         raise ValueError("Alchemist must use the stock Warrior movement class")
-    if hero.find("./Game/AllowedSpells") is not None:
-        raise ValueError("Alchemist must not inherit Cultist class spells")
+    allowed_spells = hero.findall("./Game/AllowedSpells/Spell")
+    if [(spell.get("ID"), spell.get("Value")) for spell in allowed_spells] != [
+        ("0", FLASH_FLASK_ACTION_NAME)
+    ]:
+        raise ValueError("Alchemist must expose only its private Flash Flask spell")
     attack_range = hero.find("./Game/AttackRange")
     if (
         attack_range is None
@@ -1519,6 +1588,35 @@ def validate_output(
         raise ValueError("Phoenix Phial inventory-item description is missing")
     if phoenix.find("./Engine/ImageIDBase").get("value") != "PXF1":
         raise ValueError("Phoenix Phial must use its private inventory-item art")
+    flash_root = ET.parse(output_root / "Data" / "alchemist_flash_flask.xml").getroot()
+    flash_action = flash_root.find('./Description[@Name="flash_flask"]')
+    flash_icon = flash_root.find(
+        './Description[@Name="alchemist_flash_flask_icon"]'
+    )
+    flash_effect = flash_root.find(
+        './Description[@Name="alchemist_flash_flask_effector"]'
+    )
+    if flash_action is None or flash_icon is None or flash_effect is None:
+        raise ValueError("Private Flash Flask stock-clone descriptions are incomplete")
+    if (
+        flash_action.find("./Engine/ImageSet").get("value") != "Special"
+        or flash_action.find("./Game/EffectorDuration").get("value")
+        != FLASH_FLASK_DURATION_MS
+        or flash_action.find("./Game/TimeoutDuration").get("value")
+        != FLASH_FLASK_COOLDOWN_MS
+        or flash_action.find("./Game/CharacterLevel").get("value") != "3"
+        or flash_action.find("./Game/SpellType").get("value") != "Attack"
+    ):
+        raise ValueError("Flash Flask lost its stock combat-spell timing contract")
+    if flash_icon.find("./Engine/ImageIDBase").get("value") != "AFF1" or (
+        flash_icon.find("./Engine/Script").get("GPLFunction")
+        != "Alchemist_Flash_Flask_End"
+    ):
+        raise ValueError("Flash Flask icon lost its private callback/art contract")
+    if flash_effect.find("./Engine/ImageIDBase").get("value") != "AFF2" or (
+        flash_effect.find("./Engine/AttachmentPointID").get("value") != "2"
+    ):
+        raise ValueError("Flash Flask activation lost its stock self-cast contract")
     overlays = ET.parse(
         output_root / "Data" / "alchemist_brewing_overlays.xml"
     ).getroot()
@@ -1608,7 +1706,9 @@ def validate_output(
         b"ALB3Alchemy Lab 3",
         b"PXF1Phoenix Phial",
         PHOENIX_LIFECYCLE_CUSTOM,
-        b"XR01Speed_tonic_ico",
+        VIGOR_EFFECT_CUSTOM,
+        FLASH_FLASK_BUFF_CUSTOM,
+        FLASH_FLASK_ACTIVATION_CUSTOM,
     ):
         if not read_cam_entry(main_art, b"IMAG", name).data:
             raise ValueError(f"Private main art record is empty: {name!r}")
@@ -1664,6 +1764,31 @@ def validate_output(
         for entry in art_stock.read_cam_entries(main_art, b"IMAG")
     ):
         raise ValueError("Alchemist art CAM contains a stock or obsolete Phoenix channel")
+    for image_name, tile_prefix, frame_count, palette_index in (
+        (VIGOR_EFFECT_CUSTOM, b"ALV1Spark", 29, 560),
+        (FLASH_FLASK_BUFF_CUSTOM, b"AFF1Flask", 29, 560),
+        (FLASH_FLASK_ACTIVATION_CUSTOM, b"AFF2Flash", 6, 505),
+    ):
+        image = art_stock.read_cam_entry(main_art, b"IMAG", image_name).data
+        indices = art_stock.animation_tile_indices(image, len(phoenix_tiles))
+        if len(indices) != frame_count or len(set(indices)) != frame_count:
+            raise ValueError(f"Private overlay frame table changed: {image_name!r}")
+        for index in indices:
+            tile_entry = phoenix_tiles[index]
+            if not tile_entry.name.rstrip(b"\x00").startswith(tile_prefix):
+                raise ValueError(f"Private overlay references stock art: {image_name!r}")
+            if art_stock.tile_palette_index(tile_entry.data) != palette_index:
+                raise ValueError(f"Private overlay palette changed: {image_name!r}")
+            decoded = art_stock.decode_indexed_v3_tile(tile_entry.data)
+            if decoded is None or not any(
+                value != 0 for row in decoded[2] for value in row
+            ):
+                raise ValueError(f"Private overlay has a blank frame: {image_name!r}")
+            if image_name == FLASH_FLASK_ACTIVATION_CUSTOM and (
+                struct.unpack_from("<8H", tile_entry.data, 0)
+                != FLASH_FLASK_ACTIVATION_HEADER
+            ):
+                raise ValueError("Flash Flask activation lost Eternal Soul's anchor")
 
     for name in (
         b"ALTIraw textures",
@@ -1686,7 +1811,9 @@ def validate_output(
                 b"ALB3",
                 b"PXF1",
                 b"PXE1",
-                b"XR01",
+                b"ALV1",
+                b"AFF1",
+                b"AFF2",
             ),
         ),
         (
@@ -1875,6 +2002,12 @@ def validate_output(
     validate_siege_test_symbols(compiled_symbols, include_siege_test_fixture)
     if b"Alchemist_DoInvigoratingElixer" not in compiled_symbols:
         raise ValueError("Compiled Alchemist bytecode lost its private Vigor symbol")
+    for symbol in (
+        b"Alchemist_Flash_Flask_Begin",
+        b"Alchemist_Flash_Flask_End",
+    ):
+        if symbol not in compiled_symbols:
+            raise ValueError(f"Compiled Alchemist bytecode lost Flash Flask symbol {symbol!r}")
     if b"Purchase_Equipment" not in compiled_symbols:
         raise ValueError("Compiled Alchemist bytecode lost its stock-derived economy gate")
     for symbol in (
@@ -1950,6 +2083,12 @@ def build(
     (data_dir / "alchemist_brewing_sounds.xml").write_bytes(
         build_brewing_sounds_xml(sdk_data / "M_Sounds.xml")
     )
+    (data_dir / "alchemist_flash_flask.xml").write_bytes(
+        build_flash_flask_xml(
+            sdk_data / "M_Actions.xml",
+            sdk_data / "M_Overlays.xml",
+        )
+    )
     build_text_cam(
         game_data / "textdata.cam",
         data_dir / "alchemist_probe_textdata.cam",
@@ -2007,6 +2146,7 @@ def build(
     shutil.copy2(GPL_SOURCE_ROOT / "Alchemist_Hero_Data.dat", gpl_dir)
     shutil.copy2(GPL_SOURCE_ROOT / "Alchemist_Phoenix_Phial.dat", gpl_dir)
     shutil.copy2(GPL_SOURCE_ROOT / "Alchemist_Rogue.gpl", gpl_dir)
+    shutil.copy2(GPL_SOURCE_ROOT / "Alchemist_Flash_Flask.gpl", gpl_dir)
     shutil.copy2(GPL_SOURCE_ROOT / "Alchemist_Brewing.gpl", gpl_dir)
     shutil.copy2(GPL_SOURCE_ROOT / "Alchemist_Weapon_Oil.gpl", gpl_dir)
     shutil.copy2(GPL_SOURCE_ROOT / "Alchemist_Phoenix_Phial.gpl", gpl_dir)

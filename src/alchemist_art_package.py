@@ -6,7 +6,7 @@ from pathlib import Path
 import struct
 import sys
 
-from PIL import Image, ImageDraw
+from PIL import Image, ImageChops, ImageDraw
 
 from approved_sprite_bundle import (
     load_approved_sprite_bundle,
@@ -61,8 +61,13 @@ PHOENIX_VISIBLE_FRAMES = 15
 PHOENIX_EFFECT_TEMPLATE_ANIMATION_SET = 96
 PHOENIX_EFFECT_TEMPLATE_FRAMES = 6
 PHOENIX_EFFECT_HEADER = (3, 99, 103, 0, 32, 56, 49, 8)
-VIGOR_EFFECT_SOURCE = b"XR01Speed_tonic_ico"
-VIGOR_EFFECT_CUSTOM = b"XR01Speed_tonic_ico"
+BUFF_ICON_TEMPLATE_SOURCE = b"XR25plague_icon"
+VIGOR_EFFECT_CUSTOM = b"ALV1Vigor Spark"
+FLASH_FLASK_BUFF_CUSTOM = b"AFF1Flash Flask Icon"
+FLASH_FLASK_ACTIVATION_CUSTOM = b"AFF2Flash Flask Cast"
+BUFF_ICON_PALETTE = 560
+FLASH_FLASK_ACTIVATION_PALETTE = 505
+FLASH_FLASK_ACTIVATION_HEADER = (3, 99, 103, 0, 32, 56, 43, 8)
 PROGRESS_SOURCE = b"INSrreasearch"
 PROGRESS_CUSTOM = b"ALSRalchemy progress"
 BUILDING_PROFILE_TILE = 1509
@@ -105,6 +110,100 @@ VIGOR_ICON_STYLES = {
 HERO_SPRITE_RANGES = ((5919, 6053), (6055, 6119))
 WARRIOR_WALK_START = 5919
 WARRIOR_WALK_END = 5983
+
+
+def keyed_strip_frames(source_png: Path, frame_count: int) -> list[Image.Image]:
+    """Split an approved black-backed strip and recover transparent frames."""
+    with Image.open(source_png) as loaded:
+        strip = loaded.convert("RGB")
+    frames: list[Image.Image] = []
+    for frame_index in range(frame_count):
+        left = round(strip.width * frame_index / frame_count)
+        right = round(strip.width * (frame_index + 1) / frame_count)
+        rgb = strip.crop((left, 0, right, strip.height))
+        red, green, blue = rgb.split()
+        alpha = ImageChops.lighter(ImageChops.lighter(red, green), blue).point(
+            lambda value: 0 if value <= 4 else min(255, round((value - 4) * 1.45))
+        )
+        rgba = rgb.convert("RGBA")
+        rgba.putalpha(alpha)
+        bbox = alpha.getbbox()
+        if bbox is None:
+            raise ValueError(f"Approved strip frame {frame_index} has no visible art")
+        frames.append(rgba.crop(bbox))
+    max_width = max(frame.width for frame in frames)
+    max_height = max(frame.height for frame in frames)
+    normalized: list[Image.Image] = []
+    for frame in frames:
+        canvas = Image.new("RGBA", (max_width, max_height), (0, 0, 0, 0))
+        canvas.alpha_composite(
+            frame,
+            (
+                (max_width - frame.width) // 2,
+                (max_height - frame.height) // 2,
+            ),
+        )
+        normalized.append(canvas)
+    return normalized
+
+
+def generated_approved_strip_tile(
+    stock,
+    template_tile: bytes,
+    palettes,
+    source_png: Path,
+    source_frame_count: int,
+    frame_index: int,
+    output_frame_count: int,
+    palette_index: int,
+    fixed_header: tuple[int, int, int, int, int, int, int, int] | None = None,
+) -> bytes:
+    """Fit one approved strip phase into a stock overlay's fixed attachment."""
+    source_frames = keyed_strip_frames(source_png, source_frame_count)
+    position = frame_index * source_frame_count / max(1, output_frame_count)
+    source_index = math.floor(position) % source_frame_count
+    next_index = (source_index + 1) % source_frame_count
+    blend = position - math.floor(position)
+    source = Image.blend(source_frames[source_index], source_frames[next_index], blend)
+    bbox = source.getchannel("A").getbbox()
+    if bbox is None:
+        raise ValueError(f"Approved strip phase {frame_index} became transparent")
+    source = source.crop(bbox)
+
+    if fixed_header is None:
+        header = list(struct.unpack_from("<8H", template_tile, 0))
+        width = header[2]
+        height = header[1]
+    else:
+        header = list(fixed_header)
+        width = fixed_header[2]
+        height = fixed_header[1]
+    fit = min(
+        width * 0.94 / max(1, source.width),
+        height * 0.94 / max(1, source.height),
+    )
+    source = source.resize(
+        (
+            max(2, round(source.width * fit)),
+            max(2, round(source.height * fit)),
+        ),
+        Image.Resampling.LANCZOS,
+    )
+    canvas = Image.new("RGBA", (width, height), (0, 0, 0, 0))
+    canvas.alpha_composite(
+        source,
+        (
+            (width - source.width) // 2,
+            (height - source.height) // 2,
+        ),
+    )
+    header[4] = 32
+    return stock.rgba_to_indexed_tile(
+        canvas,
+        palettes,
+        palette_index,
+        tuple(header),
+    )
 
 
 def generated_phoenix_resurrection_tile(
@@ -557,10 +656,9 @@ def write_maindata(
     phoenix_lifecycle_imag = stock.read_cam_entry(
         source, b"IMAG", PHOENIX_LIFECYCLE_SOURCE
     ).data
-    # XR01 is the stock Northern Expansion Speed Tonic icon that the proven
-    # Vigor overlay has always referenced. It is not present in retail
-    # Data/maindata.cam, so privateize its exact DataMX IMAG/TILE record here
-    # instead of depending on campaign/mod load order to provide it.
+    # Eternal Soul and Chill established XR25 as the stock animated overhead
+    # buff-icon scaffold and XR30 as the duration-0 self-cast scaffold. Keep
+    # both stock tables literal and privatize only their image IDs and TILE art.
     mx_source = game_data.parent / "DataMX" / "mx_maindata.cam"
     if not mx_source.is_file():
         raise FileNotFoundError(f"Stock Northern Expansion maindata is missing: {mx_source}")
@@ -569,9 +667,12 @@ def write_maindata(
     phoenix_effect_template_imag = stock.read_cam_entry(
         mx_source, b"IMAG", PHOENIX_EFFECT_TEMPLATE_SOURCE
     ).data
-    vigor_effect_imag = stock.read_cam_entry(
-        mx_source, b"IMAG", VIGOR_EFFECT_SOURCE
+    buff_icon_template_imag = stock.read_cam_entry(
+        mx_source, b"IMAG", BUFF_ICON_TEMPLATE_SOURCE
     ).data
+    vigor_effect_imag = buff_icon_template_imag
+    flash_flask_buff_imag = buff_icon_template_imag
+    flash_flask_activation_imag = phoenix_effect_template_imag
 
     approved_bundle = (
         load_approved_sprite_bundle(
@@ -805,31 +906,86 @@ def write_maindata(
         phoenix_lifecycle_replacements,
     )
 
-    vigor_effect_replacements: dict[int, int] = {}
-    for frame, source_index in enumerate(
-        stock.animation_tile_indices(vigor_effect_imag, len(mx_tiles))
+    buff_template_indices = stock.animation_tile_indices(
+        buff_icon_template_imag, len(mx_tiles)
+    )
+    if len(buff_template_indices) != 29:
+        raise ValueError("Stock XR25 animated buff-icon contract changed")
+    vigor_source_png = repo / "assets/source/effects/vigor/heroic-spark-strip.png"
+    flash_buff_source_png = repo / "assets/source/spells/flash-flask/buff-strip.png"
+    flash_activation_source_png = (
+        repo / "assets/source/spells/flash-flask/activation-strip.png"
+    )
+    for source_png in (
+        vigor_source_png,
+        flash_buff_source_png,
+        flash_activation_source_png,
     ):
-        source_tile = mx_tiles[source_index].data
-        source_palette_index = stock.tile_palette_index(source_tile)
-        if source_palette_index is None or source_palette_index >= len(mx_palettes):
-            raise ValueError("Stock XR01 frame has no valid DataMX palette")
-        source_colors = stock.splt_palette_colors(
-            mx_palettes[source_palette_index].data
-        )
-        target_colors = stock.splt_palette_colors(palettes[32].data)
-        private_tile = stock.remap_indexed_v3_tile_to_palette(
-            source_tile,
-            source_colors,
-            32,
-            target_colors,
-        )
+        if not source_png.is_file():
+            raise FileNotFoundError(source_png)
+
+    vigor_effect_replacements: dict[int, int] = {}
+    flash_buff_replacements: dict[int, int] = {}
+    for frame, source_index in enumerate(buff_template_indices):
+        template_tile = mx_tiles[source_index].data
         vigor_effect_replacements[source_index] = append(
-            f"XR01Vigor{frame:02d}".encode("ascii"), private_tile
+            f"ALV1Spark{frame:02d}".encode("ascii"),
+            generated_approved_strip_tile(
+                stock,
+                template_tile,
+                palettes,
+                vigor_source_png,
+                8,
+                frame,
+                len(buff_template_indices),
+                BUFF_ICON_PALETTE,
+            ),
         )
-    if len(vigor_effect_replacements) != 8:
-        raise ValueError("Stock XR01 Speed Tonic icon no longer has eight frames")
+        flash_buff_replacements[source_index] = append(
+            f"AFF1Flask{frame:02d}".encode("ascii"),
+            generated_approved_strip_tile(
+                stock,
+                template_tile,
+                palettes,
+                flash_buff_source_png,
+                8,
+                frame,
+                len(buff_template_indices),
+                BUFF_ICON_PALETTE,
+            ),
+        )
     vigor_effect_imag = stock.remap_imag_animation_tiles(
         vigor_effect_imag, vigor_effect_replacements
+    )
+    flash_flask_buff_imag = stock.remap_imag_animation_tiles(
+        flash_flask_buff_imag, flash_buff_replacements
+    )
+
+    flash_activation_indices = stock.animation_tile_indices(
+        flash_flask_activation_imag, len(mx_tiles)
+    )
+    if len(flash_activation_indices) != 6:
+        raise ValueError("Stock XR30 self-cast activation contract changed")
+    flash_activation_template = mx_tiles[flash_activation_indices[-1]].data
+    flash_activation_replacements: dict[int, int] = {}
+    for frame, source_index in enumerate(flash_activation_indices):
+        flash_activation_replacements[source_index] = append(
+            f"AFF2Flash{frame:02d}".encode("ascii"),
+            generated_approved_strip_tile(
+                stock,
+                flash_activation_template,
+                palettes,
+                flash_activation_source_png,
+                6,
+                frame,
+                len(flash_activation_indices),
+                FLASH_FLASK_ACTIVATION_PALETTE,
+                FLASH_FLASK_ACTIVATION_HEADER,
+            ),
+        )
+    flash_flask_activation_imag = stock.remap_imag_animation_tiles(
+        flash_flask_activation_imag,
+        flash_activation_replacements,
     )
 
     profile_index = append(
@@ -993,6 +1149,11 @@ def write_maindata(
         stock.CamEntry(stock.pad_name(INVENTORY_ITEM_CUSTOM), phoenix_item_imag),
         stock.CamEntry(stock.pad_name(PHOENIX_LIFECYCLE_CUSTOM), phoenix_lifecycle_imag),
         stock.CamEntry(stock.pad_name(VIGOR_EFFECT_CUSTOM), vigor_effect_imag),
+        stock.CamEntry(stock.pad_name(FLASH_FLASK_BUFF_CUSTOM), flash_flask_buff_imag),
+        stock.CamEntry(
+            stock.pad_name(FLASH_FLASK_ACTIVATION_CUSTOM),
+            flash_flask_activation_imag,
+        ),
     )
     stock.write_cam(
         (

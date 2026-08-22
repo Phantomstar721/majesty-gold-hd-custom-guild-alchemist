@@ -112,6 +112,11 @@ BREWING_PHOENIX_PHIAL_PRICE_CONTROL_ID = BREWING_PHOENIX_PHIAL_CONTROL_ID + 1000
 # intents append after it so expansion statuses are never replaced.
 ALCHEMY_OIL_INTENT_INDEX = 309
 ALCHEMY_OIL_INTENT_TEXT = "Applying weapon oil at the alchemy lab"
+PARALYTIC_OIL_STATUS_ID = "ALo1"
+PARALYTIC_OIL_STATUS_NAME = "alchemist_paralytic_weapon_oil_status"
+TRANSMUTATION_OIL_STATUS_ID = "ALo2"
+TRANSMUTATION_OIL_STATUS_NAME = "alchemist_transmutation_weapon_oil_status"
+OIL_STATUS_IMAGE_ID = b"ALo0"
 PHOENIX_PHIAL_INTENT_INDEX = 310
 PHOENIX_PHIAL_INTENT_TEXT = "Purchasing a Phoenix Phial at the alchemy lab"
 PHOENIX_PHIAL_ITEM_ID = 113
@@ -328,6 +333,12 @@ def build_alchemist_economy(stock_purchase_equipment: Path) -> str:
         + "\n\t\tWants_Oil = TRUE;"
     )
     function = function.replace(weapon_gate_anchor, oil_classification, 1)
+    poison_roll_anchor = (
+        '\t\t\t\t\t\tIf (ThisAgent\'s "Poison_Weapon_Chance" > $RandomNumber (100) + 1)'
+        "\n\t\t\t\t\t\t\tWants_Poison = TRUE;"
+    )
+    if function.count(poison_roll_anchor) != 1:
+        raise ValueError("Stock Purchase_Equipment poison roll changed")
     list_anchor = "\tlist blacksmiths,wizguilds,markets,shops,fairgrounds,buildings;"
     if function.count(list_anchor) != 1:
         raise ValueError("Stock Purchase_Equipment list declaration changed")
@@ -402,10 +413,13 @@ def build_alchemist_damage(stock_make_attack: Path) -> str:
         raise ValueError("Stock damage poison-on-hit branch changed")
     private_oils = (
         stock_poison
-        + "\n\n\t\t\t\t\tIf ( $GetAttribute (Attacker, #ATTRIB_WeaponPoisoned) == 2 )"
-        + "\n\t\t\t\t\t\t$Alchemy_Paralytic_Oil_Begin (Attacker, Defender);"
-        + "\n\n\t\t\t\t\tIf ( $GetAttribute (Attacker, #ATTRIB_WeaponPoisoned) == 3 )"
-        + "\n\t\t\t\t\t\t$Alchemy_Transmutation_Oil_Hit (Attacker, Defender);"
+        + "\n\n\t\t\t\t\tIf ($HasAttribute (\"AlchemyWeaponOilType\", Attacker))"
+        + "\n\t\t\t\t\t\tbegin"
+        + "\n\t\t\t\t\t\t\tIf (Attacker's \"AlchemyWeaponOilType\" == 1)"
+        + "\n\t\t\t\t\t\t\t\t$Alchemy_Paralytic_Oil_Begin (Attacker, Defender);"
+        + "\n\t\t\t\t\t\t\tElse If (Attacker's \"AlchemyWeaponOilType\" == 2)"
+        + "\n\t\t\t\t\t\t\t\t$Alchemy_Transmutation_Oil_Hit (Attacker, Defender);"
+        + "\n\t\t\t\t\t\tend"
     )
     return function.replace(stock_poison, private_oils, 1) + "\n"
 
@@ -832,6 +846,35 @@ def read_cam_entry(path: Path, extension: bytes, name: bytes) -> CamEntry:
     raise ValueError(f"Could not find {extension.decode()}/{name.decode()} in {path}")
 
 
+def read_cam_sections(path: Path) -> tuple[CamSection, ...]:
+    """Read every CAM section so a private record can be appended losslessly."""
+    data = path.read_bytes()
+    if data[: len(MAGIC)] != MAGIC:
+        raise ValueError(f"Not a CYLBPC CAM archive: {path}")
+    section_count = u32(data, 12)
+    cursor = HEADER_SIZE
+    directory: list[tuple[bytes, int]] = []
+    for _ in range(section_count):
+        directory.append((data[cursor : cursor + 4], u32(data, cursor + 4)))
+        cursor += DIR_ENTRY_SIZE
+    sections: list[CamSection] = []
+    for extension, section_offset in directory:
+        count = u32(data, section_offset)
+        padding = data[section_offset + 4 : section_offset + SECTION_HEADER_SIZE]
+        cursor = section_offset + SECTION_HEADER_SIZE
+        entries: list[CamEntry] = []
+        for _ in range(count):
+            raw_name = data[cursor : cursor + 20]
+            payload_offset = u32(data, cursor + 20)
+            payload_size = u32(data, cursor + 24)
+            cursor += ENTRY_HEADER_SIZE
+            entries.append(
+                CamEntry(raw_name, data[payload_offset : payload_offset + payload_size])
+            )
+        sections.append(CamSection(extension, tuple(entries), padding))
+    return tuple(sections)
+
+
 def write_cam(path: Path, sections: tuple[CamSection, ...]) -> None:
     section_count = len(sections)
     file_header_size = HEADER_SIZE + section_count * DIR_ENTRY_SIZE
@@ -865,6 +908,79 @@ def write_cam(path: Path, sections: tuple[CamSection, ...]) -> None:
         for entry in section.entries:
             output += entry.data
     path.write_bytes(output)
+
+
+def install_invisible_oil_status_image(game_data: Path, main_art: Path) -> None:
+    """Append one private blank IMAG without regenerating approved source art."""
+    stock = load_stock_pipeline(SOURCE_ROOT.parent)
+    output_tiles = stock.read_cam_entries(main_art, b"TILE")
+    blank_index = next(
+        (
+            index
+            for index, entry in enumerate(output_tiles)
+            if entry.name.startswith(b"PXE1Phoenix14")
+        ),
+        None,
+    )
+    if blank_index is None:
+        raise ValueError("Private transparent Phoenix lifecycle TILE is missing")
+    decoded = stock.decode_indexed_v3_tile(output_tiles[blank_index].data)
+    if decoded is None or any(value for row in decoded[2] for value in row):
+        raise ValueError("Private oil-status TILE source is not transparent")
+
+    ring_entry = next(
+        (
+            entry
+            for entry in stock.read_cam_entries(game_data / "maindata.cam", b"IMAG")
+            if entry.name.startswith(b"QRd0")
+        ),
+        None,
+    )
+    if ring_entry is None:
+        raise ValueError("Stock Magic Ring IMAG is missing")
+    ring_sets = stock.single_direction_imag_animation_sets(ring_entry.data)
+    ring_indices = stock.animation_tile_indices(ring_entry.data, len(output_tiles))
+    if len(ring_sets) != 1 or ring_sets[0][0] != 64 or not ring_indices:
+        raise ValueError("Stock Magic Ring IMAG topology changed")
+    # animation_tile_indices is the proven Haunt parser for actual frame words.
+    # single_direction_imag_animation_sets begins eight bytes too early for this
+    # overlay family and would corrupt direction metadata at offset 0x78.
+    invisible = stock.remap_imag_animation_sequence(
+        ring_entry.data,
+        [blank_index] * len(ring_indices),
+    )
+
+    sections = list(read_cam_sections(main_art))
+    imag_index = next(
+        (index for index, section in enumerate(sections) if section.extension == b"IMAG"),
+        None,
+    )
+    if imag_index is None:
+        raise ValueError("Alchemist main art has no IMAG section")
+    existing = next(
+        (
+            entry
+            for entry in sections[imag_index].entries
+            if entry.name.startswith(OIL_STATUS_IMAGE_ID)
+        ),
+        None,
+    )
+    if existing is not None:
+        existing_indices = stock.animation_tile_indices(
+            existing.data,
+            len(output_tiles),
+        )
+        if not existing_indices or any(index != blank_index for index in existing_indices):
+            raise ValueError("Existing private oil-status IMAG is not transparent")
+        return
+    section = sections[imag_index]
+    sections[imag_index] = CamSection(
+        section.extension,
+        section.entries
+        + (CamEntry(pad_name(b"ALo0Oil Status"), bytes(invisible)),),
+        section.padding,
+    )
+    write_cam(main_art, tuple(sections))
 
 
 def patch_strt_by_id(data: bytes, replacements: dict[int, str]) -> bytes:
@@ -1083,6 +1199,45 @@ def build_brewing_overlays_xml(stock_overlays_xml: Path) -> bytes:
         attachment.set("value", "2")
     resurrection_script.set("GPLFunction", "Phoenix_Phial_Resurrection_End")
     output.append(resurrection)
+
+    # Stock Magic Ring is Majesty's permanent purchased-effect contract: an
+    # infinite Menu-11 overlay whose Description is rendered in the hero's
+    # Enchantments/Effects list and which follows the normal hero lifecycle.
+    ring_source = stock_root.find('.//Description[@Name="ring_icon"]')
+    if ring_source is None:
+        raise ValueError("Stock ring_icon permanent-effect overlay is missing")
+    ring_image = ring_source.find("./Engine/ImageIDBase")
+    ring_menu = ring_source.find("./Engine/Menu")
+    if (
+        ring_source.find("./Engine") is None
+        or ring_image is None
+        or ring_image.get("value") != "QRd0"
+        or ring_menu is None
+        or ring_menu.get("value") != "11"
+        or ring_source.find("./Game") is None
+        or ring_source.find("./Engine/Script") is not None
+    ):
+        raise ValueError("Stock ring_icon permanent-effect contract changed")
+    for status_id, status_name, description in (
+        (
+            PARALYTIC_OIL_STATUS_ID,
+            PARALYTIC_OIL_STATUS_NAME,
+            "Paralytic Weapon Oil",
+        ),
+        (
+            TRANSMUTATION_OIL_STATUS_ID,
+            TRANSMUTATION_OIL_STATUS_NAME,
+            "Transmutation Weapon Oil",
+        ),
+    ):
+        status = ET.fromstring(ET.tostring(ring_source, encoding="utf-8"))
+        status.set("ID", status_id)
+        status.set("Name", status_name)
+        status.set("Description", description)
+        status.find("./Engine/ImageIDBase").set(
+            "value", OIL_STATUS_IMAGE_ID.decode("ascii")
+        )
+        output.append(status)
     ET.indent(output, space="\t")
     return ET.tostring(output, encoding="utf-8", xml_declaration=False) + b"\n"
 
@@ -2296,6 +2451,53 @@ def validate_output(
         raise ValueError("Phoenix resurrection effector lost the stock resurrection sound")
     if overlays.find('./Description[@Name="phoenix_phial_visual_effector"]') is not None:
         raise ValueError("Obsolete second Phoenix visual effector is still packaged")
+    oil_statuses = (
+        (
+            PARALYTIC_OIL_STATUS_ID,
+            PARALYTIC_OIL_STATUS_NAME,
+            "Paralytic Weapon Oil",
+        ),
+        (
+            TRANSMUTATION_OIL_STATUS_ID,
+            TRANSMUTATION_OIL_STATUS_NAME,
+            "Transmutation Weapon Oil",
+        ),
+    )
+    for status_id, status_name, description in oil_statuses:
+        status = overlays.find(f'./Description[@Name="{status_name}"]')
+        if status is None:
+            raise ValueError(f"Private oil status overlay is missing: {status_name}")
+        if status.get("ID") != status_id or status.get("Description") != description:
+            raise ValueError(f"Private oil status identity changed: {status_name}")
+        if (
+            status.find("./Engine/Menu").get("value") != "11"
+            or status.find("./Engine/ImageIDBase").get("value")
+            != OIL_STATUS_IMAGE_ID.decode("ascii")
+            or status.find("./Engine/Script") is not None
+        ):
+            raise ValueError(f"Private oil status lost stock Magic Ring contract: {status_name}")
+    oil_status_image = read_cam_entry(
+        output_root / "Data" / "alchemist_maindata.cam",
+        b"IMAG",
+        b"ALo0Oil Status",
+    )
+    oil_status_tiles = read_cam_entries(
+        output_root / "Data" / "alchemist_maindata.cam",
+        b"TILE",
+    )
+    stock_pipeline = load_stock_pipeline(SOURCE_ROOT.parent)
+    oil_status_indices = stock_pipeline.animation_tile_indices(
+        oil_status_image.data,
+        len(oil_status_tiles),
+    )
+    if not oil_status_indices:
+        raise ValueError("Private oil-status IMAG has no playable frames")
+    for tile_index in oil_status_indices:
+        decoded = stock_pipeline.decode_indexed_v3_tile(
+            oil_status_tiles[tile_index].data
+        )
+        if decoded is None or any(value for row in decoded[2] for value in row):
+            raise ValueError("Private oil-status IMAG contains visible world art")
     if [item.find("./Engine/ImageIDBase").get("value") for item in buildings] != list(BUILDING_IDS):
         raise ValueError("Every Laboratory level must use its private image record")
     text_cam = output_root / "Data" / "alchemist_probe_textdata.cam"
@@ -2711,14 +2913,18 @@ def validate_output(
         b"Alchemy_Oil_Check",
         b"Alchemy_Oil_Enchant_Equipment",
         b"Obtain_Alchemy_Oil",
+        b"Alchemist_Done_Enhancing_Equipment",
         b"Alchemy_Paralytic_Oil_Begin",
         b"Alchemy_Paralytic_Oil_End",
         b"Alchemy_Paralytic_Oil_Immunity_End",
         b"Alchemy_Transmutation_Oil_Hit",
+        b"Alchemy_Weapon_Oil",
         b"damage",
         b"Phoenix_Phial_Check",
         b"Purchase_Phoenix_Phial",
         b"Phoenix_Phial_Resurrection_End",
+        PARALYTIC_OIL_STATUS_NAME.encode("ascii"),
+        TRANSMUTATION_OIL_STATUS_NAME.encode("ascii"),
     ):
         if symbol not in compiled_symbols:
             raise ValueError(f"Compiled Alchemist bytecode lost oil symbol {symbol!r}")
@@ -2734,7 +2940,10 @@ def build(
     enable_unsafe_brewing_control: bool = False,
     include_siege_test_fixture: bool = False,
     approved_sprite_test_set: bool = False,
+    reuse_art_from: Path | None = None,
 ) -> None:
+    if approved_sprite_test_set and reuse_art_from is not None:
+        raise ValueError("Approved sprite generation and art reuse are mutually exclusive")
     if approved_sprite_test_set:
         output_root = require_approved_sprite_output_root(output_root)
     data_dir = output_root / "Data"
@@ -2758,11 +2967,11 @@ def build(
     # The accepted Walk/Stand bundle has independent, hash-pinned source
     # artifacts and a new SPLT record. Never let the regular generated-art CAM
     # cache satisfy or absorb this in-game test mode.
-    cache_current = (not approved_sprite_test_set) and all(
+    cache_current = (reuse_art_from is None) and (not approved_sprite_test_set) and all(
         path.is_file() and path.stat().st_mtime >= newest_input
         for path in (cached_main, cached_interface)
     )
-    if not cache_current:
+    if reuse_art_from is None and not cache_current:
         art_result = subprocess.run(
             (
                 sys.executable,
@@ -2817,7 +3026,18 @@ def build(
         include_phantoms,
     )
     approved_art_provenance = None
-    if cache_current:
+    if reuse_art_from is not None:
+        reuse_root = reuse_art_from.resolve()
+        repo_root = SOURCE_ROOT.parent.resolve()
+        if repo_root not in reuse_root.parents and reuse_root != repo_root:
+            raise ValueError("Reusable art package must stay inside the Alchemist repository")
+        reuse_data = reuse_root / "Data" if (reuse_root / "Data").is_dir() else reuse_root
+        for filename in ("alchemist_maindata.cam", "alchemist_interfacedata.cam"):
+            source_art = reuse_data / filename
+            if not source_art.is_file():
+                raise ValueError(f"Reusable art package is missing {source_art}")
+            shutil.copy2(source_art, data_dir / filename)
+    elif cache_current:
         shutil.copy2(cached_main, data_dir / "alchemist_maindata.cam")
         shutil.copy2(cached_interface, data_dir / "alchemist_interfacedata.cam")
     else:
@@ -2842,6 +3062,10 @@ def build(
             art_cache.mkdir(parents=True, exist_ok=True)
             shutil.copy2(data_dir / "alchemist_maindata.cam", cached_main)
             shutil.copy2(data_dir / "alchemist_interfacedata.cam", cached_interface)
+    install_invisible_oil_status_image(
+        game_data,
+        data_dir / "alchemist_maindata.cam",
+    )
     if approved_sprite_test_set:
         if approved_art_provenance is None:
             raise AssertionError("Approved sprite test unexpectedly used cached art")
@@ -2987,6 +3211,11 @@ def main() -> int:
             "and Stand V5 art only"
         ),
     )
+    parser.add_argument(
+        "--reuse-art-from",
+        type=Path,
+        help="Reuse verified Alchemist CAM art from an existing repo-confined package",
+    )
     args = parser.parse_args()
     build(
         args.game_path,
@@ -2996,6 +3225,7 @@ def main() -> int:
         args.enable_unsafe_brewing_control,
         args.include_siege_test_fixture,
         args.approved_sprite_test_set,
+        args.reuse_art_from,
     )
     print(f"Built and validated Alchemist probe: {args.output_root}")
     return 0

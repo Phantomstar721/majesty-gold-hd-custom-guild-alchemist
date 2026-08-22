@@ -8,7 +8,8 @@ param(
     # only for reproducing the pre-runtime diagnostic fixture.
     [switch]$EnableUnsafeBrewingControl = $true,
     [switch]$IncludeSiegeTestFixture,
-    [switch]$ApprovedSpriteTestSet
+    [switch]$ApprovedSpriteTestSet,
+    [string]$ReuseArtFrom = ""
 )
 
 $ErrorActionPreference = "Stop"
@@ -63,6 +64,10 @@ if ($effectiveIncludeSiegeTestFixture) {
 }
 if ($ApprovedSpriteTestSet) {
     $arguments += "--approved-sprite-test-set"
+}
+if (-not [string]::IsNullOrWhiteSpace($ReuseArtFrom)) {
+    $arguments += "--reuse-art-from"
+    $arguments += $ReuseArtFrom
 }
 
 & $python @arguments

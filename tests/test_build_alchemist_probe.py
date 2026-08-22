@@ -401,7 +401,11 @@ class AlchemistProbeTests(unittest.TestCase):
     def test_approved_sprite_mode_is_explicit_and_cannot_use_regular_art_cache(self) -> None:
         source = Path(builder.__file__).read_text(encoding="utf-8")
         self.assertIn('"--approved-sprite-test-set"', source)
-        self.assertIn("cache_current = (not approved_sprite_test_set) and all(", source)
+        self.assertIn(
+            "cache_current = (reuse_art_from is None) and (not approved_sprite_test_set) and all(",
+            source,
+        )
+        self.assertIn("if approved_sprite_test_set and reuse_art_from is not None:", source)
         self.assertIn("if not approved_sprite_test_set:", source)
         self.assertIn(
             '"fresh build; regular art cache bypassed and not updated"',
@@ -994,6 +998,16 @@ end
         self.assertIn(
             "If (Wants_Poison && $Poison_Check (ThisAgent))", generated
         )
+        self.assertEqual(
+            generated.count(
+                'If (ThisAgent\'s "Poison_Weapon_Chance" > $RandomNumber (100) + 1)'
+            ),
+            1,
+        )
+        self.assertNotIn(
+            "If ($GetAttribute (ThisAgent, #ATTRIB_WeaponPoisoned) == 0)",
+            generated,
+        )
         self.assertIn("$Phoenix_Phial_Check (ThisAgent,phoenixLabs)", generated)
         self.assertLess(
             generated.index("$Alchemy_Oil_Check"), generated.index("$Poison_Check")
@@ -1003,15 +1017,22 @@ end
         source = (builder.GPL_SOURCE_ROOT / "Alchemist_Weapon_Oil.gpl").read_text(
             encoding="utf-8"
         )
-        self.assertIn("#ATTRIB_WeaponPoisoned", source)
+        self.assertIn('$HasAttribute ("AlchemyWeaponOilType", ThisAgent)', source)
+        self.assertIn('ThisAgent\'s "AlchemyWeaponOilType" > 0', source)
         self.assertIn("expression #Alchemy_Weapon_Oil_Price 100", source)
         self.assertNotIn("#Cost_Per_Magic_Enchantment1", source)
         self.assertNotIn("Intel_Roll", source)
         self.assertNotIn("$RandomNumber (30)", source)
         self.assertIn("#Enchant_Equipment_Visit_Duration", source)
         self.assertIn("$Spend_Gold (ThisAgent, ThisBuilding, Gold)", source)
-        self.assertIn("$SetAttribute (ThisAgent, What_To_Upgrade, Upgrade)", source)
-        self.assertIn("$Done_Enhancing_Equipment", source)
+        self.assertNotIn("$SetAttribute (ThisAgent, What_To_Upgrade, Upgrade)", source)
+        self.assertNotIn("#ATTRIB_WeaponPoisoned", source)
+        self.assertIn(
+            '$AddAttribute (\n\t\t\t\t\tThisAgent,\n\t\t\t\t\t"AlchemyWeaponOilType"',
+            source,
+        )
+        self.assertIn('ThisAgent\'s "AlchemyWeaponOilType" = Upgrade', source)
+        self.assertIn("$Alchemist_Done_Enhancing_Equipment", source)
         self.assertNotIn("#ATTRIB_Weapon_Magic_Bonus", source)
         self.assertNotIn("#ATTRIB_Armor_Magic_Bonus", source)
         self.assertIn("expression #Intent_Applying_Weapon_Oil 309", source)
@@ -1021,8 +1042,20 @@ end
         self.assertNotIn("#Intent_Poisoning_Weapon", source)
         self.assertIn("expression #Alchemy_Transmutation_Greed 20", source)
         self.assertIn('ThisAgent\'s "Greed" > #Alchemy_Transmutation_Greed', source)
+        self.assertIn("Upgrade = 1", source)
         self.assertIn("Upgrade = 2", source)
-        self.assertIn("Upgrade = 3", source)
+        self.assertIn("Function Alchemist_Done_Enhancing_Equipment", source)
+        self.assertIn('"alchemist_paralytic_weapon_oil_status"', source)
+        self.assertIn('"alchemist_transmutation_weapon_oil_status"', source)
+        self.assertEqual(source.count('"Infinite"'), 2)
+        self.assertLess(
+            source.index('$Exit_Building (ThisAgent, ThisAgent\'s "Target")'),
+            source.index('"alchemist_paralytic_weapon_oil_status"'),
+        )
+        self.assertIn(
+            'ThisAgent\'s "ActiveScript" = $Alchemist_Done_Enhancing_Equipment',
+            source,
+        )
 
     def test_damage_is_a_literal_stock_clone_with_two_private_oil_branches(self) -> None:
         stock = Path(
@@ -1033,10 +1066,24 @@ end
         self.assertEqual(generated.count("function damage"), 1)
         self.assertIn("#ATTRIB_weaponpoisoned ) == 1", generated)
         self.assertEqual(generated.count("$poison_begin ( attacker, defender )"), 1)
-        self.assertIn("#ATTRIB_WeaponPoisoned) == 2", generated)
+        self.assertIn('$HasAttribute ("AlchemyWeaponOilType", Attacker)', generated)
+        self.assertIn('Attacker\'s "AlchemyWeaponOilType" == 1', generated)
         self.assertIn("$Alchemy_Paralytic_Oil_Begin (Attacker, Defender)", generated)
-        self.assertIn("#ATTRIB_WeaponPoisoned) == 3", generated)
+        self.assertIn('Attacker\'s "AlchemyWeaponOilType" == 2', generated)
         self.assertIn("$Alchemy_Transmutation_Oil_Hit (Attacker, Defender)", generated)
+
+    def test_paralytic_oil_declares_its_private_target_stage(self) -> None:
+        source = (
+            builder.GPL_SOURCE_ROOT / "Alchemist_Combat_Oils.gpl"
+        ).read_text(encoding="utf-8")
+        declaration = (
+            '$AddAttribute (Target, "Alchemy_Paralytic_Stage", "integer", Stage + 1)'
+        )
+        self.assertIn(declaration, source)
+        self.assertLess(
+            source.index(declaration),
+            source.index('$CreateEffector (Target, "alchemist_stun_serum_restraint"'),
+        )
 
     def test_private_oil_intent_appends_to_stock_aitx(self) -> None:
         stock = Path(
@@ -1118,6 +1165,10 @@ end
 
     def test_brewing_overlay_has_a_private_callback(self) -> None:
         stock = """<Majesty><Description type="Unit" subType="Overlay" ID="QRa1" Name="Rage_icon" Description="Rage of Krolm"><Engine><Info value="Directionless"/><Info value="DontBlock"/><ImageIDBase value="QRa1"/><Script type="0" cProc="0" GPLFunction="rage_end"/></Engine><Game><StackPriority value="1"/></Game></Description><Description type="Unit" subType="Overlay" ID="HRC1" Name="resurrection_effector" Description="Resurrection"><Engine><Info value="Directionless"/><Info value="DontBlock"/><Menu value="11"/><ImageIDBase value="HRC1"/><DefaultSound value="Resurrection"/><Script type="0" cProc="0" GPLFunction="Resurrection_End"/></Engine><Game><StackPriority value="0"/><Flags value="TransparentToMouse"/></Game></Description><Description type="Unit" subType="Overlay" ID="XR30" Name="Frost_Field_Hit_Effector" Description="Frost Field"><Engine><Info value="Directionless"/><Info value="DontBlock"/><Menu value="11"/><ImageIDBase value="XR30"/><AttachmentPointID value="2"/><DefaultSound value="Frost_Field_hit"/></Engine><Game><DialogID value="0"/><StackPriority value="0"/><Flags value="TransparentToMouse"/></Game></Description></Majesty>"""
+        stock = stock.replace(
+            "</Majesty>",
+            '<Description type="Unit" subType="Overlay" ID="QRd0" Name="ring_icon" Description="This hero has the Magic Ring."><Engine><Info value="Static"/><Info value="Directionless"/><Info value="DontBlock"/><Menu value="11"/><ImageIDBase value="QRd0"/><DefaultSound value="0"/></Engine><Game><DialogID value="0"/><StackPriority value="0"/></Game></Description></Majesty>',
+        )
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "M_Overlays.xml"
             path.write_text(stock, encoding="utf-8")
@@ -1142,7 +1193,33 @@ end
         self.assertEqual(
             resurrection.find("./Engine/AttachmentPointID").get("value"), "2"
         )
-        self.assertEqual(len(output.findall("Description")), 2)
+        statuses = output.findall("Description")[2:]
+        self.assertEqual(len(statuses), 2)
+        self.assertEqual(
+            [
+                (item.get("ID"), item.get("Name"), item.get("Description"))
+                for item in statuses
+            ],
+            [
+                (
+                    builder.PARALYTIC_OIL_STATUS_ID,
+                    builder.PARALYTIC_OIL_STATUS_NAME,
+                    "Paralytic Weapon Oil",
+                ),
+                (
+                    builder.TRANSMUTATION_OIL_STATUS_ID,
+                    builder.TRANSMUTATION_OIL_STATUS_NAME,
+                    "Transmutation Weapon Oil",
+                ),
+            ],
+        )
+        for status in statuses:
+            self.assertEqual(status.find("./Engine/Menu").get("value"), "11")
+            self.assertEqual(
+                status.find("./Engine/ImageIDBase").get("value"), "ALo0"
+            )
+            self.assertIsNone(status.find("./Engine/Script"))
+        self.assertEqual(len(output.findall("Description")), 4)
         self.assertIsNone(
             output.find('./Description[@Name="phoenix_phial_visual_effector"]')
         )

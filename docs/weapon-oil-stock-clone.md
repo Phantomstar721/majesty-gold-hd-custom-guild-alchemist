@@ -36,7 +36,7 @@ as a boolean marker that this hero class participates in ordinary weapon
 upgrades; it is not rolled. This admits weapon-using combatants while excluding
 unarmed Monks and non-weapon casters without maintaining a custom hero list.
 The stock `Wants_Poison` roll remains untouched and is still used only by the
-fallback Rogues Guild `Poison_Check` branch.
+Rogues Guild `Poison_Check` branch. Oil ownership does not suppress that roll.
 
 `Alchemy_Oil_Check` remains a private `WizGuild_Check` lifecycle clone: it
 preserves the stock completed-building search radius, affordability check,
@@ -45,38 +45,48 @@ dispatch. Weapon Oil deliberately omits Wizard enchanting's additional
 Intelligence roll because eligibility is generic to weapon users rather than
 spellcraft aptitude. Its private purchase price is exactly 100 gold. The other
 semantic changes remain the researched Laboratory candidate list, the
-single-tier completion gate, and `Task_Number = #ATTRIB_WeaponPoisoned`.
-Failure falls through to the untouched stock `Poison_Check`, so a level-2
-Rogues Guild remains a valid fallback under its original poison-chance rules.
+single-tier completion gate, and a private transaction task marker.
+Once a hero owns oil, the oil check returns false and the same equipment pass
+continues to the untouched stock `Poison_Check`, so a level-2 Rogues Guild
+remains available under its original poison-chance and Artifice rules.
 
-The Laboratory branch uses private intent index `177`, appended immediately
-after stock `AITX` indices `0..176` in a private `GPLtext.cam` provider. Every
-stock AITX record is copied unchanged; index `177` alone contains `Applying
+The Laboratory branch uses private intent index `309`, appended after the
+complete stock/expansion AITX table in a private `GPLtext.cam` provider. Every
+existing AITX record is copied unchanged; index `309` alone contains `Applying
 weapon oil at the alchemy lab`. `Alchemy_Oil_Check` is the only caller of that
 index. The stock Rogues Guild path continues to call index `10` and display
 `Poisoning weapon`, so no hero decision tree or stock localization is changed.
 
-All three Laboratory levels use `Visited_Script
-Alchemy_Oil_Enchant_Equipment`, a private clone of Wizard
-`Enchant_Equipment`. It retains stock entry, the 17-second visit interval,
-payment to the target building, and `Done_Enhancing_Equipment` cleanup.
-`Obtain_Alchemy_Oil` copies the level-1 `Obtain_Enchantment` transaction and
-sets the stock `WeaponPoisoned` attribute to exactly `1`. The explicit
-single-tier clamp is required because stock combat tests `WeaponPoisoned == 1`;
-letting a level-2 or level-3 Laboratory apply Wizard enchantment tiers would
-produce invalid poison values `2` or `3`.
-
-After purchase, the untouched stock `make_attack -> Poison_begin` path owns
-the on-hit effect. This checkpoint exists solely to prove autonomous hero
-selection, travel, payment, building revenue, persistent coating, and the
-existing poison combat result before privatizing the effect as Paralytic Oil.
+All three Laboratory levels use the combined `Alchemy_Lab_Visited` dispatcher,
+whose oil branch is a private clone of Wizard `Enchant_Equipment`. It retains
+stock entry, the 17-second visit interval, payment to the target building, and
+the complete `Done_Enhancing_Equipment` exit/reset lifecycle.
+`Obtain_Alchemy_Oil` copies the level-1 `Obtain_Enchantment` transaction. Its
+travel, timing, payment, revenue, exit, and decision restart remain stock; only
+the private coating payload differs.
 
 ## Private oil split
 
-The completed implementation preserves native Rogues Guild poison as
-`WeaponPoisoned == 1`. The Laboratory assigns `2` for Paralytic Oil and `3` for
-Transmutation Oil, allowing the stock poison branch to remain present and
-independently functional.
+The completed implementation preserves native Rogues Guild poison exactly as
+`WeaponPoisoned == 1`. Oil is an independent persistent integer attribute named
+`AlchemyWeaponOilType`: `1` is Paralytic Oil and `2` is Transmutation Oil. It is
+created once with the same `$HasAttribute` / `$AddAttribute` agent-property
+contract used by the Haunt's persistent perks, then assigned during the stock
+enchantment purchase transaction. A hero may therefore own one oil, native
+poison, and Wizard weapon enchantment simultaneously. The oil check rejects
+only an already-owned oil; it neither reads nor writes `WeaponPoisoned` or the
+stock magic-bonus attributes.
+
+Each successful purchase also clones the stock Magic Ring's permanent effect
+presentation. The Laboratory creates one private
+duration-`1`, `"Infinite"`
+overlay with `Menu=11`, so Majesty's native hero Enchantments/Effects list shows
+either **Paralytic Weapon Oil** or **Transmutation Weapon Oil**. It is created
+by a private literal clone of `Done_Enhancing_Equipment`, immediately after
+stock `Exit_Building`, rather than while the hero is hidden inside the Lab. The overlay
+does not own state, combat timing, gold, or paralysis cleanup. For
+this checkpoint both descriptions point at the private transparent `ALo0`
+image, so the list entry does not add an overhead world icon.
 
 The stock `Obtain_Enchantment` transaction still owns travel, visit duration,
 payment, building revenue, exit, and decision-tree restart. Its only new choice
@@ -86,11 +96,12 @@ puts stock Warriors, Rangers, Barbarians, and Dwarves on Paralytic Oil while
 Elves, Rogues, and the greed-30 Alchemist choose Transmutation Oil.
 
 The packaged `damage` function is generated from an exact stock clone. Its
-native `WeaponPoisoned == 1 -> Poison_begin` block is unchanged; two adjacent
-branches are the only modifications. Value 2 uses Paralytic Gaze/Vines'
+native `WeaponPoisoned == 1 -> Poison_begin` block is unchanged; an adjacent
+guarded read of `AlchemyWeaponOilType` is the only modification. The Paralytic status
+uses Paralytic Gaze/Vines'
 effector-owned `Freeze_Unit` lifecycle. Consecutive completed applications last
 3, 2, then 1 game-second, after which a stock duration-owned invisible effector
-provides 10 seconds of immunity and resets the sequence. Value 3 calls stock
+provides 10 seconds of immunity and resets the sequence. Private value 2 calls stock
 `Give_Gold` for 5 gold on each confirmed physical hit, preserving the native
 gold adjustment and floating-gold feedback.
 

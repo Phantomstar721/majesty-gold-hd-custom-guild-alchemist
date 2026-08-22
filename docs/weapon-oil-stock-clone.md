@@ -77,16 +77,19 @@ poison, and Wizard weapon enchantment simultaneously. The oil check rejects
 only an already-owned oil; it neither reads nor writes `WeaponPoisoned` or the
 stock magic-bonus attributes.
 
-Each successful purchase also clones the stock Magic Ring's permanent effect
-presentation. The Laboratory creates one private
+Each successful purchase clones the Magic Bazaar's stock `Speed_Tonic_Icon`,
+Majesty's proven native `Menu=11`, `StackPriority=1` Enchantments presenter.
+The Laboratory changes only the private identity, removes Speed Tonic's
+gameplay cleanup callback, and adds the stock-supported
+`NotVisibleInISOView` flag. It then creates one private
 duration-`1`, `"Infinite"`
 overlay with `Menu=11`, so Majesty's native hero Enchantments/Effects list shows
 either **Paralytic Weapon Oil** or **Transmutation Weapon Oil**. It is created
 by a private literal clone of `Done_Enhancing_Equipment`, immediately after
-stock `Exit_Building`, rather than while the hero is hidden inside the Lab. The overlay
-does not own state, combat timing, gold, or paralysis cleanup. For
-this checkpoint both descriptions point at the private transparent `ALo0`
-image, so the list entry does not add an overhead world icon.
+stock `Exit_Building`, rather than while the hero is hidden inside the Lab. The
+overlay does not own state, combat timing, gold, or paralysis cleanup. Both
+descriptions retain stock `XR01`, priority `1`, and `NotVisibleInISOView`, so they appear in
+the native Enchantments list without an overhead icon or custom UI hook.
 
 The stock `Obtain_Enchantment` transaction still owns travel, visit duration,
 payment, building revenue, exit, and decision-tree restart. Its only new choice
@@ -97,9 +100,21 @@ Elves, Rogues, and the greed-30 Alchemist choose Transmutation Oil.
 
 The packaged `damage` function is generated from an exact stock clone. Its
 native `WeaponPoisoned == 1 -> Poison_begin` block is unchanged; an adjacent
-guarded read of `AlchemyWeaponOilType` is the only modification. The Paralytic status
-uses Paralytic Gaze/Vines'
-effector-owned `Freeze_Unit` lifecycle. Consecutive completed applications last
+guarded read of `AlchemyWeaponOilType` is the only modification. The Paralytic
+status uses Vines' exact effector-owned `Freeze_Unit` lifecycle. One private
+Vines-derived restraint, `alchemist_paralytic_oil_restraint`, owns the duration
+and `Alchemy_Paralytic_Oil_End` cleanup callback and is created with stock's
+`"after"` ordering. Its private `ASO3` image channel contains the approved
+copper-and-acid-green alchemical restraint animation. It does not create Stun
+Serum's broken-bottle impact, restraint, or overhead potion debuff icon.
+The private image preserves Vines' two-set topology. Following the Haunt Frost
+Armor freeze implementation, every TILE uses one fixed 108-by-113 canvas: the
+first five opening frames grow the complete cage upward from fixed roots, every
+remaining opening and active-loop frame repeats the exact completed cage, and
+stock effector cleanup releases it. A grow/shrink sequence must never be spread
+across Vines' active loop, because that makes the restraint collapse and regrow
+while the target is still paralyzed.
+Consecutive completed applications last
 3, 2, then 1 game-second, after which a stock duration-owned invisible effector
 provides 10 seconds of immunity and resets the sequence. Private value 2 calls stock
 `Give_Gold` for 5 gold on each confirmed physical hit, preserving the native

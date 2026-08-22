@@ -65,9 +65,13 @@ if ($effectiveIncludeSiegeTestFixture) {
 if ($ApprovedSpriteTestSet) {
     $arguments += "--approved-sprite-test-set"
 }
-if (-not [string]::IsNullOrWhiteSpace($ReuseArtFrom)) {
+$effectiveReuseArtFrom = $ReuseArtFrom
+if (-not $ApprovedSpriteTestSet -and [string]::IsNullOrWhiteSpace($effectiveReuseArtFrom)) {
+    $effectiveReuseArtFrom = Join-Path $repoRoot "dist\CustomGuildAlchemistSpriteTest"
+}
+if (-not [string]::IsNullOrWhiteSpace($effectiveReuseArtFrom)) {
     $arguments += "--reuse-art-from"
-    $arguments += $ReuseArtFrom
+    $arguments += $effectiveReuseArtFrom
 }
 
 & $python @arguments

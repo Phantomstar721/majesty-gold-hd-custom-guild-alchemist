@@ -42,9 +42,12 @@ Begin
 		$AddAttribute (Target, "Alchemy_Paralytic_Stage", "integer", Stage + 1);
 	Else
 		Target's "Alchemy_Paralytic_Stage" = Stage + 1;
-	$CreateEffector (Target, "alchemist_stun_serum_impact", 0);
-	$CreateEffector (Target, "alchemist_stun_serum_restraint", Duration);
-	$CreateEffector (Target, "alchemist_paralytic_oil_icon", Duration);
+	$CreateEffector (
+		Target,
+		"alchemist_paralytic_oil_restraint",
+		Duration,
+		"after"
+	);
 	$SetAttribute (Target, #ATTRIB_HasEffectParalyticGaze, 1);
 	$Freeze_Unit (Target);
 	$SpecifyIntent (Target, #intent_paralyized);

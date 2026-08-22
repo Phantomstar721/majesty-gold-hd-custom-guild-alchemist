@@ -136,7 +136,8 @@ End
 
 ///////////////////////////////////////////////////////////////////////////////
 // Literal MX Done_Enhancing_Equipment lifecycle. The only private insertion is
-// the post-exit Magic Ring presentation selected by the private coating value.
+// the post-exit stock Speed Tonic Enchantments presentation selected by the
+// private coating value. NotVisibleInISOView prevents an overhead icon.
 ///////////////////////////////////////////////////////////////////////////////
 Function Alchemist_Done_Enhancing_Equipment (agent ThisAgent)
 Declare

@@ -69,9 +69,11 @@ FLASH_FLASK_ACTIVATION_CUSTOM = b"AFF2Flash Flask Cast"
 STUN_SERUM_IMPACT_CUSTOM = b"ASS1Stun Serum Hit"
 STUN_SERUM_RESTRAINT_CUSTOM = b"ASS2Stun Serum Bind"
 STUN_SERUM_DEBUFF_CUSTOM = b"ASS3Stun Serum Icon"
+PARALYTIC_OIL_RESTRAINT_CUSTOM = b"ASO3Oil Restraint"
 BUFF_ICON_PALETTE = 560
 FLASH_FLASK_ACTIVATION_PALETTE = 505
 FLASH_FLASK_ACTIVATION_HEADER = (3, 99, 103, 0, 32, 56, 43, 8)
+VINES_FIXED_HEADER = (3, 113, 108, 108, 32, 66, 54, 8)
 PROGRESS_SOURCE = b"INSrreasearch"
 PROGRESS_CUSTOM = b"ALSRalchemy progress"
 BUILDING_PROFILE_TILE = 1509
@@ -207,6 +209,107 @@ def generated_approved_strip_tile(
         palettes,
         palette_index,
         tuple(header),
+    )
+
+
+def generated_discrete_strip_tile(
+    stock,
+    palettes,
+    source_png: Path,
+    source_frame_count: int,
+    source_frame_index: int,
+    palette_index: int,
+    fixed_header: tuple[int, int, int, int, int, int, int, int],
+) -> bytes:
+    """Render one exact approved strip cell without cross-frame ghosting."""
+    source = keyed_strip_frames(source_png, source_frame_count)[source_frame_index]
+    bbox = source.getchannel("A").getbbox()
+    if bbox is None:
+        raise ValueError(f"Approved strip frame {source_frame_index} is transparent")
+    source = source.crop(bbox)
+    width = fixed_header[2]
+    height = fixed_header[1]
+    fit = min(
+        width * 0.94 / max(1, source.width),
+        height * 0.94 / max(1, source.height),
+    )
+    source = source.resize(
+        (
+            max(2, round(source.width * fit)),
+            max(2, round(source.height * fit)),
+        ),
+        Image.Resampling.LANCZOS,
+    )
+    canvas = Image.new("RGBA", (width, height), (0, 0, 0, 0))
+    canvas.alpha_composite(
+        source,
+        ((width - source.width) // 2, (height - source.height) // 2),
+    )
+    return stock.rgba_to_indexed_tile(
+        canvas,
+        palettes,
+        palette_index,
+        fixed_header,
+    )
+
+
+def generated_frost_armor_hold_tile(
+    stock,
+    palettes,
+    source_png: Path,
+    palette_index: int,
+    fixed_header: tuple[int, int, int, int, int, int, int, int],
+    opening_frame_index: int | None,
+    source_frame_count: int = 1,
+    peak_frame_index: int = 0,
+) -> bytes:
+    """Clone Haunt Frost Armor: fixed roots, five-frame growth, then hold."""
+    if source_frame_count == 1:
+        with Image.open(source_png) as loaded:
+            source = loaded.convert("RGBA")
+        bbox = source.getchannel("A").getbbox()
+        if bbox is None:
+            raise ValueError(f"Frost Armor-style source has no visible art: {source_png}")
+        source = source.crop(bbox)
+    else:
+        source = keyed_strip_frames(source_png, source_frame_count)[peak_frame_index]
+        bbox = source.getchannel("A").getbbox()
+        if bbox is None:
+            raise ValueError(f"Frost Armor-style peak frame is transparent: {source_png}")
+        source = source.crop(bbox)
+
+    width = fixed_header[2]
+    height = fixed_header[1]
+    fit = min(
+        width * 0.96 / max(1, source.width),
+        height * 0.96 / max(1, source.height),
+    )
+    source = source.resize(
+        (
+            max(2, round(source.width * fit)),
+            max(2, round(source.height * fit)),
+        ),
+        Image.Resampling.LANCZOS,
+    )
+    growth_scales = (0.22, 0.42, 0.68, 0.86, 1.0)
+    if opening_frame_index is not None:
+        scale = growth_scales[min(opening_frame_index, len(growth_scales) - 1)]
+        if scale < 1.0:
+            source = source.resize(
+                (source.width, max(1, round(source.height * scale))),
+                Image.Resampling.BICUBIC,
+            )
+
+    canvas = Image.new("RGBA", (width, height), (0, 0, 0, 0))
+    canvas.alpha_composite(
+        source,
+        ((width - source.width) // 2, height - source.height - 1),
+    )
+    return stock.rgba_to_indexed_tile(
+        canvas,
+        palettes,
+        palette_index,
+        fixed_header,
     )
 
 
@@ -684,6 +787,9 @@ def write_maindata(
     stun_serum_debuff_imag = stock.read_cam_entry(
         source, b"IMAG", b"QRc1poison_IC"
     ).data
+    paralytic_oil_restraint_imag = stock.read_cam_entry(
+        source, b"IMAG", b"CRB1vines_e"
+    ).data
 
     approved_bundle = (
         load_approved_sprite_bundle(
@@ -948,6 +1054,9 @@ def write_maindata(
         repo / "assets/source/spells/stun-serum/restraint-strip.png"
     )
     stun_debuff_source_png = repo / "assets/source/spells/stun-serum/debuff-strip.png"
+    paralytic_oil_restraint_source_png = (
+        repo / "assets/source/effects/paralytic-oil/approved-restraint-master.png"
+    )
     for source_png in (
         vigor_source_png,
         flash_buff_source_png,
@@ -955,6 +1064,7 @@ def write_maindata(
         stun_impact_source_png,
         stun_restraint_source_png,
         stun_debuff_source_png,
+        paralytic_oil_restraint_source_png,
     ):
         if not source_png.is_file():
             raise FileNotFoundError(source_png)
@@ -1030,19 +1140,17 @@ def write_maindata(
     )
     if len(stun_impact_indices) != 6:
         raise ValueError("Stock XR30 Stun Serum impact scaffold changed")
-    stun_impact_template = mx_tiles[stun_impact_indices[-1]].data
     stun_impact_replacements: dict[int, int] = {}
+    stun_impact_phase_indices = (0, 1, 2, 3, 5, 7)
     for frame, source_index in enumerate(stun_impact_indices):
         stun_impact_replacements[source_index] = append(
             f"ASS1Impact{frame:02d}".encode("ascii"),
-            generated_approved_strip_tile(
+            generated_discrete_strip_tile(
                 stock,
-                stun_impact_template,
                 palettes,
                 stun_impact_source_png,
                 8,
-                frame,
-                len(stun_impact_indices),
+                stun_impact_phase_indices[frame],
                 FLASH_FLASK_ACTIVATION_PALETTE,
                 FLASH_FLASK_ACTIVATION_HEADER,
             ),
@@ -1056,21 +1164,45 @@ def write_maindata(
     stun_restraint_source_indices = tuple(range(2578, 2608))
     stun_restraint_replacements: dict[int, int] = {}
     for frame, source_index in enumerate(stun_restraint_source_indices):
+        opening_frame = frame if source_index <= 2594 else None
         stun_restraint_replacements[source_index] = append(
             f"ASS2Bind{frame:02d}".encode("ascii"),
-            generated_approved_strip_tile(
+            generated_frost_armor_hold_tile(
                 stock,
-                tiles[source_index].data,
                 palettes,
                 stun_restraint_source_png,
-                8,
-                frame,
-                len(stun_restraint_source_indices),
                 FLASH_FLASK_ACTIVATION_PALETTE,
+                VINES_FIXED_HEADER,
+                opening_frame,
+                source_frame_count=8,
+                peak_frame_index=4,
             ),
         )
     stun_serum_restraint_imag = stock.remap_imag_low16_tile_indices(
         stun_serum_restraint_imag, stun_restraint_replacements
+    )
+
+    # Paralytic Oil uses Vines' exact callback-owned 30-frame restraint
+    # presentation, but owns a completely private alchemical cage channel.
+    # It deliberately does not borrow Stun Serum's bottle impact or overhead
+    # debuff icon.
+    paralytic_oil_restraint_replacements: dict[int, int] = {}
+    for frame, source_index in enumerate(stun_restraint_source_indices):
+        opening_frame = frame if source_index <= 2594 else None
+        paralytic_oil_restraint_replacements[source_index] = append(
+            f"ASO3Bind{frame:02d}".encode("ascii"),
+            generated_frost_armor_hold_tile(
+                stock,
+                palettes,
+                paralytic_oil_restraint_source_png,
+                FLASH_FLASK_ACTIVATION_PALETTE,
+                VINES_FIXED_HEADER,
+                opening_frame,
+            ),
+        )
+    paralytic_oil_restraint_imag = stock.remap_imag_low16_tile_indices(
+        paralytic_oil_restraint_imag,
+        paralytic_oil_restraint_replacements,
     )
 
     # QRc1 is stock Poison's animated overhead-status scaffold (eight TILE
@@ -1266,6 +1398,10 @@ def write_maindata(
             stock.pad_name(STUN_SERUM_RESTRAINT_CUSTOM), stun_serum_restraint_imag
         ),
         stock.CamEntry(stock.pad_name(STUN_SERUM_DEBUFF_CUSTOM), stun_serum_debuff_imag),
+        stock.CamEntry(
+            stock.pad_name(PARALYTIC_OIL_RESTRAINT_CUSTOM),
+            paralytic_oil_restraint_imag,
+        ),
     )
     stock.write_cam(
         (

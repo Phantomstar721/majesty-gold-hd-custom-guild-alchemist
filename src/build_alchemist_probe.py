@@ -21,15 +21,23 @@ from alchemist_art_package import (
     PHOENIX_LIFECYCLE_CUSTOM,
     PHOENIX_LIFECYCLE_FRAMES,
     PHOENIX_VISIBLE_FRAMES,
+    PARALYTIC_OIL_RESTRAINT_CUSTOM,
     STUN_SERUM_DEBUFF_CUSTOM,
     STUN_SERUM_IMPACT_CUSTOM,
     STUN_SERUM_RESTRAINT_CUSTOM,
     VIGOR_EFFECT_CUSTOM,
+    generated_discrete_strip_tile,
+    generated_frost_armor_hold_tile,
+    VINES_FIXED_HEADER,
     load_stock_pipeline,
     write_interfacedata,
     write_maindata,
 )
-from approved_sprite_bundle import sha256_file
+from approved_sprite_bundle import (
+    COMPLETED_HANDOFF_AGGREGATE_SHA256,
+    COMPLETED_HANDOFF_MANIFEST_SHA256,
+    sha256_file,
+)
 
 
 MAGIC = b"CYLBPC  \x01\x00\x01\x00"
@@ -116,7 +124,6 @@ PARALYTIC_OIL_STATUS_ID = "ALo1"
 PARALYTIC_OIL_STATUS_NAME = "alchemist_paralytic_weapon_oil_status"
 TRANSMUTATION_OIL_STATUS_ID = "ALo2"
 TRANSMUTATION_OIL_STATUS_NAME = "alchemist_transmutation_weapon_oil_status"
-OIL_STATUS_IMAGE_ID = b"ALo0"
 PHOENIX_PHIAL_INTENT_INDEX = 310
 PHOENIX_PHIAL_INTENT_TEXT = "Purchasing a Phoenix Phial at the alchemy lab"
 PHOENIX_PHIAL_ITEM_ID = 113
@@ -199,6 +206,45 @@ APPROVED_SPRITE_PIPELINE_ROOT = (
     SOURCE_ROOT.parent / "assets" / "source" / "approved-alchemist-sprite-set-v1"
 )
 APPROVED_SPRITE_PROVENANCE_NAME = "ApprovedSpriteTestSet.json"
+
+
+def require_verified_approved_art_package(reuse_root: Path) -> Path:
+    """Fail closed unless reusable CAMs carry the approved sprite provenance."""
+    resolved = reuse_root.resolve()
+    repo_root = SOURCE_ROOT.parent.resolve()
+    if repo_root not in resolved.parents and resolved != repo_root:
+        raise ValueError("Reusable art package must stay inside the Alchemist repository")
+    package_root = resolved.parent if resolved.name.casefold() == "data" else resolved
+    data_root = package_root / "Data"
+    if not data_root.is_dir():
+        raise ValueError(f"Reusable art package has no Data directory: {package_root}")
+    provenance_path = package_root / APPROVED_SPRITE_PROVENANCE_NAME
+    if not provenance_path.is_file():
+        raise ValueError(
+            "Reusable art package is not an approved Alchemist sprite package: "
+            f"missing {provenance_path}"
+        )
+    provenance = json.loads(provenance_path.read_text(encoding="utf-8"))
+    if provenance.get("schema") != "majesty-alchemist-approved-sprite-test-set-v2":
+        raise ValueError("Reusable art package has an unknown approved-sprite schema")
+    handoff = provenance.get("handoff", {})
+    if handoff.get("manifest_sha256") != COMPLETED_HANDOFF_MANIFEST_SHA256:
+        raise ValueError("Reusable art package does not match the approved handoff manifest")
+    if handoff.get("payload_aggregate_sha256") != COMPLETED_HANDOFF_AGGREGATE_SHA256:
+        raise ValueError("Reusable art package does not match the approved sprite payload")
+    package_hashes = provenance.get("output", {}).get("package_file_sha256", {})
+    for relative_name in (
+        "Data/alchemist_maindata.cam",
+        "Data/alchemist_interfacedata.cam",
+    ):
+        path = package_root / Path(relative_name)
+        if not path.is_file():
+            raise ValueError(f"Reusable approved art package is missing {path}")
+        if package_hashes.get(relative_name) != sha256_file(path):
+            raise ValueError(
+                f"Reusable approved art hash does not match provenance: {relative_name}"
+            )
+    return package_root
 
 
 def require_approved_sprite_output_root(output_root: Path) -> Path:
@@ -910,75 +956,216 @@ def write_cam(path: Path, sections: tuple[CamSection, ...]) -> None:
     path.write_bytes(output)
 
 
-def install_invisible_oil_status_image(game_data: Path, main_art: Path) -> None:
-    """Append one private blank IMAG without regenerating approved source art."""
+def install_paralytic_oil_restraint_image(game_data: Path, main_art: Path) -> None:
+    """Append the private Vines-clone restraint to reused approved art."""
     stock = load_stock_pipeline(SOURCE_ROOT.parent)
-    output_tiles = stock.read_cam_entries(main_art, b"TILE")
-    blank_index = next(
-        (
-            index
-            for index, entry in enumerate(output_tiles)
-            if entry.name.startswith(b"PXE1Phoenix14")
-        ),
-        None,
-    )
-    if blank_index is None:
-        raise ValueError("Private transparent Phoenix lifecycle TILE is missing")
-    decoded = stock.decode_indexed_v3_tile(output_tiles[blank_index].data)
-    if decoded is None or any(value for row in decoded[2] for value in row):
-        raise ValueError("Private oil-status TILE source is not transparent")
-
-    ring_entry = next(
-        (
-            entry
-            for entry in stock.read_cam_entries(game_data / "maindata.cam", b"IMAG")
-            if entry.name.startswith(b"QRd0")
-        ),
-        None,
-    )
-    if ring_entry is None:
-        raise ValueError("Stock Magic Ring IMAG is missing")
-    ring_sets = stock.single_direction_imag_animation_sets(ring_entry.data)
-    ring_indices = stock.animation_tile_indices(ring_entry.data, len(output_tiles))
-    if len(ring_sets) != 1 or ring_sets[0][0] != 64 or not ring_indices:
-        raise ValueError("Stock Magic Ring IMAG topology changed")
-    # animation_tile_indices is the proven Haunt parser for actual frame words.
-    # single_direction_imag_animation_sets begins eight bytes too early for this
-    # overlay family and would corrupt direction metadata at offset 0x78.
-    invisible = stock.remap_imag_animation_sequence(
-        ring_entry.data,
-        [blank_index] * len(ring_indices),
-    )
-
     sections = list(read_cam_sections(main_art))
     imag_index = next(
         (index for index, section in enumerate(sections) if section.extension == b"IMAG"),
         None,
     )
-    if imag_index is None:
-        raise ValueError("Alchemist main art has no IMAG section")
+    tile_index = next(
+        (index for index, section in enumerate(sections) if section.extension == b"TILE"),
+        None,
+    )
+    if imag_index is None or tile_index is None:
+        raise ValueError("Alchemist main art lacks IMAG/TILE sections")
     existing = next(
         (
             entry
             for entry in sections[imag_index].entries
-            if entry.name.startswith(OIL_STATUS_IMAGE_ID)
+            if entry.name.startswith(PARALYTIC_OIL_RESTRAINT_CUSTOM[:4])
         ),
         None,
     )
+    existing_private_indices: dict[bytes, int] = {}
     if existing is not None:
-        existing_indices = stock.animation_tile_indices(
-            existing.data,
-            len(output_tiles),
+        existing_private_indices = {
+            entry.name.rstrip(b"\x00"): index
+            for index, entry in enumerate(sections[tile_index].entries)
+            if entry.name.startswith(b"ASO3Bind")
+        }
+        private_indices = set(existing_private_indices.values())
+        referenced_indices = {
+            struct.unpack_from("<H", existing.data, offset)[0]
+            for offset in range(0, len(existing.data) - 1, 2)
+        }
+        if len(private_indices) != 30 or not private_indices.issubset(referenced_indices):
+            raise ValueError("Existing private Paralytic Oil restraint is malformed")
+
+    source = game_data / "maindata.cam"
+    palettes = stock.read_cam_entries(source, b"SPLT")
+    source_imag = stock.read_cam_entry(source, b"IMAG", b"CRB1vines_e").data
+    source_indices = tuple(range(2578, 2608))
+    source_png = (
+        SOURCE_ROOT.parent
+        / "assets/source/effects/paralytic-oil/approved-restraint-master.png"
+    )
+    if not source_png.is_file():
+        raise FileNotFoundError(source_png)
+    output_tiles = list(sections[tile_index].entries)
+    replacements: dict[int, int] = {}
+    for frame, source_index in enumerate(source_indices):
+        tile_name = f"ASO3Bind{frame:02d}".encode("ascii")
+        rendered = CamEntry(
+            pad_name(tile_name),
+            generated_frost_armor_hold_tile(
+                stock,
+                palettes,
+                source_png,
+                PHOENIX_EFFECT_PALETTE,
+                VINES_FIXED_HEADER,
+                frame if source_index <= 2594 else None,
+            ),
         )
-        if not existing_indices or any(index != blank_index for index in existing_indices):
-            raise ValueError("Existing private oil-status IMAG is not transparent")
-        return
+        if existing is None:
+            replacements[source_index] = len(output_tiles)
+            output_tiles.append(rendered)
+        else:
+            output_index = existing_private_indices.get(tile_name)
+            if output_index is None:
+                raise ValueError(f"Existing Paralytic Oil TILE is missing: {tile_name!r}")
+            replacements[source_index] = output_index
+            output_tiles[output_index] = rendered
+    private_imag = stock.remap_imag_low16_tile_indices(source_imag, replacements)
     section = sections[imag_index]
+    if existing is None:
+        image_entries = section.entries + (
+            CamEntry(pad_name(PARALYTIC_OIL_RESTRAINT_CUSTOM), private_imag),
+        )
+    else:
+        image_entries = tuple(
+            CamEntry(entry.name, private_imag) if entry is existing else entry
+            for entry in section.entries
+        )
     sections[imag_index] = CamSection(
         section.extension,
-        section.entries
-        + (CamEntry(pad_name(b"ALo0Oil Status"), bytes(invisible)),),
+        image_entries,
         section.padding,
+    )
+    tile_section = sections[tile_index]
+    sections[tile_index] = CamSection(
+        tile_section.extension,
+        tuple(output_tiles),
+        tile_section.padding,
+    )
+    write_cam(main_art, tuple(sections))
+
+
+def install_refined_stun_serum_images(game_path: Path, main_art: Path) -> None:
+    """Repaint existing private Stun channels with their proven stock topology."""
+    stock = load_stock_pipeline(SOURCE_ROOT.parent)
+    sections = list(read_cam_sections(main_art))
+    imag_index = next(
+        (index for index, section in enumerate(sections) if section.extension == b"IMAG"),
+        None,
+    )
+    tile_index = next(
+        (index for index, section in enumerate(sections) if section.extension == b"TILE"),
+        None,
+    )
+    if imag_index is None or tile_index is None:
+        raise ValueError("Alchemist main art lacks IMAG/TILE sections")
+    image_entries = list(sections[imag_index].entries)
+    output_tiles = list(sections[tile_index].entries)
+    private_tile_indices = {
+        entry.name.rstrip(b"\x00"): index
+        for index, entry in enumerate(output_tiles)
+        if entry.name.startswith((b"ASS1Impact", b"ASS2Bind"))
+    }
+    if len([name for name in private_tile_indices if name.startswith(b"ASS1Impact")]) != 6:
+        raise ValueError("Existing private Stun Serum impact art is incomplete")
+    if len([name for name in private_tile_indices if name.startswith(b"ASS2Bind")]) != 30:
+        raise ValueError("Existing private Stun Serum restraint art is incomplete")
+
+    data = game_path / "Data" / "maindata.cam"
+    data_mx = game_path / "DataMX" / "mx_maindata.cam"
+    palettes = stock.read_cam_entries(data, b"SPLT")
+    impact_source = stock.read_cam_entry(
+        data_mx,
+        b"IMAG",
+        b"XR30frost_fld_hit",
+    ).data
+    impact_source_indices = stock.animation_tile_indices(
+        impact_source,
+        len(stock.read_cam_entries(data_mx, b"TILE")),
+    )
+    if len(impact_source_indices) != 6:
+        raise ValueError("Stock XR30 Stun impact topology changed")
+    impact_png = SOURCE_ROOT.parent / "assets/source/spells/stun-serum/impact-strip.png"
+    impact_phase_indices = (0, 1, 2, 3, 5, 7)
+    impact_replacements: dict[int, int] = {}
+    for frame, source_index in enumerate(impact_source_indices):
+        tile_name = f"ASS1Impact{frame:02d}".encode("ascii")
+        output_index = private_tile_indices[tile_name]
+        impact_replacements[source_index] = output_index
+        output_tiles[output_index] = CamEntry(
+            pad_name(tile_name),
+            generated_discrete_strip_tile(
+                stock,
+                palettes,
+                impact_png,
+                8,
+                impact_phase_indices[frame],
+                PHOENIX_EFFECT_PALETTE,
+                FLASH_FLASK_ACTIVATION_HEADER,
+            ),
+        )
+    private_impact = stock.remap_imag_animation_tiles(
+        impact_source,
+        impact_replacements,
+    )
+
+    restraint_source = stock.read_cam_entry(data, b"IMAG", b"CRB1vines_e").data
+    restraint_source_indices = tuple(range(2578, 2608))
+    restraint_png = SOURCE_ROOT.parent / "assets/source/spells/stun-serum/restraint-strip.png"
+    restraint_replacements: dict[int, int] = {}
+    for frame, source_index in enumerate(restraint_source_indices):
+        tile_name = f"ASS2Bind{frame:02d}".encode("ascii")
+        output_index = private_tile_indices[tile_name]
+        restraint_replacements[source_index] = output_index
+        output_tiles[output_index] = CamEntry(
+            pad_name(tile_name),
+            generated_frost_armor_hold_tile(
+                stock,
+                palettes,
+                restraint_png,
+                PHOENIX_EFFECT_PALETTE,
+                VINES_FIXED_HEADER,
+                frame if source_index <= 2594 else None,
+                source_frame_count=8,
+                peak_frame_index=4,
+            ),
+        )
+    private_restraint = stock.remap_imag_low16_tile_indices(
+        restraint_source,
+        restraint_replacements,
+    )
+
+    replacements = {
+        STUN_SERUM_IMPACT_CUSTOM[:4]: private_impact,
+        STUN_SERUM_RESTRAINT_CUSTOM[:4]: private_restraint,
+    }
+    seen: set[bytes] = set()
+    for index, entry in enumerate(image_entries):
+        key = entry.name[:4]
+        if key in replacements:
+            image_entries[index] = CamEntry(entry.name, replacements[key])
+            seen.add(key)
+    if seen != set(replacements):
+        raise ValueError("Private Stun Serum IMAG records are missing")
+
+    imag_section = sections[imag_index]
+    sections[imag_index] = CamSection(
+        imag_section.extension,
+        tuple(image_entries),
+        imag_section.padding,
+    )
+    tile_section = sections[tile_index]
+    sections[tile_index] = CamSection(
+        tile_section.extension,
+        tuple(output_tiles),
+        tile_section.padding,
     )
     write_cam(main_art, tuple(sections))
 
@@ -1152,8 +1339,12 @@ def build_units_xml(stock_buildings_xml: Path, stock_characters_xml: Path) -> by
     return ET.tostring(output, encoding="utf-8", xml_declaration=False) + b"\n"
 
 
-def build_brewing_overlays_xml(stock_overlays_xml: Path) -> bytes:
+def build_brewing_overlays_xml(
+    stock_overlays_xml: Path,
+    stock_mx_overlays_xml: Path,
+) -> bytes:
     stock_root = ET.parse(stock_overlays_xml).getroot()
+    stock_mx_root = ET.parse(stock_mx_overlays_xml).getroot()
     source = stock_root.find('.//Description[@Name="Rage_icon"]')
     if source is None:
         raise ValueError("Stock Rage_icon overlay is missing")
@@ -1200,24 +1391,28 @@ def build_brewing_overlays_xml(stock_overlays_xml: Path) -> bytes:
     resurrection_script.set("GPLFunction", "Phoenix_Phial_Resurrection_End")
     output.append(resurrection)
 
-    # Stock Magic Ring is Majesty's permanent purchased-effect contract: an
-    # infinite Menu-11 overlay whose Description is rendered in the hero's
-    # Enchantments/Effects list and which follows the normal hero lifecycle.
-    ring_source = stock_root.find('.//Description[@Name="ring_icon"]')
-    if ring_source is None:
-        raise ValueError("Stock ring_icon permanent-effect overlay is missing")
-    ring_image = ring_source.find("./Engine/ImageIDBase")
-    ring_menu = ring_source.find("./Engine/Menu")
+    # Magic Bazaar's timed icons are the proven native Enchantments-list
+    # presenters. Clone Speed Tonic literally, changing only private identity,
+    # removing its gameplay cleanup callback, and applying stock's existing
+    # NotVisibleInISOView flag so permanent oil ownership has no overhead icon.
+    status_source = stock_mx_root.find(
+        './/Description[@ID="XR01"][@Name="Speed_Tonic_Icon"]'
+    )
+    if status_source is None:
+        raise ValueError("Stock Speed Tonic Enchantments presenter is missing")
+    status_image = status_source.find("./Engine/ImageIDBase")
+    status_menu = status_source.find("./Engine/Menu")
     if (
-        ring_source.find("./Engine") is None
-        or ring_image is None
-        or ring_image.get("value") != "QRd0"
-        or ring_menu is None
-        or ring_menu.get("value") != "11"
-        or ring_source.find("./Game") is None
-        or ring_source.find("./Engine/Script") is not None
+        status_source.find("./Engine") is None
+        or status_image is None
+        or status_image.get("value") != "XR01"
+        or status_menu is None
+        or status_menu.get("value") != "11"
+        or status_source.find("./Game") is None
+        or status_source.find("./Game/StackPriority").get("value") != "1"
+        or status_source.find("./Engine/Script") is None
     ):
-        raise ValueError("Stock ring_icon permanent-effect contract changed")
+        raise ValueError("Stock Speed Tonic Enchantments contract changed")
     for status_id, status_name, description in (
         (
             PARALYTIC_OIL_STATUS_ID,
@@ -1230,13 +1425,19 @@ def build_brewing_overlays_xml(stock_overlays_xml: Path) -> bytes:
             "Transmutation Weapon Oil",
         ),
     ):
-        status = ET.fromstring(ET.tostring(ring_source, encoding="utf-8"))
+        status = ET.fromstring(ET.tostring(status_source, encoding="utf-8"))
         status.set("ID", status_id)
         status.set("Name", status_name)
         status.set("Description", description)
-        status.find("./Engine/ImageIDBase").set(
-            "value", OIL_STATUS_IMAGE_ID.decode("ascii")
-        )
+        status_engine = status.find("./Engine")
+        status_script = status_engine.find("./Script")
+        status_engine.remove(status_script)
+        if status.find('./Engine/Info[@value="NotVisibleInISOView"]') is None:
+            ET.SubElement(
+                status_engine,
+                "Info",
+                {"value": "NotVisibleInISOView"},
+            )
         output.append(status)
     ET.indent(output, space="\t")
     return ET.tostring(output, encoding="utf-8", xml_declaration=False) + b"\n"
@@ -1361,18 +1562,18 @@ def build_stun_serum_xml(stock_actions_xml: Path, stock_overlays_xml: Path) -> b
         {"type": "0", "cProc": "0", "GPLFunction": "Alchemist_Stun_Serum_End"},
     )
 
-    oil_icon = ET.fromstring(ET.tostring(stock_icon, encoding="utf-8"))
-    oil_icon.set("ID", "ASO1")
-    oil_icon.set("Name", "alchemist_paralytic_oil_icon")
-    oil_icon.set("Description", "Paralytic Oil")
-    oil_icon.find("./Engine/ImageIDBase").set(
-        "value", STUN_SERUM_DEBUFF_CUSTOM[:4].decode("ascii")
+    oil_restraint = ET.fromstring(ET.tostring(stock_restraint, encoding="utf-8"))
+    oil_restraint.set("ID", "ASO1")
+    oil_restraint.set("Name", "alchemist_paralytic_oil_restraint")
+    oil_restraint.set("Description", "Paralytic Oil")
+    oil_restraint.find("./Engine/ImageIDBase").set(
+        "value", PARALYTIC_OIL_RESTRAINT_CUSTOM[:4].decode("ascii")
     )
-    ET.SubElement(
-        oil_icon.find("./Engine"),
-        "Script",
-        {"type": "0", "cProc": "0", "GPLFunction": "Alchemy_Paralytic_Oil_End"},
-    )
+    oil_restraint.find("./Engine/DefaultSound").set("value", "0")
+    oil_restraint_script = oil_restraint.find("./Engine/Script")
+    if oil_restraint_script is None:
+        raise ValueError("Stock Vines restraint lost its cleanup callback")
+    oil_restraint_script.set("GPLFunction", "Alchemy_Paralytic_Oil_End")
 
     immunity = ET.fromstring(ET.tostring(stock_invisible_icon, encoding="utf-8"))
     immunity.set("ID", "ASO2")
@@ -1389,7 +1590,7 @@ def build_stun_serum_xml(stock_actions_xml: Path, stock_overlays_xml: Path) -> b
     )
 
     output = ET.Element("Majesty")
-    output.extend((action, impact, restraint, icon, oil_icon, immunity))
+    output.extend((action, impact, restraint, icon, oil_restraint, immunity))
     ET.indent(output, space="\t")
     return ET.tostring(output, encoding="utf-8", xml_declaration=False) + b"\n"
 
@@ -2471,33 +2672,93 @@ def validate_output(
             raise ValueError(f"Private oil status identity changed: {status_name}")
         if (
             status.find("./Engine/Menu").get("value") != "11"
-            or status.find("./Engine/ImageIDBase").get("value")
-            != OIL_STATUS_IMAGE_ID.decode("ascii")
+            or status.find("./Engine/ImageIDBase").get("value") != "XR01"
+            or status.find('./Engine/Info[@value="NotVisibleInISOView"]') is None
+            or status.find("./Game/StackPriority").get("value") != "1"
             or status.find("./Engine/Script") is not None
         ):
-            raise ValueError(f"Private oil status lost stock Magic Ring contract: {status_name}")
-    oil_status_image = read_cam_entry(
+            raise ValueError(
+                f"Private oil status lost stock Speed Tonic contract: {status_name}"
+            )
+    oil_restraint = stun_root.find(
+        './Description[@Name="alchemist_paralytic_oil_restraint"]'
+    )
+    if oil_restraint is None:
+        raise ValueError("Private Paralytic Oil restraint overlay is missing")
+    if (
+        oil_restraint.find("./Engine/ImageIDBase").get("value") != "ASO3"
+        or oil_restraint.find("./Engine/Script").get("GPLFunction")
+        != "Alchemy_Paralytic_Oil_End"
+    ):
+        raise ValueError("Private Paralytic Oil lost the stock Vines owner contract")
+    oil_restraint_imag = read_cam_entry(
         output_root / "Data" / "alchemist_maindata.cam",
         b"IMAG",
-        b"ALo0Oil Status",
+        PARALYTIC_OIL_RESTRAINT_CUSTOM,
     )
-    oil_status_tiles = read_cam_entries(
+    oil_restraint_tiles = read_cam_entries(
         output_root / "Data" / "alchemist_maindata.cam",
         b"TILE",
     )
     stock_pipeline = load_stock_pipeline(SOURCE_ROOT.parent)
-    oil_status_indices = stock_pipeline.animation_tile_indices(
-        oil_status_image.data,
-        len(oil_status_tiles),
-    )
-    if not oil_status_indices:
-        raise ValueError("Private oil-status IMAG has no playable frames")
-    for tile_index in oil_status_indices:
-        decoded = stock_pipeline.decode_indexed_v3_tile(
-            oil_status_tiles[tile_index].data
+    oil_restraint_indices = {
+        index
+        for index, entry in enumerate(oil_restraint_tiles)
+        if entry.name.startswith(b"ASO3Bind")
+    }
+    oil_restraint_references = {
+        struct.unpack_from("<H", oil_restraint_imag.data, offset)[0]
+        for offset in range(0, len(oil_restraint_imag.data) - 1, 2)
+    }
+    if (
+        len(oil_restraint_indices) != 30
+        or not oil_restraint_indices.issubset(oil_restraint_references)
+    ):
+        raise ValueError("Private Paralytic Oil restraint art is incomplete")
+    for tile_prefix in (b"ASS2Bind", b"ASO3Bind"):
+        restraint_frames = sorted(
+            (
+                entry.name.rstrip(b"\x00"),
+                entry.data,
+            )
+            for entry in oil_restraint_tiles
+            if entry.name.startswith(tile_prefix)
         )
-        if decoded is None or any(value for row in decoded[2] for value in row):
-            raise ValueError("Private oil-status IMAG contains visible world art")
+        if len(restraint_frames) != 30:
+            raise ValueError(f"Private restraint frame count changed: {tile_prefix!r}")
+        if any(
+            struct.unpack_from("<8H", tile, 0) != VINES_FIXED_HEADER
+            for _name, tile in restraint_frames
+        ):
+            raise ValueError(f"Private restraint lost its fixed canvas: {tile_prefix!r}")
+        opening_counts = []
+        for _name, tile in restraint_frames[:5]:
+            decoded = stock_pipeline.decode_indexed_v3_tile(tile)
+            if decoded is None:
+                raise ValueError(f"Private restraint TILE is invalid: {tile_prefix!r}")
+            opening_counts.append(
+                sum(value != 0 for row in decoded[2] for value in row)
+            )
+        if opening_counts != sorted(opening_counts) or len(set(opening_counts)) != 5:
+            raise ValueError(f"Private restraint lost Frost Armor growth: {tile_prefix!r}")
+        held_frame = restraint_frames[4][1]
+        if any(tile != held_frame for _name, tile in restraint_frames[5:]):
+            raise ValueError(f"Private restraint active loop is pulsing: {tile_prefix!r}")
+
+    impact_frames = sorted(
+        (
+            entry
+            for entry in oil_restraint_tiles
+            if entry.name.startswith(b"ASS1Impact")
+        ),
+        key=lambda entry: entry.name,
+    )
+    if len(impact_frames) != 6 or any(
+        struct.unpack_from("<8H", entry.data, 0)
+        != FLASH_FLASK_ACTIVATION_HEADER
+        for entry in impact_frames
+    ):
+        raise ValueError("Stun Serum impact lost its discrete fixed-canvas phases")
     if [item.find("./Engine/ImageIDBase").get("value") for item in buildings] != list(BUILDING_IDS):
         raise ValueError("Every Laboratory level must use its private image record")
     text_cam = output_root / "Data" / "alchemist_probe_textdata.cam"
@@ -2944,6 +3205,11 @@ def build(
 ) -> None:
     if approved_sprite_test_set and reuse_art_from is not None:
         raise ValueError("Approved sprite generation and art reuse are mutually exclusive")
+    if not approved_sprite_test_set and reuse_art_from is None:
+        raise ValueError(
+            "Normal Alchemist builds must reuse a verified approved-sprite package; "
+            "build -ApprovedSpriteTestSet first or pass --reuse-art-from"
+        )
     if approved_sprite_test_set:
         output_root = require_approved_sprite_output_root(output_root)
     data_dir = output_root / "Data"
@@ -2989,7 +3255,10 @@ def build(
         build_units_xml(sdk_data / "M_Buildings.xml", sdk_data / "M_Characters.xml")
     )
     (data_dir / "alchemist_brewing_overlays.xml").write_bytes(
-        build_brewing_overlays_xml(sdk_data / "M_Overlays.xml")
+        build_brewing_overlays_xml(
+            sdk_data / "M_Overlays.xml",
+            game_path / "SDK" / "OriginalQuests" / "DataMX" / "MX_Overlays.xml",
+        )
     )
     (data_dir / "alchemist_brewing_sounds.xml").write_bytes(
         build_brewing_sounds_xml(sdk_data / "M_Sounds.xml")
@@ -3027,11 +3296,8 @@ def build(
     )
     approved_art_provenance = None
     if reuse_art_from is not None:
-        reuse_root = reuse_art_from.resolve()
-        repo_root = SOURCE_ROOT.parent.resolve()
-        if repo_root not in reuse_root.parents and reuse_root != repo_root:
-            raise ValueError("Reusable art package must stay inside the Alchemist repository")
-        reuse_data = reuse_root / "Data" if (reuse_root / "Data").is_dir() else reuse_root
+        reuse_root = require_verified_approved_art_package(reuse_art_from)
+        reuse_data = reuse_root / "Data"
         for filename in ("alchemist_maindata.cam", "alchemist_interfacedata.cam"):
             source_art = reuse_data / filename
             if not source_art.is_file():
@@ -3062,8 +3328,12 @@ def build(
             art_cache.mkdir(parents=True, exist_ok=True)
             shutil.copy2(data_dir / "alchemist_maindata.cam", cached_main)
             shutil.copy2(data_dir / "alchemist_interfacedata.cam", cached_interface)
-    install_invisible_oil_status_image(
+    install_paralytic_oil_restraint_image(
         game_data,
+        data_dir / "alchemist_maindata.cam",
+    )
+    install_refined_stun_serum_images(
+        game_path,
         data_dir / "alchemist_maindata.cam",
     )
     if approved_sprite_test_set:

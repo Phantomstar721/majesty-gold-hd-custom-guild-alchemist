@@ -427,6 +427,26 @@ class AlchemistProbeTests(unittest.TestCase):
             "$IncludeSiegeTestFixture -or $ApprovedSpriteTestSet",
             powershell,
         )
+        self.assertIn(
+            'Join-Path $repoRoot "dist\\CustomGuildAlchemistSpriteTest"',
+            powershell,
+        )
+
+    def test_reusable_art_requires_approved_sprite_provenance(self) -> None:
+        with tempfile.TemporaryDirectory(dir=Path(__file__).resolve().parents[1]) as root:
+            package = Path(root)
+            (package / "Data").mkdir()
+            (package / "Data" / "alchemist_maindata.cam").write_bytes(b"stale")
+            (package / "Data" / "alchemist_interfacedata.cam").write_bytes(b"stale")
+            with self.assertRaisesRegex(ValueError, "not an approved Alchemist sprite package"):
+                builder.require_verified_approved_art_package(package)
+
+    def test_canonical_reusable_art_matches_completed_handoff(self) -> None:
+        repo = Path(__file__).resolve().parents[1]
+        package = repo / "dist" / "CustomGuildAlchemistSpriteTest"
+        self.assertEqual(
+            builder.require_verified_approved_art_package(package), package.resolve()
+        )
 
     def test_approved_sprite_output_is_confined_to_repository_dist(self) -> None:
         repo = Path(__file__).resolve().parents[1]
@@ -1082,8 +1102,12 @@ end
         self.assertIn(declaration, source)
         self.assertLess(
             source.index(declaration),
-            source.index('$CreateEffector (Target, "alchemist_stun_serum_restraint"'),
+            source.index('"alchemist_paralytic_oil_restraint"'),
         )
+        self.assertNotIn('"alchemist_stun_serum_impact"', source)
+        self.assertNotIn('"alchemist_stun_serum_restraint"', source)
+        self.assertNotIn('"alchemist_paralytic_oil_icon"', source)
+        self.assertIn('"after"', source)
 
     def test_private_oil_intent_appends_to_stock_aitx(self) -> None:
         stock = Path(
@@ -1165,14 +1189,15 @@ end
 
     def test_brewing_overlay_has_a_private_callback(self) -> None:
         stock = """<Majesty><Description type="Unit" subType="Overlay" ID="QRa1" Name="Rage_icon" Description="Rage of Krolm"><Engine><Info value="Directionless"/><Info value="DontBlock"/><ImageIDBase value="QRa1"/><Script type="0" cProc="0" GPLFunction="rage_end"/></Engine><Game><StackPriority value="1"/></Game></Description><Description type="Unit" subType="Overlay" ID="HRC1" Name="resurrection_effector" Description="Resurrection"><Engine><Info value="Directionless"/><Info value="DontBlock"/><Menu value="11"/><ImageIDBase value="HRC1"/><DefaultSound value="Resurrection"/><Script type="0" cProc="0" GPLFunction="Resurrection_End"/></Engine><Game><StackPriority value="0"/><Flags value="TransparentToMouse"/></Game></Description><Description type="Unit" subType="Overlay" ID="XR30" Name="Frost_Field_Hit_Effector" Description="Frost Field"><Engine><Info value="Directionless"/><Info value="DontBlock"/><Menu value="11"/><ImageIDBase value="XR30"/><AttachmentPointID value="2"/><DefaultSound value="Frost_Field_hit"/></Engine><Game><DialogID value="0"/><StackPriority value="0"/><Flags value="TransparentToMouse"/></Game></Description></Majesty>"""
-        stock = stock.replace(
-            "</Majesty>",
-            '<Description type="Unit" subType="Overlay" ID="QRd0" Name="ring_icon" Description="This hero has the Magic Ring."><Engine><Info value="Static"/><Info value="Directionless"/><Info value="DontBlock"/><Menu value="11"/><ImageIDBase value="QRd0"/><DefaultSound value="0"/></Engine><Game><DialogID value="0"/><StackPriority value="0"/></Game></Description></Majesty>',
-        )
+        mx_stock = '<Majesty><Description type="Unit" subType="Overlay" ID="XR01" Name="Speed_Tonic_Icon" Description="Speed Tonic"><Engine><Info value="Directionless"/><Info value="DontBlock"/><Menu value="11"/><ImageIDBase value="XR01"/><Script type="0" cProc="0" GPLFunction="Speed_Tonic_End"/><DefaultSound value="0"/></Engine><Game><DialogID value="0"/><StackPriority value="1"/></Game></Description></Majesty>'
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "M_Overlays.xml"
+            mx_path = Path(directory) / "MX_Overlays.xml"
             path.write_text(stock, encoding="utf-8")
-            output = ET.fromstring(builder.build_brewing_overlays_xml(path))
+            mx_path.write_text(mx_stock, encoding="utf-8")
+            output = ET.fromstring(
+                builder.build_brewing_overlays_xml(path, mx_path)
+            )
         overlay = output.find("Description")
         self.assertEqual(overlay.get("ID"), "AXE1")
         self.assertEqual(overlay.get("Name"), "alchemist_invigorating_elixer_icon")
@@ -1216,9 +1241,15 @@ end
         for status in statuses:
             self.assertEqual(status.find("./Engine/Menu").get("value"), "11")
             self.assertEqual(
-                status.find("./Engine/ImageIDBase").get("value"), "ALo0"
+                status.find("./Engine/ImageIDBase").get("value"), "XR01"
+            )
+            self.assertIsNotNone(
+                status.find('./Engine/Info[@value="NotVisibleInISOView"]')
             )
             self.assertIsNone(status.find("./Engine/Script"))
+            self.assertEqual(
+                status.find("./Game/StackPriority").get("value"), "1"
+            )
         self.assertEqual(len(output.findall("Description")), 4)
         self.assertIsNone(
             output.find('./Description[@Name="phoenix_phial_visual_effector"]')
@@ -1306,6 +1337,26 @@ end
         self.assertEqual(
             icon.find("./Engine/Script").get("GPLFunction"),
             "Alchemist_Stun_Serum_End",
+        )
+        oil_restraint = output.find(
+            './Description[@Name="alchemist_paralytic_oil_restraint"]'
+        )
+        self.assertIsNotNone(oil_restraint)
+        self.assertEqual(
+            oil_restraint.find("./Engine/ImageIDBase").get("value"), "ASO3"
+        )
+        self.assertEqual(
+            oil_restraint.find("./Engine/Script").get("GPLFunction"),
+            "Alchemy_Paralytic_Oil_End",
+        )
+        self.assertIsNone(
+            output.find('./Description[@Name="alchemist_paralytic_oil_icon"]')
+        )
+        immunity = output.find(
+            './Description[@Name="alchemist_paralytic_oil_immunity"]'
+        )
+        self.assertIsNotNone(
+            immunity.find('./Engine/Info[@value="NotVisibleInISOView"]')
         )
         source = (builder.GPL_SOURCE_ROOT / "Alchemist_Stun_Serum.gpl").read_text(
             encoding="utf-8"

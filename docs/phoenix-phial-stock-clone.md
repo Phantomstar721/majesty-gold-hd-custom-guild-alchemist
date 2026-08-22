@@ -73,7 +73,11 @@ at the hero's current location and creates a private clone of Agrela's
 termination, hero-type restoration, action reset, and active-script restart.
 
 The private completion callback then sets HP to 25 percent and calls stock
-`Flee`. That stock function chooses the hero's home or a safe inn, uses the
+`Flee` with stock `#intent_flee_lowHP`. This matters because Speed Tonic and
+Invisibility Brew both use `Flee_Check`, which accepts only the stock scared
+and low-HP flee intents. The former generic `#Intent_Flee` argument made both
+potions unavailable immediately after revival. Stock `Flee` chooses the hero's
+home or a safe inn, uses the
 normal safe-building travel path, and already contains the desired exception:
 a hero near a threatened home fights instead. With nowhere safe to flee, stock
 behavior makes the hero stand and fight.

@@ -617,14 +617,16 @@ class AlchemistProbeTests(unittest.TestCase):
         self.assertIn("(attack_action basic_attack)", data)
         self.assertIn("(attacktype 1)", data)
         self.assertIn("(castingrange 130)", data)
-        self.assertIn("(PercentageHPRetreat 15)", data)
-        self.assertIn("(enemy_estimation .5)", data)
-        self.assertIn("(self_estimation 2.0)", data)
+        self.assertIn("(PercentageHPRetreat 25)", data)
+        self.assertIn("(enemy_estimation .8)", data)
+        self.assertIn("(self_estimation 1.5)", data)
         self.assertIn("(birthScript\t\tAlchemist_birth)", data)
         self.assertNotIn("Cultist_Dagger", data)
         self.assertNotIn("Fire_Dagger", data)
         self.assertIn("(special_attack_action basic_attack)", data)
-        self.assertIn("(Greed 30)", data)
+        self.assertIn("(Greed 22)", data)
+        self.assertIn("(Luck 18)", data)
+        self.assertIn("(Immune_to_poison 1)", data)
         self.assertIn("(Upgrade_Armor_Chance\t100)", data)
         self.assertIn("(Upgrade_Weapon_Chance\t100)", data)
         self.assertIn("(evaluationScript\teval_enemies_nearby)", data)
@@ -672,7 +674,7 @@ class AlchemistProbeTests(unittest.TestCase):
         source = (builder.GPL_SOURCE_ROOT / "Alchemist_Rogue.gpl").read_text(
             encoding="utf-8"
         )
-        self.assertIn("expression #Alchemist_Base_Movement_Bonus -50", source)
+        self.assertIn("expression #Alchemist_Base_Movement_Bonus -45", source)
         self.assertIn("expression #Alchemist_Flash_Flask_Confidence 60", source)
         self.assertIn("expression #Alchemist_Stun_Serum_Confidence 100", source)
         self.assertIn("Function Alchemist_Sync_Speed_Profile", source)
@@ -848,6 +850,16 @@ class AlchemistProbeTests(unittest.TestCase):
         attack_range = hero.find("./Game/AttackRange")
         self.assertIsNotNone(attack_range)
         self.assertEqual((attack_range.get("min"), attack_range.get("max")), ("1", "1"))
+        for field_name, expected in (
+            ("Vitality", "11"),
+            ("Intelligence", "18"),
+            ("Artifice", "20"),
+            ("Attack", "45"),
+            ("Parry", "35"),
+            ("Dodge", "35"),
+            ("WeaponBasicDamage", "6"),
+        ):
+            self.assertEqual(hero.find(f"./Game/{field_name}").get("value"), expected)
 
     def test_title_alias_changes_only_the_gpl_title_token(self) -> None:
         data = (builder.GPL_SOURCE_ROOT / "Alchemist_Building_Data.dat").read_text(
@@ -1188,7 +1200,7 @@ end
         )
 
     def test_brewing_overlay_has_a_private_callback(self) -> None:
-        stock = """<Majesty><Description type="Unit" subType="Overlay" ID="QRa1" Name="Rage_icon" Description="Rage of Krolm"><Engine><Info value="Directionless"/><Info value="DontBlock"/><ImageIDBase value="QRa1"/><Script type="0" cProc="0" GPLFunction="rage_end"/></Engine><Game><StackPriority value="1"/></Game></Description><Description type="Unit" subType="Overlay" ID="HRC1" Name="resurrection_effector" Description="Resurrection"><Engine><Info value="Directionless"/><Info value="DontBlock"/><Menu value="11"/><ImageIDBase value="HRC1"/><DefaultSound value="Resurrection"/><Script type="0" cProc="0" GPLFunction="Resurrection_End"/></Engine><Game><StackPriority value="0"/><Flags value="TransparentToMouse"/></Game></Description><Description type="Unit" subType="Overlay" ID="XR30" Name="Frost_Field_Hit_Effector" Description="Frost Field"><Engine><Info value="Directionless"/><Info value="DontBlock"/><Menu value="11"/><ImageIDBase value="XR30"/><AttachmentPointID value="2"/><DefaultSound value="Frost_Field_hit"/></Engine><Game><DialogID value="0"/><StackPriority value="0"/><Flags value="TransparentToMouse"/></Game></Description></Majesty>"""
+        stock = """<Majesty><Description type="Unit" subType="Overlay" ID="QRa1" Name="Rage_icon" Description="Rage of Krolm"><Engine><Info value="Directionless"/><Info value="DontBlock"/><ImageIDBase value="QRa1"/><Script type="0" cProc="0" GPLFunction="rage_end"/></Engine><Game><StackPriority value="1"/></Game></Description><Description type="Unit" subType="Overlay" ID="QRd0" Name="ring_icon" Description="This hero has the Magic Ring."><Engine><Info value="Static"/><Info value="Directionless"/><Info value="DontBlock"/><Menu value="11"/><ImageIDBase value="QRd0"/><DefaultSound value="0"/></Engine><Game><DialogID value="0"/><StackPriority value="0"/></Game></Description><Description type="Unit" subType="Overlay" ID="HRC1" Name="resurrection_effector" Description="Resurrection"><Engine><Info value="Directionless"/><Info value="DontBlock"/><Menu value="11"/><ImageIDBase value="HRC1"/><DefaultSound value="Resurrection"/><Script type="0" cProc="0" GPLFunction="Resurrection_End"/></Engine><Game><StackPriority value="0"/><Flags value="TransparentToMouse"/></Game></Description><Description type="Unit" subType="Overlay" ID="XR30" Name="Frost_Field_Hit_Effector" Description="Frost Field"><Engine><Info value="Directionless"/><Info value="DontBlock"/><Menu value="11"/><ImageIDBase value="XR30"/><AttachmentPointID value="2"/><DefaultSound value="Frost_Field_hit"/></Engine><Game><DialogID value="0"/><StackPriority value="0"/><Flags value="TransparentToMouse"/></Game></Description></Majesty>"""
         mx_stock = '<Majesty><Description type="Unit" subType="Overlay" ID="XR01" Name="Speed_Tonic_Icon" Description="Speed Tonic"><Engine><Info value="Directionless"/><Info value="DontBlock"/><Menu value="11"/><ImageIDBase value="XR01"/><Script type="0" cProc="0" GPLFunction="Speed_Tonic_End"/><DefaultSound value="0"/></Engine><Game><DialogID value="0"/><StackPriority value="1"/></Game></Description></Majesty>'
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "M_Overlays.xml"
@@ -1246,9 +1258,10 @@ end
             self.assertIsNotNone(
                 status.find('./Engine/Info[@value="NotVisibleInISOView"]')
             )
+            self.assertIsNotNone(status.find('./Engine/Info[@value="Static"]'))
             self.assertIsNone(status.find("./Engine/Script"))
             self.assertEqual(
-                status.find("./Game/StackPriority").get("value"), "1"
+                status.find("./Game/StackPriority").get("value"), "0"
             )
         self.assertEqual(len(output.findall("Description")), 4)
         self.assertIsNone(
@@ -1277,8 +1290,8 @@ end
             action.find("./Engine/Script").get("GPLFunction"),
             "Alchemist_Flash_Flask_Begin",
         )
-        self.assertEqual(action.find("./Game/EffectorDuration").get("value"), "20000")
-        self.assertEqual(action.find("./Game/TimeoutDuration").get("value"), "60000")
+        self.assertEqual(action.find("./Game/EffectorDuration").get("value"), "30000")
+        self.assertEqual(action.find("./Game/TimeoutDuration").get("value"), "45000")
         self.assertEqual(action.find("./Game/SpellType").get("value"), "Attack")
         self.assertEqual(action.find("./Game/CharacterLevel").get("value"), "3")
         self.assertEqual(action.find("./Game/SpellRank").get("value"), "4")
@@ -1305,7 +1318,7 @@ end
         for begin, end in (
             ("#ATTRIB_Dodge, 10", "#ATTRIB_Dodge, -10"),
             ("#ATTRIB_Parry, 10", "#ATTRIB_Parry, -10"),
-            ("#ATTRIB_ActionRateModifier, -500", "#ATTRIB_ActionRateModifier, 500"),
+            ("#ATTRIB_ActionRateModifier, -400", "#ATTRIB_ActionRateModifier, 400"),
         ):
             self.assertIn(begin, source)
             self.assertIn(end, source)
@@ -1331,13 +1344,12 @@ end
             './Description[@Name="alchemist_stun_serum_restraint"]'
         )
         self.assertEqual(restraint.find("./Engine/ImageIDBase").get("value"), "ASS2")
-        self.assertIsNone(restraint.find("./Engine/Script"))
-        icon = output.find('./Description[@Name="alchemist_stun_serum_icon"]')
-        self.assertEqual(icon.find("./Engine/ImageIDBase").get("value"), "ASS3")
         self.assertEqual(
-            icon.find("./Engine/Script").get("GPLFunction"),
+            restraint.find("./Engine/Script").get("GPLFunction"),
             "Alchemist_Stun_Serum_End",
         )
+        icon = output.find('./Description[@Name="alchemist_stun_serum_icon"]')
+        self.assertIsNone(icon)
         oil_restraint = output.find(
             './Description[@Name="alchemist_paralytic_oil_restraint"]'
         )
@@ -1363,6 +1375,9 @@ end
         )
         for stock_call in ("$Freeze_Unit (Target)", "$UnFreeze_Unit (ThisAgent)"):
             self.assertIn(stock_call, source)
+        self.assertIn('"alchemist_stun_serum_restraint",', source)
+        self.assertIn('"after"', source)
+        self.assertNotIn('"alchemist_stun_serum_icon"', source)
         for forbidden in ("$RunThread", "$Sleep", "$CheckEffector"):
             self.assertNotIn(forbidden, source)
 
@@ -1384,7 +1399,7 @@ end
             1,
         )
         self.assertNotIn("phoenix_phial_visual_effector", source)
-        self.assertIn("$Flee (ThisAgent, #Intent_Flee)", source)
+        self.assertIn("$Flee (ThisAgent, #intent_flee_lowHP)", source)
         self.assertIn("function gravestone(agent thisagent)", source)
         self.assertNotIn("$RunThread", source)
 

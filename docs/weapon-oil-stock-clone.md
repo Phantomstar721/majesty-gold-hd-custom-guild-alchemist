@@ -77,19 +77,25 @@ poison, and Wizard weapon enchantment simultaneously. The oil check rejects
 only an already-owned oil; it neither reads nor writes `WeaponPoisoned` or the
 stock magic-bonus attributes.
 
-Each successful purchase clones the Magic Bazaar's stock `Speed_Tonic_Icon`,
-Majesty's proven native `Menu=11`, `StackPriority=1` Enchantments presenter.
-The Laboratory changes only the private identity, removes Speed Tonic's
-gameplay cleanup callback, and adds the stock-supported
-`NotVisibleInISOView` flag. It then creates one private
-duration-`1`, `"Infinite"`
-overlay with `Menu=11`, so Majesty's native hero Enchantments/Effects list shows
-either **Paralytic Weapon Oil** or **Transmutation Weapon Oil**. It is created
+The first presenter attempt cloned the Magic Bazaar's timed
+`Speed_Tonic_Icon`, removed its callback, and changed it to an infinite
+lifetime. Live testing proved that this hybrid did not appear in the native
+Enchantments list; `Menu=11` alone was not a complete persistent-presenter
+contract.
+
+The corrected presenter clones the Magic Ring instead. The Ring is Majesty's
+literal permanent overlay analogue: `Static`, `Directionless`, `DontBlock`,
+`Menu=11`, no cleanup script, `StackPriority=0`, and it is created with
+duration `1`, `"Infinite"`. The private oil clones change only identity and
+description, point at the stock Speed Tonic icon art, and compose Vines'
+stock-supported `NotVisibleInISOView` flag so no overhead world icon appears.
+The native hero Enchantments/Effects list should therefore show either
+**Paralytic Weapon Oil** or **Transmutation Weapon Oil**. It is created
 by a private literal clone of `Done_Enhancing_Equipment`, immediately after
 stock `Exit_Building`, rather than while the hero is hidden inside the Lab. The
 overlay does not own state, combat timing, gold, or paralysis cleanup. Both
-descriptions retain stock `XR01`, priority `1`, and `NotVisibleInISOView`, so they appear in
-the native Enchantments list without an overhead icon or custom UI hook.
+descriptions use stock `XR01` art and `NotVisibleInISOView`; no custom UI hook
+is involved.
 
 The stock `Obtain_Enchantment` transaction still owns travel, visit duration,
 payment, building revenue, exit, and decision-tree restart. Its only new choice

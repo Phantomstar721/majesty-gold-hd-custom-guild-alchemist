@@ -155,8 +155,8 @@ FLASH_FLASK_ACTION_ID = "AFa1"
 FLASH_FLASK_ACTION_NAME = "flash_flask"
 FLASH_FLASK_ICON_ID = "AFF1"
 FLASH_FLASK_EFFECT_ID = "AFF2"
-FLASH_FLASK_DURATION_MS = "20000"
-FLASH_FLASK_COOLDOWN_MS = "60000"
+FLASH_FLASK_DURATION_MS = "30000"
+FLASH_FLASK_COOLDOWN_MS = "45000"
 STUN_SERUM_ACTION_ID = "ASs1"
 STUN_SERUM_ACTION_NAME = "stun_serum"
 STUN_SERUM_IMPACT_ID = "ASS1"
@@ -1053,7 +1053,7 @@ def install_paralytic_oil_restraint_image(game_data: Path, main_art: Path) -> No
 
 
 def install_refined_stun_serum_images(game_path: Path, main_art: Path) -> None:
-    """Repaint existing private Stun channels with their proven stock topology."""
+    """Repaint private Stun art and preserve corrected effect attachment anchors."""
     stock = load_stock_pipeline(SOURCE_ROOT.parent)
     sections = list(read_cam_sections(main_art))
     imag_index = next(
@@ -1141,6 +1141,21 @@ def install_refined_stun_serum_images(game_path: Path, main_art: Path) -> None:
         restraint_source,
         restraint_replacements,
     )
+
+    phoenix_frames = 0
+    old_phoenix_header = (3, 99, 103, 0, 32, 56, 49, 8)
+    for index, entry in enumerate(output_tiles):
+        if not entry.name.startswith(b"PXE1Phoenix"):
+            continue
+        header = struct.unpack_from("<8H", entry.data, 0)
+        if header not in (old_phoenix_header, PHOENIX_EFFECT_HEADER):
+            raise ValueError("Existing private Phoenix frame has an unknown anchor")
+        corrected = bytearray(entry.data)
+        struct.pack_into("<8H", corrected, 0, *PHOENIX_EFFECT_HEADER)
+        output_tiles[index] = CamEntry(entry.name, bytes(corrected))
+        phoenix_frames += 1
+    if phoenix_frames != PHOENIX_LIFECYCLE_FRAMES:
+        raise ValueError("Existing private Phoenix lifecycle art is incomplete")
 
     replacements = {
         STUN_SERUM_IMPACT_CUSTOM[:4]: private_impact,
@@ -1249,6 +1264,22 @@ def build_units_xml(stock_buildings_xml: Path, stock_characters_xml: Path) -> by
     if speed is None:
         raise ValueError("Stock Cultist Speed contract is missing")
     speed.set("value", "2")
+    # User-approved Alchemist balance line. Preserve the Cultist character
+    # schema and change only these explicit numeric gameplay values.
+    balance_values = {
+        "Vitality": "11",
+        "Intelligence": "18",
+        "Artifice": "20",
+        "Attack": "45",
+        "Parry": "35",
+        "Dodge": "35",
+        "WeaponBasicDamage": "6",
+    }
+    for field_name, field_value in balance_values.items():
+        field = alchemist.find(f"./Game/{field_name}")
+        if field is None:
+            raise ValueError(f"Stock Cultist {field_name} contract is missing")
+        field.set("value", field_value)
     # Do not inherit the Cultist's class-local spell surface. Replace its three
     # spells with the Alchemist's one private Shield-of-Light-derived combat
     # spells, preserving the stock AllowedSpells dispatch contract. Paralytic
@@ -1391,28 +1422,34 @@ def build_brewing_overlays_xml(
     resurrection_script.set("GPLFunction", "Phoenix_Phial_Resurrection_End")
     output.append(resurrection)
 
-    # Magic Bazaar's timed icons are the proven native Enchantments-list
-    # presenters. Clone Speed Tonic literally, changing only private identity,
-    # removing its gameplay cleanup callback, and applying stock's existing
-    # NotVisibleInISOView flag so permanent oil ownership has no overhead icon.
-    status_source = stock_mx_root.find(
-        './/Description[@ID="XR01"][@Name="Speed_Tonic_Icon"]'
+    # Oil ownership is permanent, so the literal lifetime analogue is the
+    # Magic Ring's static duration-1/Infinite Menu-11 presenter. Keep that
+    # lifecycle, use Speed Tonic's stock icon art, and compose Vines' proven
+    # NotVisibleInISOView flag so no world-space icon is drawn.
+    status_source = stock_root.find(
+        './/Description[@ID="QRd0"][@Name="ring_icon"]'
     )
     if status_source is None:
-        raise ValueError("Stock Speed Tonic Enchantments presenter is missing")
+        raise ValueError("Stock Magic Ring persistent presenter is missing")
+    speed_icon_source = stock_mx_root.find(
+        './/Description[@ID="XR01"][@Name="Speed_Tonic_Icon"]'
+    )
+    if speed_icon_source is None:
+        raise ValueError("Stock Speed Tonic status art is missing")
     status_image = status_source.find("./Engine/ImageIDBase")
     status_menu = status_source.find("./Engine/Menu")
     if (
         status_source.find("./Engine") is None
         or status_image is None
-        or status_image.get("value") != "XR01"
+        or status_image.get("value") != "QRd0"
         or status_menu is None
         or status_menu.get("value") != "11"
+        or status_source.find('./Engine/Info[@value="Static"]') is None
         or status_source.find("./Game") is None
-        or status_source.find("./Game/StackPriority").get("value") != "1"
-        or status_source.find("./Engine/Script") is None
+        or status_source.find("./Game/StackPriority").get("value") != "0"
+        or status_source.find("./Engine/Script") is not None
     ):
-        raise ValueError("Stock Speed Tonic Enchantments contract changed")
+        raise ValueError("Stock Magic Ring persistent presenter contract changed")
     for status_id, status_name, description in (
         (
             PARALYTIC_OIL_STATUS_ID,
@@ -1430,8 +1467,7 @@ def build_brewing_overlays_xml(
         status.set("Name", status_name)
         status.set("Description", description)
         status_engine = status.find("./Engine")
-        status_script = status_engine.find("./Script")
-        status_engine.remove(status_script)
+        status_engine.find("./ImageIDBase").set("value", "XR01")
         if status.find('./Engine/Info[@value="NotVisibleInISOView"]') is None:
             ET.SubElement(
                 status_engine,
@@ -1503,7 +1539,6 @@ def build_stun_serum_xml(stock_actions_xml: Path, stock_overlays_xml: Path) -> b
         './/Description[@Name="paralytic_gaze_effector"]'
     )
     stock_restraint = overlays_root.find('.//Description[@Name="vines_effector"]')
-    stock_icon = overlays_root.find('.//Description[@Name="Poison_icon"]')
     stock_invisible_icon = overlays_root.find('.//Description[@Name="vines_icon"]')
     if any(
         item is None
@@ -1511,7 +1546,6 @@ def build_stun_serum_xml(stock_actions_xml: Path, stock_overlays_xml: Path) -> b
             stock_action,
             stock_impact,
             stock_restraint,
-            stock_icon,
             stock_invisible_icon,
         )
     ):
@@ -1546,21 +1580,9 @@ def build_stun_serum_xml(stock_actions_xml: Path, stock_overlays_xml: Path) -> b
     )
     restraint.find("./Engine/DefaultSound").set("value", "0")
     restraint_script = restraint.find("./Engine/Script")
-    if restraint_script is not None:
-        restraint.find("./Engine").remove(restraint_script)
-
-    icon = ET.fromstring(ET.tostring(stock_icon, encoding="utf-8"))
-    icon.set("ID", STUN_SERUM_DEBUFF_ID)
-    icon.set("Name", "alchemist_stun_serum_icon")
-    icon.set("Description", "Stun Serum")
-    icon.find("./Engine/ImageIDBase").set(
-        "value", STUN_SERUM_DEBUFF_CUSTOM[:4].decode("ascii")
-    )
-    ET.SubElement(
-        icon.find("./Engine"),
-        "Script",
-        {"type": "0", "cProc": "0", "GPLFunction": "Alchemist_Stun_Serum_End"},
-    )
+    if restraint_script is None:
+        raise ValueError("Stock Vines restraint lost its cleanup callback")
+    restraint_script.set("GPLFunction", "Alchemist_Stun_Serum_End")
 
     oil_restraint = ET.fromstring(ET.tostring(stock_restraint, encoding="utf-8"))
     oil_restraint.set("ID", "ASO1")
@@ -1590,7 +1612,7 @@ def build_stun_serum_xml(stock_actions_xml: Path, stock_overlays_xml: Path) -> b
     )
 
     output = ET.Element("Majesty")
-    output.extend((action, impact, restraint, icon, oil_restraint, immunity))
+    output.extend((action, impact, restraint, oil_restraint, immunity))
     ET.indent(output, space="\t")
     return ET.tostring(output, encoding="utf-8", xml_declaration=False) + b"\n"
 
@@ -2606,8 +2628,10 @@ def validate_output(
         './Description[@Name="alchemist_stun_serum_restraint"]'
     )
     stun_icon = stun_root.find('./Description[@Name="alchemist_stun_serum_icon"]')
-    if any(item is None for item in (stun_action, stun_impact, stun_restraint, stun_icon)):
+    if any(item is None for item in (stun_action, stun_impact, stun_restraint)):
         raise ValueError("Private Stun Serum stock-clone descriptions are incomplete")
+    if stun_icon is not None:
+        raise ValueError("Stun Serum must not create a separate overhead debuff icon")
     if (
         stun_action.find("./Engine/ImageSet").get("value") != "Cast"
         or stun_action.find("./Game/EffectorDuration").get("value")
@@ -2622,15 +2646,10 @@ def validate_output(
         raise ValueError("Stun Serum impact lost its private art")
     if (
         stun_restraint.find("./Engine/ImageIDBase").get("value") != "ASS2"
-        or stun_restraint.find("./Engine/Script") is not None
-    ):
-        raise ValueError("Stun Serum restraint must be callback-free private art")
-    if (
-        stun_icon.find("./Engine/ImageIDBase").get("value") != "ASS3"
-        or stun_icon.find("./Engine/Script").get("GPLFunction")
+        or stun_restraint.find("./Engine/Script").get("GPLFunction")
         != "Alchemist_Stun_Serum_End"
     ):
-        raise ValueError("Stun Serum icon lost its sole cleanup callback")
+        raise ValueError("Stun Serum cage lost stock Vines cleanup ownership")
     overlays = ET.parse(
         output_root / "Data" / "alchemist_brewing_overlays.xml"
     ).getroot()
@@ -2673,12 +2692,13 @@ def validate_output(
         if (
             status.find("./Engine/Menu").get("value") != "11"
             or status.find("./Engine/ImageIDBase").get("value") != "XR01"
+            or status.find('./Engine/Info[@value="Static"]') is None
             or status.find('./Engine/Info[@value="NotVisibleInISOView"]') is None
-            or status.find("./Game/StackPriority").get("value") != "1"
+            or status.find("./Game/StackPriority").get("value") != "0"
             or status.find("./Engine/Script") is not None
         ):
             raise ValueError(
-                f"Private oil status lost stock Speed Tonic contract: {status_name}"
+                f"Private oil status lost stock Magic Ring contract: {status_name}"
             )
     oil_restraint = stun_root.find(
         './Description[@Name="alchemist_paralytic_oil_restraint"]'

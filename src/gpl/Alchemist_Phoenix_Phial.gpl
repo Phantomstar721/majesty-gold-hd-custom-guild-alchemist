@@ -83,7 +83,8 @@ Begin
 	If (RevivedHP < 1)
 		RevivedHP = 1;
 	$SetAttribute (ThisAgent, #ATTRIB_HP, RevivedHP);
-	$Flee (ThisAgent, #Intent_Flee);
+	// Stock flee potions validate only for scared or low-HP flee intents.
+	$Flee (ThisAgent, #intent_flee_lowHP);
 End
 
 ///////////////////////////////////////////////////////////////////////////////

@@ -1,7 +1,7 @@
 ///////////////////////////////////////////////////////////////////////////////
 // Private clone of stock Paralytic Gaze, using the same Freeze_Unit /
-// UnFreeze_Unit lifecycle as Vines. The duration-owned icon is the sole
-// cleanup owner; the impact and restraint effectors are presentation-only.
+// UnFreeze_Unit lifecycle as Vines. The visible restraint itself owns the
+// duration and cleanup callback; stock Vines deliberately creates no icon.
 ///////////////////////////////////////////////////////////////////////////////
 
 Function Alchemist_Stun_Serum_Begin (agent ThisAgent, agent Target)
@@ -17,12 +17,8 @@ Begin
 			$CreateEffector (
 				Target,
 				"alchemist_stun_serum_restraint",
-				$GetSpellAttribute ("stun_serum", "effector_duration")
-			);
-			$CreateEffector (
-				Target,
-				"alchemist_stun_serum_icon",
-				$GetSpellAttribute ("stun_serum", "effector_duration")
+				$GetSpellAttribute ("stun_serum", "effector_duration"),
+				"after"
 			);
 			$SetAttribute (Target, #ATTRIB_HasEffectParalyticGaze, 1);
 			$Freeze_Unit (Target);

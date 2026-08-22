@@ -19,7 +19,7 @@ begin
 	$CreateEffector(ThisAgent, "alchemist_flash_flask_effector", 0);
 	$MagicalAdjustAttribute(ThisAgent, #ATTRIB_Dodge, 10);
 	$MagicalAdjustAttribute(ThisAgent, #ATTRIB_Parry, 10);
-	$AdjustAttribute(ThisAgent, #ATTRIB_ActionRateModifier, -500);
+	$AdjustAttribute(ThisAgent, #ATTRIB_ActionRateModifier, -400);
 
 end
 
@@ -32,6 +32,6 @@ begin
 
 	$MagicalAdjustAttribute(ThisAgent, #ATTRIB_Dodge, -10);
 	$MagicalAdjustAttribute(ThisAgent, #ATTRIB_Parry, -10);
-	$AdjustAttribute(ThisAgent, #ATTRIB_ActionRateModifier, 500);
+	$AdjustAttribute(ThisAgent, #ATTRIB_ActionRateModifier, 400);
 
 end

@@ -14,8 +14,8 @@ Only the requested fields differ from Shield of Light:
 
 - action/image set: `Special`
 - required hero level: 3
-- effector duration: 20,000 ms
-- timeout/cooldown: 60,000 ms
+- effector duration: 30,000 ms
+- timeout/cooldown: 45,000 ms
 - private action and GPL callback identities
 
 ## Buff lifecycle
@@ -26,7 +26,7 @@ Vigilance adjustment family:
 
 - Dodge +10 / -10
 - Parry +10 / -10
-- Action Rate Modifier -500 / +500
+- Action Rate Modifier -400 / +400
 
 The persistent icon owns `Alchemist_Flash_Flask_End`; expiration reverses the
 three changes. There is no independent cleanup path.

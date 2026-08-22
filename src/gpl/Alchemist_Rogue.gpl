@@ -6,7 +6,7 @@
 ///////////////////////////////////////////////////////////////////////////////
 
 // Stock Vigilance uses -50 to produce a clearly faster movement profile.
-expression #Alchemist_Base_Movement_Bonus -50
+expression #Alchemist_Base_Movement_Bonus -45
 expression #Alchemist_Flash_Flask_Confidence 60
 expression #Alchemist_Stun_Serum_Confidence 100
 

@@ -659,7 +659,7 @@ def build_alchemist_strength_potion(stock_spells: Path) -> str:
 def build_alchemist_consumable_threat(
     stock_target_eval: Path, stock_spells: Path
 ) -> str:
-    """Clone stock list_eval without spell confidence, plus Fire/Regen effects."""
+    """Clone stock list_eval, then tune only its consumable-use boundary."""
     target_source = stock_target_eval.read_text(encoding="cp1252")
     evaluator = extract_gpl_function(target_source, "list_eval")
     if evaluator.count("function list_eval") != 1:
@@ -669,17 +669,12 @@ def build_alchemist_consumable_threat(
     )
     if evaluator.count("\tinteger spell_mod;") != 1:
         raise ValueError("Stock list_eval spell declaration changed")
-    evaluator = evaluator.replace("\tinteger spell_mod;\n", "", 1)
     spell_line = "\tspell_mod = $spell_extra_value(thisagent);\n"
     if evaluator.count(spell_line) != 1:
         raise ValueError("Stock list_eval spell-confidence call changed")
-    evaluator = evaluator.replace(spell_line, "", 1)
     stock_return = "\treturn hitstildead - hitstokill + spell_mod;"
     if evaluator.count(stock_return) != 1:
         raise ValueError("Stock list_eval return changed")
-    evaluator = evaluator.replace(
-        stock_return, "\treturn hitstildead - hitstokill;", 1
-    )
 
     validation = f'''function {ALCHEMIST_CONSUMABLE_VALIDATION}(agent ThisAgent) is integer
 
@@ -687,6 +682,7 @@ declare
 \tlist Threats;
 \tagent Target;
 \tinteger Base_Score;
+\tinteger Spell_Score;
 
 begin
 \t// Use the encounter list already owned by stock eval_enemies_nearby. Reward
@@ -704,8 +700,13 @@ begin
 \t\tend
 
 \tBase_Score = $Alchemist_Base_List_Eval(ThisAgent, Threats);
-\t// This is the exact stock should_I_run boundary. Consumables may rescue an
-\t// encounter the Alchemist would otherwise lose; easy encounters get steel.
+\t// The stock evaluator counts every available spell at full flee-confidence
+\t// weight. That is correct for retreat behavior, but the Alchemist's private
+\t// 60 + 100 confidence made every finite combat flask invalid. Retain one
+\t// quarter of that exact stock spell term for the consumable decision only:
+\t// easy fights still get steel, while dangerous fights can spend a flask.
+\tSpell_Score = $spell_extra_value(ThisAgent);
+\tBase_Score -= (Spell_Score * 3) / 4;
 \tIf (Base_Score < 1)
 \t\treturn 1;
 \treturn 0;

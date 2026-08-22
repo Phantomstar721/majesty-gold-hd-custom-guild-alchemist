@@ -803,8 +803,11 @@ class AlchemistProbeTests(unittest.TestCase):
             / "mx_Spells.gpl",
         )
         self.assertIn("function Alchemist_Base_List_Eval", threat)
-        self.assertIn("return hitstildead - hitstokill;", threat)
-        self.assertNotIn("$spell_extra_value(thisagent)", threat)
+        self.assertIn("integer spell_mod;", threat)
+        self.assertIn("spell_mod = $spell_extra_value(thisagent);", threat)
+        self.assertIn("return hitstildead - hitstokill + spell_mod;", threat)
+        self.assertIn("Spell_Score = $spell_extra_value(ThisAgent);", threat)
+        self.assertIn("Base_Score -= (Spell_Score * 3) / 4;", threat)
         self.assertIn("If (Base_Score < 1)", threat)
         self.assertIn("ThisAgent's \"Hostiles\"", threat)
         self.assertIn("function alchemist_combat_consumable_check", threat)

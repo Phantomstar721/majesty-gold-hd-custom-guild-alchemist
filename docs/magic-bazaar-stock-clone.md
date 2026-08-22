@@ -47,14 +47,16 @@ to learn and use the original actions.
 
 The private gate is stock-composed rather than a potion state machine. It uses
 the encounter list already owned by `eval_enemies_nearby` (falling back to the
-current reward target), runs a literal clone of stock `list_eval`, and removes
-only the `spell_extra_value` term. Removing that term both measures the fight
-without renewable Flash Flask/Stun Serum confidence and prevents recursive
-`IsSpellAvailable` validation. Disposable potions are valid only when this
-base score is below `1`, the exact loss boundary used by stock `should_I_run`.
-Easy encounters therefore use the dagger and rechargeable spells; an encounter
-Majesty predicts the unassisted Alchemist would lose can consume the four
-stock potions in their native rank order.
+current reward target), and runs a literal clone of stock `list_eval`, including
+its `spell_extra_value` term and exact `hitstildead - hitstokill + spell_mod`
+return. Flash Flask contributes 60 confidence and Stun Serum contributes 100
+while each spell is available. Live testing proved that using that full 160 in
+the finite-flask gate made combat potions effectively impossible to use, while
+omitting it made Alchemists waste their stock on trivial fights. The gate now
+retains one quarter of the exact stock spell term, then uses stock
+`should_I_run`'s below-`1` loss boundary. This tuning affects only whether a
+finite Bazaar flask is valid; actual retreat/combat confidence continues to use
+the complete stock evaluator and the full 60 + 100 spell bonus.
 Combat continues to use stock `attack_object`: `getbestspell(#list_attack)`
 selects the highest-ranked available spell, moves to the hero's casting range,
 and calls `castspell`. Stun Serum is rank 5 and Flash Flask is rank 4; the

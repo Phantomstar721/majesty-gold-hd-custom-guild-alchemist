@@ -8,22 +8,22 @@ new combat dispatcher, spell filter, or theft watcher is involved.
 
 The authority is the retail SDK source
 `SDK/OriginalQuests/GPL/DecisionTrees/Rogue.gpl`. `Alchemist_tree` keeps the
-stock module order, arguments, weights, intent setup, and final `Hero_Wander`
-fallback. In particular, it retains Rogue's early rewards and home-defense
-checks, equipment purchase, entertainment, gravestone looting, special-item
-and poison-plant collection, Library visits, combat, exploration, and
-high-priority return home.
+stock arguments, weights, intent setup, and final `Hero_Wander` fallback for
+every retained branch. It keeps rewards and home-defense checks, equipment
+purchase, entertainment, special-item collection, Library visits, combat,
+exploration, and high-priority return home.
 
-The only deleted decision branch is:
+The deleted Rogue-specific decision branches are:
 
 ```gpl
 if ($Steal_Check(thisagent,95) == False)
+if ($Loot_Gravestones(ThisAgent,100) == False)
+if ($Collect_Resource(thisagent,"poison_plants",90) == False)
 ```
 
-Removing that branch is sufficient to prevent the normal Rogue decision cycle
-from selecting `Go_Steal`. Gravestone looting is intentionally retained: it is
-a separate stock economic behavior and part of the requested greedy/looting
-identity.
+No replacement scavenging controller is introduced. The Alchemist retains
+ordinary special-item collection, but no longer steals, raids graves, or
+harvests the Rogue's poison ingredient.
 
 ## Class spells: removed at the declaration
 
@@ -58,4 +58,3 @@ dagger animation use the same stock timing structure.
 
 The former Cultist projectile actions (`Cultist_Dagger` and expansion
 `Fire_Dagger`) are absent, and there is no Alchemist special attack action.
-

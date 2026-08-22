@@ -114,6 +114,31 @@ ALCHEMY_OIL_INTENT_INDEX = 309
 ALCHEMY_OIL_INTENT_TEXT = "Applying weapon oil at the alchemy lab"
 PHOENIX_PHIAL_INTENT_INDEX = 310
 PHOENIX_PHIAL_INTENT_TEXT = "Purchasing a Phoenix Phial at the alchemy lab"
+PHOENIX_PHIAL_ITEM_ID = 113
+PHOENIX_PHIAL_ITEM_TEXT = (
+    "Phoenix Phial\n\x01FFDDAA(75% chance to revive after death)"
+)
+PHANTOM_COWL_TIER_NAMES = (
+    "Frozen Cowl",
+    "Icy Cowl",
+    "Hardened Ice Cowl",
+    "Eternal Ice Cowl",
+)
+PHANTOM_ICEROD_TIER_NAMES = (
+    "Black Icerod",
+    "Dark Icerod",
+    "Deep Icerod",
+    "Eternal Icerod",
+)
+ALCHEMIST_STRENGTH_ACTION_ID = "APS1"
+ALCHEMIST_STRENGTH_ACTION_NAME = "alchemist_strength_potion"
+ALCHEMIST_SHAPESHIFT_ACTION_ID = "APS2"
+ALCHEMIST_SHAPESHIFT_ACTION_NAME = "alchemist_shapeshift_potion"
+ALCHEMIST_FIRE_BALM_ACTION_ID = "APS3"
+ALCHEMIST_FIRE_BALM_ACTION_NAME = "alchemist_fire_balm"
+ALCHEMIST_REGENERATION_ACTION_ID = "APS4"
+ALCHEMIST_REGENERATION_ACTION_NAME = "alchemist_regeneration_elixer"
+ALCHEMIST_CONSUMABLE_VALIDATION = "alchemist_combat_consumable_check"
 FLASH_FLASK_ACTION_ID = "AFa1"
 FLASH_FLASK_ACTION_NAME = "flash_flask"
 FLASH_FLASK_ICON_ID = "AFF1"
@@ -456,10 +481,272 @@ def build_alchemist_magic_bazaar(stock_magic_bazaar: Path) -> str:
     return purchase + "\n\n" + check + "\n"
 
 
+def build_alchemist_inventory(stock_inventory: Path) -> str:
+    """Clone stock item dispatch and privatize four Alchemist potion spells."""
+    source = stock_inventory.read_text(encoding="cp1252")
+    boost = extract_gpl_function(source, "QItem_Stat_Boost")
+    replacements = (
+        (
+            '$LearnSpell ( thisagent, "Strength_Potion", FALSE );',
+            'If ( ThisAgent\'s "Title" == "Alchemist" )\n'
+            f'\t\t\t\t$LearnSpell ( thisagent, "{ALCHEMIST_STRENGTH_ACTION_NAME}", FALSE );\n'
+            "\t\t\tElse\n"
+            '\t\t\t\t$LearnSpell ( thisagent, "Strength_Potion", FALSE );',
+        ),
+        (
+            '$LearnSpell ( thisagent, "Shapeshift_Potion", FALSE );',
+            'If ( ThisAgent\'s "Title" == "Alchemist" )\n'
+            f'\t\t\t\t$LearnSpell ( thisagent, "{ALCHEMIST_SHAPESHIFT_ACTION_NAME}", FALSE );\n'
+            "\t\t\tElse\n"
+                '\t\t\t\t$LearnSpell ( thisagent, "Shapeshift_Potion", FALSE );',
+        ),
+        (
+            '$LearnSpell ( thisagent, "Fire_Balm", FALSE );',
+            'If ( ThisAgent\'s "Title" == "Alchemist" )\n'
+            f'\t\t\t\t$LearnSpell ( thisagent, "{ALCHEMIST_FIRE_BALM_ACTION_NAME}", FALSE );\n'
+            "\t\t\tElse\n"
+            '\t\t\t\t$LearnSpell ( thisagent, "Fire_Balm", FALSE );',
+        ),
+        (
+            '$LearnSpell ( thisagent, "Regeneration_Elixer", FALSE );',
+            'If ( ThisAgent\'s "Title" == "Alchemist" )\n'
+            f'\t\t\t\t$LearnSpell ( thisagent, "{ALCHEMIST_REGENERATION_ACTION_NAME}", FALSE );\n'
+            "\t\t\tElse\n"
+            '\t\t\t\t$LearnSpell ( thisagent, "Regeneration_Elixer", FALSE );',
+        ),
+    )
+    for stock_line, private_branch in replacements:
+        if boost.count(stock_line) != 1:
+            raise ValueError(f"Stock QItem spell dispatch changed: {stock_line}")
+        boost = boost.replace(stock_line, private_branch, 1)
+    return boost + "\n"
+
+
+def build_alchemist_combat_potions_xml(stock_actions: Path) -> bytes:
+    """Private stock actions gated at Majesty's native losing-fight boundary."""
+    stock_root = ET.parse(stock_actions).getroot()
+    output = ET.Element("Majesty")
+    specs = (
+        (
+            "Strength_Potion",
+            ALCHEMIST_STRENGTH_ACTION_ID,
+            ALCHEMIST_STRENGTH_ACTION_NAME,
+            "Alchemist_Strength_Potion_Effect",
+        ),
+        (
+            "Shapeshift_Potion",
+            ALCHEMIST_SHAPESHIFT_ACTION_ID,
+            ALCHEMIST_SHAPESHIFT_ACTION_NAME,
+            "Alchemist_Shapeshift_Potion_Effect",
+        ),
+        (
+            "Fire_Balm",
+            ALCHEMIST_FIRE_BALM_ACTION_ID,
+            ALCHEMIST_FIRE_BALM_ACTION_NAME,
+            "Alchemist_Fire_Balm_Effect",
+        ),
+        (
+            "Regeneration_Elixer",
+            ALCHEMIST_REGENERATION_ACTION_ID,
+            ALCHEMIST_REGENERATION_ACTION_NAME,
+            "Alchemist_Regeneration_Elixer_Effect",
+        ),
+    )
+    for stock_name, action_id, action_name, gpl_function in specs:
+        source = stock_root.find(f'.//Description[@Name="{stock_name}"]')
+        if source is None:
+            raise ValueError(f"Stock Bazaar action is missing: {stock_name}")
+        action = ET.fromstring(ET.tostring(source, encoding="utf-8"))
+        action.set("ID", action_id)
+        action.set("Name", action_name)
+        script = action.find("./Engine/Script")
+        game = action.find("./Game")
+        validation = action.find("./Game/ValidationScript")
+        if script is None or game is None:
+            raise ValueError(f"Stock {stock_name} action contract changed")
+        if stock_name in ("Strength_Potion", "Shapeshift_Potion"):
+            if validation is None or validation.get("value") != "berserk_check":
+                raise ValueError(f"Stock {stock_name} berserk-only contract changed")
+        elif validation is not None:
+            raise ValueError(f"Stock {stock_name} unexpectedly gained validation")
+        script.set("GPLFunction", gpl_function)
+        if validation is None:
+            validation = ET.SubElement(game, "ValidationScript")
+        validation.set("value", ALCHEMIST_CONSUMABLE_VALIDATION)
+        output.append(action)
+    ET.indent(output, space="\t")
+    return ET.tostring(output, encoding="utf-8", xml_declaration=False) + b"\n"
+
+
+def build_alchemist_strength_potion(stock_spells: Path) -> str:
+    """Clone stock Strength Potion while consuming the private learned spell."""
+    source = stock_spells.read_text(encoding="cp1252")
+    effect = extract_gpl_function(source, "Strength_Potion_Effect")
+    effect = effect.replace(
+        "function Strength_potion_effect",
+        "function Alchemist_Strength_Potion_Effect",
+        1,
+    )
+    stock_spell = '"Strength_Potion"'
+    if effect.count(stock_spell) != 2:
+        raise ValueError("Stock Strength Potion spell-name contract changed")
+    return effect.replace(stock_spell, f'"{ALCHEMIST_STRENGTH_ACTION_NAME}"') + "\n"
+
+
+def build_alchemist_consumable_threat(
+    stock_target_eval: Path, stock_spells: Path
+) -> str:
+    """Clone stock list_eval without spell confidence, plus Fire/Regen effects."""
+    target_source = stock_target_eval.read_text(encoding="cp1252")
+    evaluator = extract_gpl_function(target_source, "list_eval")
+    if evaluator.count("function list_eval") != 1:
+        raise ValueError("Stock list_eval signature changed")
+    evaluator = evaluator.replace(
+        "function list_eval", "function Alchemist_Base_List_Eval", 1
+    )
+    if evaluator.count("\tinteger spell_mod;") != 1:
+        raise ValueError("Stock list_eval spell declaration changed")
+    evaluator = evaluator.replace("\tinteger spell_mod;\n", "", 1)
+    spell_line = "\tspell_mod = $spell_extra_value(thisagent);\n"
+    if evaluator.count(spell_line) != 1:
+        raise ValueError("Stock list_eval spell-confidence call changed")
+    evaluator = evaluator.replace(spell_line, "", 1)
+    stock_return = "\treturn hitstildead - hitstokill + spell_mod;"
+    if evaluator.count(stock_return) != 1:
+        raise ValueError("Stock list_eval return changed")
+    evaluator = evaluator.replace(
+        stock_return, "\treturn hitstildead - hitstokill;", 1
+    )
+
+    validation = f'''function {ALCHEMIST_CONSUMABLE_VALIDATION}(agent ThisAgent) is integer
+
+declare
+\tlist Threats;
+\tagent Target;
+\tinteger Base_Score;
+
+begin
+\t// Use the encounter list already owned by stock eval_enemies_nearby. Reward
+\t// targets have no Hostiles entry until contact, so the current target is the
+\t// stock-shaped fallback.
+\tThreats = ThisAgent's "Hostiles";
+\tIf ($ListSize(Threats) == 0)
+\t\tbegin
+\t\t\tTarget = ThisAgent's "Target";
+\t\t\tIf ($NotValid(Target))
+\t\t\t\treturn 0;
+\t\t\tIf (Target == ThisAgent)
+\t\t\t\treturn 0;
+\t\t\tThreats << Target;
+\t\tend
+
+\tBase_Score = $Alchemist_Base_List_Eval(ThisAgent, Threats);
+\t// This is the exact stock should_I_run boundary. Consumables may rescue an
+\t// encounter the Alchemist would otherwise lose; easy encounters get steel.
+\tIf (Base_Score < 1)
+\t\treturn 1;
+\treturn 0;
+end'''
+
+    spell_source = stock_spells.read_text(encoding="cp1252")
+    effects: list[str] = []
+    for stock_function, private_function, stock_spell_names, private_spell in (
+        (
+            "Fire_Balm_Effect",
+            "Alchemist_Fire_Balm_Effect",
+            ("Fire_Balm", "Fire_balm"),
+            ALCHEMIST_FIRE_BALM_ACTION_NAME,
+        ),
+        (
+            "Regeneration_Elixer_Effect",
+            "Alchemist_Regeneration_Elixer_Effect",
+            ("Regeneration_Elixer",),
+            ALCHEMIST_REGENERATION_ACTION_NAME,
+        ),
+    ):
+        effect = extract_gpl_function(spell_source, stock_function)
+        signature = re.compile(
+            rf"(?im)^function\s+{re.escape(stock_function)}\s*\("
+        )
+        if len(signature.findall(effect)) != 1:
+            raise ValueError(f"Stock {stock_function} signature changed")
+        effect = signature.sub(f"function {private_function}(", effect, count=1)
+        expected_counts = {
+            "Fire_Balm_Effect": (1, 1),
+            "Regeneration_Elixer_Effect": (2,),
+        }[stock_function]
+        for stock_spell, expected_count in zip(stock_spell_names, expected_counts):
+            quoted_stock = f'"{stock_spell}"'
+            if effect.count(quoted_stock) != expected_count:
+                raise ValueError(f"Stock {stock_function} spell-name contract changed")
+            effect = effect.replace(quoted_stock, f'"{private_spell}"')
+        effects.append(effect)
+
+    return evaluator + "\n\n" + validation + "\n\n" + "\n\n".join(effects) + "\n"
+
+
+def build_alchemist_shapeshift(stock_spells: Path) -> str:
+    """Clone stock Shapeshift Potion with one Alchemist-only Spider branch."""
+    source = stock_spells.read_text(encoding="cp1252")
+    effect = extract_gpl_function(source, "Shapeshift_Potion_Effect")
+    cleanup = extract_gpl_function(source, "Shapeshift_Potion_End")
+
+    effect = effect.replace(
+        "function Shapeshift_Potion_Effect",
+        "function Alchemist_Shapeshift_Potion_Effect",
+        1,
+    )
+    stock_spell = '"Shapeshift_Potion"'
+    if effect.count(stock_spell) != 2:
+        raise ValueError("Stock Shapeshift Potion spell-name contract changed")
+    effect = effect.replace(stock_spell, f'"{ALCHEMIST_SHAPESHIFT_ACTION_NAME}"')
+
+    effect_anchor = '\tif ( thisagent\'s "AttackType" == 2 )'
+    if effect.count(effect_anchor) != 1:
+        raise ValueError("Stock Shapeshift Potion form dispatch changed")
+    spider_effect = (
+        '\tif ( title == "Alchemist" )\n'
+        "\t\tbegin // Alchemists become Giant Spiders.\n"
+        '\t\t\t$ChangeUnitType ( thisagent, "Giant_Spider" );\n'
+        "\t\t\t$adjustattribute ( thisagent, #ATTRIB_Armor_Basic_Damage, 5 );\n"
+        "\t\t\t$MagicalAdjustAttribute ( thisagent, #ATTRIB_HtoH, 10 );\n"
+        "\t\t\t$MagicalAdjustAttribute ( thisagent, #ATTRIB_Strength, 18 );\n"
+        "\t\t\t$MagicalAdjustAttribute ( thisagent, #ATTRIB_Vitality, 15 );\n"
+        "\t\t\t$adjustattribute ( thisagent, #ATTRIB_ActionRateModifier, -50 );\n"
+        "\t\t\t$adjustattribute ( thisagent, #ATTRIB_MaxHP, 30 );\n"
+        "\t\t\t$adjustattribute ( thisagent, #ATTRIB_HP, 30 );\n"
+        "\t\tend\n"
+        "\telse "
+    )
+    effect = effect.replace(effect_anchor, spider_effect + effect_anchor, 1)
+
+    cleanup_anchor = '\tif ( thisagent\'s "AttackType" == 2 )'
+    if cleanup.count(cleanup_anchor) != 1:
+        raise ValueError("Stock Shapeshift Potion cleanup dispatch changed")
+    spider_cleanup = (
+        '\tif ( title == "Alchemist" )\n'
+        "\t\tbegin // Revert from Giant Spider.\n"
+        "\t\t\t$adjustattribute (thisagent, #ATTRIB_Armor_Basic_Damage, -5 );\n"
+        "\t\t\t$MagicalAdjustAttribute ( thisagent, #ATTRIB_HtoH, -10 );\n"
+        "\t\t\t$MagicalAdjustAttribute ( thisagent, #ATTRIB_Strength, -18 );\n"
+        "\t\t\t$MagicalAdjustAttribute ( thisagent, #ATTRIB_Vitality, -15 );\n"
+        "\t\t\t$adjustattribute ( thisagent, #ATTRIB_ActionRateModifier, 50 );\n"
+        "\t\t\t$adjustattribute ( thisagent, #ATTRIB_MaxHP, -30 );\n"
+        "\t\tend\n"
+        "\telse "
+    )
+    cleanup = cleanup.replace(cleanup_anchor, spider_cleanup + cleanup_anchor, 1)
+    return effect + "\n\n" + cleanup + "\n"
+
+
 def build_gpl_project(include_siege_test_fixture: bool) -> str:
     sources = [
         'source="Alchemist_Rogue.gpl"',
         'source="Alchemist_Magic_Bazaar.gpl"',
+        'source="Alchemist_Inventory.gpl"',
+        'source="Alchemist_Consumable_Threat.gpl"',
+        'source="Alchemist_Strength_Potion.gpl"',
+        'source="Alchemist_Shapeshift.gpl"',
         'source="Alchemist_Stun_Serum.gpl"',
         'source="Alchemist_Flash_Flask.gpl"',
         'source="Alchemist_Brewing.gpl"',
@@ -653,6 +940,12 @@ def build_units_xml(stock_buildings_xml: Path, stock_characters_xml: Path) -> by
     # The private IMAG is a literal Warrior animation/timing clone, so retain
     # Warrior's matching stock movement class rather than Cultist Class 3.
     movement.set("ID", "Class 1")
+    # Speed is Majesty's AI-facing chase/escape rating, not world movement.
+    # Actual movement is the Haunt-proven one-time MovementRateModifier in GPL.
+    speed = alchemist.find("./Game/Speed")
+    if speed is None:
+        raise ValueError("Stock Cultist Speed contract is missing")
+    speed.set("value", "2")
     # Do not inherit the Cultist's class-local spell surface. Replace its three
     # spells with the Alchemist's one private Shield-of-Light-derived combat
     # spells, preserving the stock AllowedSpells dispatch contract. Paralytic
@@ -1548,8 +1841,9 @@ def build_text_cam(
 
 
 def build_gpl_text_cam(stock_gpl_text_cam: Path, output_path: Path) -> None:
-    """Append private Alchemist intents while preserving every stock AITX record."""
+    """Append private intents and inventory text to the stock indexed tables."""
     stock_intents = read_cam_entry(stock_gpl_text_cam, b"STRT", b"AITX").data
+    stock_items = read_cam_entry(stock_gpl_text_cam, b"STRT", b"QITM").data
     stock_count = struct.unpack_from("<H", stock_intents, 0)[0]
     if stock_count != ALCHEMY_OIL_INTENT_INDEX:
         raise ValueError(
@@ -1562,9 +1856,39 @@ def build_gpl_text_cam(stock_gpl_text_cam: Path, output_path: Path) -> None:
             PHOENIX_PHIAL_INTENT_INDEX: PHOENIX_PHIAL_INTENT_TEXT,
         },
     )
+    shared_item_text: dict[int, str] = {
+        PHOENIX_PHIAL_ITEM_ID: PHOENIX_PHIAL_ITEM_TEXT,
+        82: "Frost Armor\n\x01FFDDAA(+10 armor)",
+    }
+    for family, base_id, first_variant, names in (
+        ("cowl", 80, 83, PHANTOM_COWL_TIER_NAMES),
+        ("icerod", 81, 98, PHANTOM_ICEROD_TIER_NAMES),
+    ):
+        for struct_level in range(4):
+            for magic_level in range(4):
+                combination = struct_level * 4 + magic_level
+                item_id = base_id if combination == 0 else first_variant + combination - 1
+                if family == "cowl":
+                    bonus = f"(+{2 + struct_level} armor, +{magic_level} magic armor)"
+                else:
+                    bonus = (
+                        f"(+{8 + struct_level} damage, +{magic_level} magic, "
+                        f"+{5 + struct_level * 5} parry, "
+                        f"+{10 + magic_level * 10} cast range)"
+                    )
+                shared_item_text[item_id] = f"{names[struct_level]}\n\x01FFDDAA{bonus}"
+    patched_items = patch_strt_by_index(stock_items, shared_item_text)
     write_cam(
         output_path,
-        (CamSection(b"STRT", (CamEntry(pad_name(b"AITX"), patched_intents),)),),
+        (
+            CamSection(
+                b"STRT",
+                (
+                    CamEntry(pad_name(b"AITX"), patched_intents),
+                    CamEntry(pad_name(b"QITM"), patched_items),
+                ),
+            ),
+        ),
     )
 
 
@@ -1701,6 +2025,7 @@ def build_manifest(
 \t\t\t\t\t<Descriptions>Data\\alchemist_probe_units.xml</Descriptions>
 \t\t\t\t\t<Descriptions>Data\\alchemist_brewing_overlays.xml</Descriptions>
 \t\t\t\t\t<Descriptions>Data\\alchemist_brewing_sounds.xml</Descriptions>
+\t\t\t\t\t<Descriptions>Data\\alchemist_combat_potions.xml</Descriptions>
 \t\t\t\t\t<Descriptions>Data\\alchemist_flash_flask.xml</Descriptions>
 \t\t\t\t\t<Descriptions>Data\\alchemist_stun_serum.xml</Descriptions>
 \t\t\t\t\t<GPL>
@@ -1710,6 +2035,10 @@ def build_manifest(
 \t\t\t\t\t\t<Source>GPL\\Alchemist_Phoenix_Phial.dat</Source>
 \t\t\t\t\t\t<Source>GPL\\Alchemist_Rogue.gpl</Source>
 \t\t\t\t\t\t<Source>GPL\\Alchemist_Magic_Bazaar.gpl</Source>
+\t\t\t\t\t\t<Source>GPL\\Alchemist_Inventory.gpl</Source>
+\t\t\t\t\t\t<Source>GPL\\Alchemist_Consumable_Threat.gpl</Source>
+\t\t\t\t\t\t<Source>GPL\\Alchemist_Strength_Potion.gpl</Source>
+\t\t\t\t\t\t<Source>GPL\\Alchemist_Shapeshift.gpl</Source>
 \t\t\t\t\t\t<Source>GPL\\Alchemist_Stun_Serum.gpl</Source>
 \t\t\t\t\t\t<Source>GPL\\Alchemist_Flash_Flask.gpl</Source>
 \t\t\t\t\t\t<Source>GPL\\Alchemist_Brewing.gpl</Source>
@@ -1741,6 +2070,7 @@ def validate_output(
         output_root / "Data" / "alchemist_probe_units.xml",
         output_root / "Data" / "alchemist_brewing_overlays.xml",
         output_root / "Data" / "alchemist_brewing_sounds.xml",
+        output_root / "Data" / "alchemist_combat_potions.xml",
         output_root / "Data" / "alchemist_flash_flask.xml",
         output_root / "Data" / "alchemist_stun_serum.xml",
         output_root / "Data" / "alchemist_probe_textdata.cam",
@@ -1755,6 +2085,10 @@ def validate_output(
         output_root / "GPL" / "Alchemist_Phoenix_Phial.dat",
         output_root / "GPL" / "Alchemist_Rogue.gpl",
         output_root / "GPL" / "Alchemist_Magic_Bazaar.gpl",
+        output_root / "GPL" / "Alchemist_Inventory.gpl",
+        output_root / "GPL" / "Alchemist_Consumable_Threat.gpl",
+        output_root / "GPL" / "Alchemist_Strength_Potion.gpl",
+        output_root / "GPL" / "Alchemist_Shapeshift.gpl",
         output_root / "GPL" / "Alchemist_Flash_Flask.gpl",
         output_root / "GPL" / "Alchemist_Stun_Serum.gpl",
         output_root / "GPL" / "Alchemist_Brewing.gpl",
@@ -1813,6 +2147,9 @@ def validate_output(
     movement = hero.find('./Engine/Attachment[@kind="Movement"]')
     if movement is None or movement.get("ID") != "Class 1":
         raise ValueError("Alchemist must use the stock Warrior movement class")
+    speed = hero.find("./Game/Speed")
+    if speed is None or speed.get("value") != "2":
+        raise ValueError("Alchemist AI speed rating must remain 2")
     allowed_spells = hero.findall("./Game/AllowedSpells/Spell")
     if [(spell.get("ID"), spell.get("Value")) for spell in allowed_spells] != [
         ("0", STUN_SERUM_ACTION_NAME),
@@ -1834,6 +2171,47 @@ def validate_output(
         raise ValueError("Phoenix Phial inventory-item description is missing")
     if phoenix.find("./Engine/ImageIDBase").get("value") != "PXF1":
         raise ValueError("Phoenix Phial must use its private inventory-item art")
+    potion_root = ET.parse(
+        output_root / "Data" / "alchemist_combat_potions.xml"
+    ).getroot()
+    potion_specs = (
+        (
+            ALCHEMIST_STRENGTH_ACTION_NAME,
+            "Alchemist_Strength_Potion_Effect",
+            "1",
+        ),
+        (
+            ALCHEMIST_SHAPESHIFT_ACTION_NAME,
+            "Alchemist_Shapeshift_Potion_Effect",
+            "2",
+        ),
+        (
+            ALCHEMIST_FIRE_BALM_ACTION_NAME,
+            "Alchemist_Fire_Balm_Effect",
+            "3",
+        ),
+        (
+            ALCHEMIST_REGENERATION_ACTION_NAME,
+            "Alchemist_Regeneration_Elixer_Effect",
+            "1",
+        ),
+    )
+    for potion_name, gpl_function, rank in potion_specs:
+        potion = potion_root.find(f'./Description[@Name="{potion_name}"]')
+        if potion is None:
+            raise ValueError(f"Private combat potion action is missing: {potion_name}")
+        validation = potion.find("./Game/ValidationScript")
+        if (
+            validation is None
+            or validation.get("value") != ALCHEMIST_CONSUMABLE_VALIDATION
+        ):
+            raise ValueError(f"Private {potion_name} lost its stock-composed threat gate")
+        if (
+            potion.find("./Engine/Script").get("GPLFunction") != gpl_function
+            or potion.find("./Game/SpellType").get("value") != "Attack"
+            or potion.find("./Game/SpellRank").get("value") != rank
+        ):
+            raise ValueError(f"Private {potion_name} lost its stock action contract")
     flash_root = ET.parse(output_root / "Data" / "alchemist_flash_flask.xml").getroot()
     flash_action = flash_root.find('./Description[@Name="flash_flask"]')
     flash_icon = flash_root.find(
@@ -1941,6 +2319,20 @@ def validate_output(
         != PHOENIX_PHIAL_INTENT_TEXT
     ):
         raise ValueError("Private Phoenix Phial intent text is incorrect")
+    item_strings = read_cam_entry(gpl_text_cam, b"STRT", b"QITM").data
+    item_count = struct.unpack_from("<H", item_strings, 0)[0]
+    if item_count <= PHOENIX_PHIAL_ITEM_ID:
+        raise ValueError("Phoenix Phial QITM slot was not appended")
+    item_offset = struct.unpack_from(
+        "<I", item_strings, 4 + PHOENIX_PHIAL_ITEM_ID * 4
+    )[0]
+    item_end = item_strings.index(b"\x00", item_offset + 4)
+    if (
+        u32(item_strings, item_offset) != PHOENIX_PHIAL_ITEM_ID
+        or item_strings[item_offset + 4 : item_end].decode("cp1252")
+        != PHOENIX_PHIAL_ITEM_TEXT
+    ):
+        raise ValueError("Phoenix Phial QITM inventory text is incorrect")
     menu = read_cam_entry(text_cam, b"SMNU", DIALOG_ID).data
     if menu == b"":
         raise ValueError("CGAL menu is empty")
@@ -2304,6 +2696,18 @@ def validate_output(
         if symbol not in compiled_symbols:
             raise ValueError(f"Compiled Alchemist bytecode lost Bazaar symbol {symbol!r}")
     for symbol in (
+        b"QItem_Stat_Boost",
+        b"Alchemist_Strength_Potion_Effect",
+        b"Alchemist_Shapeshift_Potion_Effect",
+        b"Alchemist_Fire_Balm_Effect",
+        b"Alchemist_Regeneration_Elixer_Effect",
+        b"Alchemist_Base_List_Eval",
+        b"alchemist_combat_consumable_check",
+        b"Shapeshift_Potion_End",
+    ):
+        if symbol not in compiled_symbols:
+            raise ValueError(f"Compiled Alchemist bytecode lost potion symbol {symbol!r}")
+    for symbol in (
         b"Alchemy_Oil_Check",
         b"Alchemy_Oil_Enchant_Equipment",
         b"Obtain_Alchemy_Oil",
@@ -2380,6 +2784,11 @@ def build(
     )
     (data_dir / "alchemist_brewing_sounds.xml").write_bytes(
         build_brewing_sounds_xml(sdk_data / "M_Sounds.xml")
+    )
+    (data_dir / "alchemist_combat_potions.xml").write_bytes(
+        build_alchemist_combat_potions_xml(
+            sdk_data.parent / "DataMX" / "MX_Actions.xml"
+        )
     )
     (data_dir / "alchemist_flash_flask.xml").write_bytes(
         build_flash_flask_xml(
@@ -2477,6 +2886,35 @@ def build(
     )
     (gpl_dir / "Alchemist_Magic_Bazaar.gpl").write_text(
         bazaar_source, encoding="utf-8"
+    )
+    inventory_source = build_alchemist_inventory(
+        sdk_data.parent / "GPLMx" / "TaskModules" / "Subtasks" / "mx_Inventory.gpl"
+    )
+    (gpl_dir / "Alchemist_Inventory.gpl").write_text(
+        inventory_source, encoding="utf-8"
+    )
+    consumable_threat_source = build_alchemist_consumable_threat(
+        sdk_data.parent
+        / "GPLMx"
+        / "DecisionTrees"
+        / "Modules"
+        / "mx_target_eval.gpl",
+        sdk_data.parent / "GPLMx" / "TaskModules" / "Subtasks" / "mx_Spells.gpl",
+    )
+    (gpl_dir / "Alchemist_Consumable_Threat.gpl").write_text(
+        consumable_threat_source, encoding="utf-8"
+    )
+    strength_source = build_alchemist_strength_potion(
+        sdk_data.parent / "GPLMx" / "TaskModules" / "Subtasks" / "mx_Spells.gpl"
+    )
+    (gpl_dir / "Alchemist_Strength_Potion.gpl").write_text(
+        strength_source, encoding="utf-8"
+    )
+    shapeshift_source = build_alchemist_shapeshift(
+        sdk_data.parent / "GPLMx" / "TaskModules" / "Subtasks" / "mx_Spells.gpl"
+    )
+    (gpl_dir / "Alchemist_Shapeshift.gpl").write_text(
+        shapeshift_source, encoding="utf-8"
     )
     if include_siege_test_fixture:
         siege_source = build_siege_test_fixture(

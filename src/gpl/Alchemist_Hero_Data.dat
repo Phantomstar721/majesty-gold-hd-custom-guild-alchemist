@@ -14,9 +14,9 @@
 		(Friend	xx)
 		(attacktype 1)
 		(castingrange 130)
-		(PercentageHPRetreat 35)
-		(enemy_estimation 1.2)
-		(self_estimation .9)
+		(PercentageHPRetreat 15)
+		(enemy_estimation .5)
+		(self_estimation 2.0)
 		(Immune_to_poison 1)
 		(Loyalty 0)
 		(Greed 30)
@@ -30,7 +30,7 @@
 		(activeScript	       	Alchemist_tree)
 		(basicscript					Alchemist_tree)
 		(StartingScript						Alchemist_tree)
-		(birthScript		hero_birth)
+		(birthScript		Alchemist_birth)
 		(IGdeathscript		gravestone)
 	}
 [end]

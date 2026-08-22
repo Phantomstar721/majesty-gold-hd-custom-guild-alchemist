@@ -1,10 +1,155 @@
 ///////////////////////////////////////////////////////////////////////////////
 // Private Alchemist clone of stock OriginalQuests Rogue_tree.
 // Ordering, calls, and flags are intentionally unchanged except for the
-// requested deletion of Rogue's Steal_Check branch and the Magic Bazaar's
-// requested deterministic pre-hunt purchase weight.  Looting, equipment
-// purchases, poison-plant collection, and every other stock Rogue priority
-// remain in their original positions.
+// requested deletion of Rogue's stealing, gravestone-looting, and poison-plant
+// branches. Every retained stock priority keeps its original call/lifecycle.
+///////////////////////////////////////////////////////////////////////////////
+
+// Stock Vigilance uses -50 to produce a clearly faster movement profile.
+expression #Alchemist_Base_Movement_Bonus -50
+expression #Alchemist_Flash_Flask_Confidence 60
+expression #Alchemist_Stun_Serum_Confidence 100
+
+Function Alchemist_Compat_Phantom_Max_Haunt_Level(agent ThisAgent) is integer
+
+Declare
+	list Haunts;
+	agent Haunt;
+	integer Best_Level;
+
+Begin
+	Best_Level = 0;
+	$ListObjects(
+		ThisAgent,
+		"Building",
+		-1,
+		Haunts,
+		#MyPlayer,
+		#CheckTitles,
+		"Phantoms_Haunt"
+	);
+
+	Foreach Haunt in Haunts do
+		If ($IsDead(Haunt) == False)
+			If ($GetAttribute(Haunt, #ATTRIB_CurrentStageBuilt) == 1)
+				If (Haunt's "Level" > Best_Level)
+					Best_Level = Haunt's "Level";
+
+	return Best_Level;
+End
+
+// Literal clone of the Haunt's proven distinction between actual movement and
+// the AI-facing speed rating. The boolean guard makes the additive modifier
+// safe across repeated tree decisions and save/reload.
+Function Alchemist_Sync_Speed_Profile(agent ThisAgent)
+
+Declare
+
+Begin
+	If ($HasAttribute("AlchemistBaseMovementApplied", ThisAgent) == False)
+		$AddAttribute(
+			ThisAgent,
+			"AlchemistBaseMovementApplied",
+			"boolean",
+			False
+		);
+
+	If (ThisAgent's "AlchemistBaseMovementApplied" == False)
+		begin
+			$AdjustAttribute(
+				ThisAgent,
+				#ATTRIB_MovementRateModifier,
+				#Alchemist_Base_Movement_Bonus
+			);
+			ThisAgent's "AlchemistBaseMovementApplied" = True;
+		end
+
+	// This rating informs stock chase/escape evaluation; it does not move the
+	// sprite. Two lies between Warrior 1 and Rogue 3.
+	$SetAttribute(ThisAgent, #ATTRIB_Speed, 2);
+End
+
+Function Alchemist_birth(agent ThisAgent)
+
+Declare
+
+Begin
+	$hero_birth(ThisAgent);
+	$Alchemist_Sync_Speed_Profile(ThisAgent);
+End
+
+// Complete stock confidence function plus the two private guild branches.
+// Keeping the stock and Phantom clauses makes either custom guild BCD safe to
+// load last without deleting the other guild's target-evaluation weights.
+function spell_extra_value(agent thisagent) is integer
+
+declare
+	integer value;
+
+begin
+	if ($isspellavailable(thisagent,"energy_blast",1))
+		value += 10;
+
+	if ($isspellavailable(thisagent,"fire_blast",1))
+		value += 30;
+
+	if ($isspellavailable(thisagent,"fire_ball",1))
+		value += 30;
+
+	if ($isspellavailable(thisagent,"teleport",1))
+		value += 5;
+
+	if ($isspellavailable(thisagent,"resist_magic",1))
+		value += 5;
+
+	if ($isspellavailable(thisagent,"meteor_storm",1))
+		value += 30;
+
+	if ($isspellavailable(thisagent,"drain_life",1))
+		value += 30;
+
+	if ($isspellavailable(thisagent,"sun_scorch",1))
+		value += 30;
+
+	if (thisagent's "Title" == "Phantom")
+		begin
+			if ($isspellavailable(thisagent,"ice_lance",1))
+				value += 10;
+
+			if ($isspellavailable(thisagent,"frost_armor",1))
+				value += 10;
+
+			if (
+				$Alchemist_Compat_Phantom_Max_Haunt_Level(thisagent) >= 2 &&
+				$isspellavailable(thisagent,"icy_touch",1)
+			)
+				value += 25;
+
+			if ($isspellavailable(thisagent,"call_to_grave",1))
+				value += 10;
+
+			if ($isspellavailable(thisagent,"eternal_soul",1))
+				value += 25;
+
+			if (
+				$Alchemist_Compat_Phantom_Max_Haunt_Level(thisagent) >= 3 &&
+				$isspellavailable(thisagent,"endless_winter",1)
+			)
+				value += 30;
+		end
+
+	if (thisagent's "Title" == "Alchemist")
+		begin
+			if ($isspellavailable(thisagent,"flash_flask",1))
+				value += #Alchemist_Flash_Flask_Confidence;
+
+			if ($isspellavailable(thisagent,"stun_serum",1))
+				value += #Alchemist_Stun_Serum_Confidence;
+		end
+
+	return value;
+end
+
 ///////////////////////////////////////////////////////////////////////////////
 
 function Alchemist_tree (agent thisagent)
@@ -12,6 +157,7 @@ function Alchemist_tree (agent thisagent)
 declare
 
 begin
+	$Alchemist_Sync_Speed_Profile(thisagent);
 
 	$createeffector(thisagent,"thought_bubble_think",#think_bubble_time);
 	$SpecifyIntent (ThisAgent, #Intent_Thinking);
@@ -19,6 +165,11 @@ begin
 	if ($check_nearby(thisagent) == False)
 
 	if ($Check_rewards(thisagent,FALSE) == False)
+
+	// Preserve stock reward priority so an incidental encounter cannot make an
+	// Alchemist abandon an accepted bounty to refill a consumed flask. Bazaar
+	// shopping still precedes every ordinary equipment and hunting branch.
+	if ($Alchemist_Purchase_Bazaar(thisagent, 75) == False)
 
 	if ($Defend_home(thisagent) == False)
 
@@ -28,18 +179,9 @@ begin
 
 	if ($Purchase_equipment(thisagent) == False)
 
-	// Literal stock Rogue Magic Bazaar priority.  A value above the stock
-	// RandomNumber(100)+1 ceiling makes the requested pre-hunt purchase check
-	// deterministic whenever a researched, affordable item is available.
-	if ($Alchemist_Purchase_Bazaar(thisagent, 101) == False)
-
 	if ($pursue_entertainment(thisagent) == False)
 
-	if ($Loot_Gravestones(ThisAgent,100) == False)
-
 	if ($collect_special_item (ThisAgent, 90) == False)
-
-	if ($Collect_Resource(thisagent,"poison_plants",90) == False)
 
 	if ($check_library(thisagent,15, "Train_magic_resist") == FALSE)
 

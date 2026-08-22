@@ -593,6 +593,10 @@ class AlchemistProbeTests(unittest.TestCase):
         self.assertIn("(attack_action basic_attack)", data)
         self.assertIn("(attacktype 1)", data)
         self.assertIn("(castingrange 130)", data)
+        self.assertIn("(PercentageHPRetreat 15)", data)
+        self.assertIn("(enemy_estimation .5)", data)
+        self.assertIn("(self_estimation 2.0)", data)
+        self.assertIn("(birthScript\t\tAlchemist_birth)", data)
         self.assertNotIn("Cultist_Dagger", data)
         self.assertNotIn("Fire_Dagger", data)
         self.assertIn("(special_attack_action basic_attack)", data)
@@ -610,15 +614,13 @@ class AlchemistProbeTests(unittest.TestCase):
             "$SpecifyIntent (ThisAgent, #Intent_Thinking)",
             "$check_nearby(thisagent)",
             "$Check_rewards(thisagent,FALSE)",
+            "$Alchemist_Purchase_Bazaar(thisagent, 75)",
             "$Defend_home(thisagent)",
             '$defend_building(thisagent,"Gambling_hall")',
             "$rest(thisagent)",
             "$Purchase_equipment(thisagent)",
-            "$Alchemist_Purchase_Bazaar(thisagent, 101)",
             "$pursue_entertainment(thisagent)",
-            "$Loot_Gravestones(ThisAgent,100)",
             "$collect_special_item (ThisAgent, 90)",
-            '$Collect_Resource(thisagent,"poison_plants",90)',
             '$check_library(thisagent,15, "Train_magic_resist")',
             '$check_library(thisagent,25, "Learn_generic_spell")',
             "$Combat_wandering(thisagent,65)",
@@ -632,9 +634,48 @@ class AlchemistProbeTests(unittest.TestCase):
         positions = [source.index(token) for token in expected]
         self.assertEqual(positions, sorted(positions))
         self.assertNotIn("$Steal_Check", source)
+        self.assertNotIn("$Loot_Gravestones", source)
+        self.assertNotIn('"poison_plants"', source)
         self.assertNotIn("Cultist_tree", source)
+        self.assertLess(
+            source.index("$Check_rewards(thisagent,FALSE)"),
+            source.index("$Alchemist_Purchase_Bazaar(thisagent, 75)"),
+        )
         for cultist_only in ("$Build_Pack", "$Swarm", "$Seed_Resource_Check"):
             self.assertNotIn(cultist_only, source)
+
+    def test_alchemist_uses_haunt_proven_speed_and_spell_confidence_paths(self) -> None:
+        source = (builder.GPL_SOURCE_ROOT / "Alchemist_Rogue.gpl").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn("expression #Alchemist_Base_Movement_Bonus -50", source)
+        self.assertIn("expression #Alchemist_Flash_Flask_Confidence 60", source)
+        self.assertIn("expression #Alchemist_Stun_Serum_Confidence 100", source)
+        self.assertIn("Function Alchemist_Sync_Speed_Profile", source)
+        self.assertIn('"AlchemistBaseMovementApplied"', source)
+        self.assertIn("#ATTRIB_MovementRateModifier", source)
+        self.assertIn("$SetAttribute(ThisAgent, #ATTRIB_Speed, 2)", source)
+        self.assertIn("Function Alchemist_birth", source)
+        self.assertIn("$hero_birth(ThisAgent)", source)
+        self.assertIn("function spell_extra_value(agent thisagent) is integer", source)
+        for spell, weight in (
+            ("flash_flask", "#Alchemist_Flash_Flask_Confidence"),
+            ("stun_serum", "#Alchemist_Stun_Serum_Confidence"),
+        ):
+            self.assertIn(f'$isspellavailable(thisagent,"{spell}",1)', source)
+            self.assertIn(f"value += {weight};", source)
+        for stock_spell in (
+            "energy_blast",
+            "fire_blast",
+            "fire_ball",
+            "teleport",
+            "resist_magic",
+            "meteor_storm",
+            "drain_life",
+            "sun_scorch",
+        ):
+            self.assertIn(f'$isspellavailable(thisagent,"{stock_spell}",1)', source)
+        self.assertIn('if (thisagent\'s "Title" == "Phantom")', source)
 
     def test_private_bazaar_selector_preserves_stock_purchase_lifecycle(self) -> None:
         stock = Path(
@@ -658,6 +699,110 @@ class AlchemistProbeTests(unittest.TestCase):
             "$SetBuyerIntent",
         ):
             self.assertIn(stock_owner, source)
+
+    def test_alchemist_potion_dispatch_is_private_and_stock_shaped(self) -> None:
+        game = Path(r"C:\Program Files (x86)\Steam\steamapps\common\Majesty HD")
+        inventory = builder.build_alchemist_inventory(
+            game
+            / "SDK"
+            / "OriginalQuests"
+            / "GPLMx"
+            / "TaskModules"
+            / "Subtasks"
+            / "mx_Inventory.gpl"
+        )
+        self.assertEqual(inventory.count("Function QItem_Stat_Boost"), 1)
+        self.assertIn(builder.ALCHEMIST_STRENGTH_ACTION_NAME, inventory)
+        self.assertIn(builder.ALCHEMIST_SHAPESHIFT_ACTION_NAME, inventory)
+        self.assertIn(builder.ALCHEMIST_FIRE_BALM_ACTION_NAME, inventory)
+        self.assertIn(builder.ALCHEMIST_REGENERATION_ACTION_NAME, inventory)
+        self.assertIn('$LearnSpell ( thisagent, "Strength_Potion", FALSE )', inventory)
+        self.assertIn('$LearnSpell ( thisagent, "Shapeshift_Potion", FALSE )', inventory)
+
+        actions = ET.fromstring(
+            builder.build_alchemist_combat_potions_xml(
+                game / "SDK" / "OriginalQuests" / "DataMX" / "MX_Actions.xml"
+            )
+        )
+        self.assertEqual(len(actions.findall("Description")), 4)
+        for name in (
+            builder.ALCHEMIST_STRENGTH_ACTION_NAME,
+            builder.ALCHEMIST_SHAPESHIFT_ACTION_NAME,
+            builder.ALCHEMIST_FIRE_BALM_ACTION_NAME,
+            builder.ALCHEMIST_REGENERATION_ACTION_NAME,
+        ):
+            action = actions.find(f'./Description[@Name="{name}"]')
+            self.assertIsNotNone(action)
+            self.assertEqual(
+                action.find("./Game/ValidationScript").get("value"),
+                builder.ALCHEMIST_CONSUMABLE_VALIDATION,
+            )
+            self.assertEqual(action.find("./Game/SpellType").get("value"), "Attack")
+
+        strength = builder.build_alchemist_strength_potion(
+            game
+            / "SDK"
+            / "OriginalQuests"
+            / "GPLMx"
+            / "TaskModules"
+            / "Subtasks"
+            / "mx_Spells.gpl"
+        )
+        self.assertIn("function Alchemist_Strength_Potion_Effect", strength)
+        self.assertIn(builder.ALCHEMIST_STRENGTH_ACTION_NAME, strength)
+        self.assertNotIn('$ForgetSpell ( ThisAgent, "Strength_Potion" )', strength)
+
+        threat = builder.build_alchemist_consumable_threat(
+            game
+            / "SDK"
+            / "OriginalQuests"
+            / "GPLMx"
+            / "DecisionTrees"
+            / "Modules"
+            / "mx_target_eval.gpl",
+            game
+            / "SDK"
+            / "OriginalQuests"
+            / "GPLMx"
+            / "TaskModules"
+            / "Subtasks"
+            / "mx_Spells.gpl",
+        )
+        self.assertIn("function Alchemist_Base_List_Eval", threat)
+        self.assertIn("return hitstildead - hitstokill;", threat)
+        self.assertNotIn("$spell_extra_value(thisagent)", threat)
+        self.assertIn("If (Base_Score < 1)", threat)
+        self.assertIn("ThisAgent's \"Hostiles\"", threat)
+        self.assertIn("function alchemist_combat_consumable_check", threat)
+        self.assertIn("function Alchemist_Fire_Balm_Effect", threat)
+        self.assertIn("function Alchemist_Regeneration_Elixer_Effect", threat)
+        self.assertNotIn('$ForgetSpell ( ThisAgent, "Fire_Balm" )', threat)
+        self.assertNotIn('$ForgetSpell ( ThisAgent, "Regeneration_Elixer" )', threat)
+
+    def test_alchemist_shapeshift_clones_stock_with_spider_stat_branch(self) -> None:
+        stock = Path(
+            r"C:\Program Files (x86)\Steam\steamapps\common\Majesty HD\SDK\OriginalQuests"
+            r"\GPLMx\TaskModules\Subtasks\mx_Spells.gpl"
+        )
+        source = builder.build_alchemist_shapeshift(stock)
+        self.assertEqual(source.count("function Alchemist_Shapeshift_Potion_Effect"), 1)
+        self.assertEqual(source.count("function Shapeshift_Potion_End"), 1)
+        self.assertIn(builder.ALCHEMIST_SHAPESHIFT_ACTION_NAME, source)
+        self.assertEqual(
+            source.count('$ChangeUnitType ( thisagent, "Giant_Spider" )'), 1
+        )
+        for stock_form in ("Dryad", "Medusa", "Minotaur"):
+            self.assertIn(f'$ChangeUnitType ( thisagent, "{stock_form}" )', source)
+        for gain, loss in (
+            ("#ATTRIB_Strength, 18", "#ATTRIB_Strength, -18"),
+            ("#ATTRIB_Vitality, 15", "#ATTRIB_Vitality, -15"),
+            ("#ATTRIB_MaxHP, 30", "#ATTRIB_MaxHP, -30"),
+            ("#ATTRIB_ActionRateModifier, -50", "#ATTRIB_ActionRateModifier, 50"),
+        ):
+            self.assertIn(gain, source)
+            self.assertIn(loss, source)
+        self.assertIn("$RevertUnitType ( thisagent )", source)
+        self.assertIn("#ATTRIB_MaxHP, 40", source)
 
     def test_alchemist_unit_replaces_cultist_spells_with_flash_flask(self) -> None:
         game = Path(r"C:\Program Files (x86)\Steam\steamapps\common\Majesty HD")
@@ -770,6 +915,10 @@ end
             'data="Alchemist_Phoenix_Phial.dat"\n'
             'source="Alchemist_Rogue.gpl"\n'
             'source="Alchemist_Magic_Bazaar.gpl"\n'
+            'source="Alchemist_Inventory.gpl"\n'
+            'source="Alchemist_Consumable_Threat.gpl"\n'
+            'source="Alchemist_Strength_Potion.gpl"\n'
+            'source="Alchemist_Shapeshift.gpl"\n'
             'source="Alchemist_Stun_Serum.gpl"\n'
             'source="Alchemist_Flash_Flask.gpl"\n'
             'source="Alchemist_Brewing.gpl"\n'
@@ -783,6 +932,17 @@ end
             'source="Alchemist_Siege_Test.gpl"', builder.build_gpl_project(True)
         )
         fixture_manifest = builder.build_manifest(include_siege_test_fixture=True)
+        self.assertIn(
+            "<Source>GPL\\Alchemist_Shapeshift.gpl</Source>", fixture_manifest
+        )
+        self.assertIn(
+            "<Source>GPL\\Alchemist_Consumable_Threat.gpl</Source>",
+            fixture_manifest,
+        )
+        self.assertIn(
+            "<Descriptions>Data\\alchemist_combat_potions.xml</Descriptions>",
+            fixture_manifest,
+        )
         self.assertIn(
             "<Source>GPL\\Alchemist_Siege_Test.gpl</Source>", fixture_manifest
         )
@@ -886,6 +1046,7 @@ end
             output = Path(directory) / "oil_gpltext.cam"
             builder.build_gpl_text_cam(stock, output)
             intents = builder.read_cam_entry(output, b"STRT", b"AITX").data
+            items = builder.read_cam_entry(output, b"STRT", b"QITM").data
         stock_intents = builder.read_cam_entry(stock, b"STRT", b"AITX").data
         stock_count = struct.unpack_from("<H", stock_intents, 0)[0]
         self.assertEqual(stock_count, builder.ALCHEMY_OIL_INTENT_INDEX)
@@ -906,6 +1067,16 @@ end
         self.assertEqual(
             intents[offset + 4 : end].decode("cp1252"),
             builder.ALCHEMY_OIL_INTENT_TEXT,
+        )
+        item_count = struct.unpack_from("<H", items, 0)[0]
+        self.assertEqual(item_count, builder.PHOENIX_PHIAL_ITEM_ID + 1)
+        item_offset = struct.unpack_from(
+            "<I", items, 4 + builder.PHOENIX_PHIAL_ITEM_ID * 4
+        )[0]
+        item_end = items.index(b"\x00", item_offset + 4)
+        self.assertEqual(
+            items[item_offset + 4 : item_end].decode("cp1252"),
+            builder.PHOENIX_PHIAL_ITEM_TEXT,
         )
 
     def test_brewing_source_copies_stock_rage_for_true_heroes(self) -> None:
@@ -1073,9 +1244,9 @@ end
         )
         self.assertIn("expression #Phoenix_Phial_Price 1000", source)
         self.assertIn("expression #Phoenix_Phial_Revive_Chance 75", source)
-        self.assertIn('$AgentHasInventoryItem ("PhoenixPhial", ThisAgent)', source)
-        self.assertIn('$CreateNewInventoryItem ("PhoenixPhial"', source)
-        self.assertIn('$DeleteInventoryItem ("PhoenixPhial", ThisAgent)', source)
+        self.assertIn("$AgentHasInventoryItem (#PhoenixPhial, ThisAgent)", source)
+        self.assertIn("$CreateNewInventoryItem (#PhoenixPhial", source)
+        self.assertIn("$DeleteInventoryItem (#PhoenixPhial, ThisAgent)", source)
         self.assertIn("$Shared_Begin_Resurrect (ThisAgent)", source)
         self.assertIn("$Shared_End_Resurrect (ThisAgent)", source)
         self.assertEqual(

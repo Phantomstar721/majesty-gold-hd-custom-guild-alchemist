@@ -1,14 +1,18 @@
 # Magic Bazaar stock lifecycle
 
 The Alchemist uses the Northern Expansion Magic Bazaar with a private clone of
-only the stock item selector. `Alchemist_tree` retains Rogue's stock priority
-position: `Purchase_equipment`, then `Alchemist_Purchase_Bazaar`, then
-entertainment, looting, resource collection, and hunting. Keeping the complete
-stock `Purchase_equipment` gate first preserves ordinary Marketplace,
-Blacksmith, Library, and Wizard Guild shopping opportunities. The Bazaar chance
-is 101, one above the function's `RandomNumber(100) + 1` ceiling, so the check
-is deterministic only when a researched, affordable, not-already-held flask is
-available.
+only the stock item selector. `Alchemist_tree` first retains Rogue's native
+`check_nearby` danger response and `Check_rewards`, then checks
+`Alchemist_Purchase_Bazaar` before ordinary equipment, entertainment, and
+hunting. Keeping the stock reward branch first means a hero interrupted on the
+way to a bounty reacquires that reward instead of immediately returning home
+to refill a consumed flask. The
+Bazaar chance is 75 and uses the stock `RandomNumber(100) + 1` check. The
+Alchemist strongly prefers a researched, affordable, not-already-held flask,
+but failed rolls leave normal decision cycles available for Laboratory oil and
+Phial purchases as well as Marketplace, Blacksmith, Library, and Wizard Guild
+upgrades. Once no flask qualifies, the stock selector returns `FALSE` exactly
+as before.
 
 Stock `Purchase_Bazaar` checks the whole item list and the last successful
 candidate owns `TaskName`. The private clone therefore iterates candidates from
@@ -34,6 +38,23 @@ preserved, and the two Laboratory-only intents append at indices 309 and 310.
 This prevents the package from blanking Bazaar status text for every hero.
 
 The inventory callback teaches each Bazaar item as its native one-use spell.
+Strength, Shapeshift, Fire Balm, and Regeneration use private literal clones of
+their stock actions and GPL effects. Strength and Shapeshift replace stock
+`berserk_check`, whose native contract restricts them to the Berserking intent;
+Fire Balm and Regeneration add the same private gate. All effectors, stats,
+duration, ordering, callbacks, and cleanup remain stock. Other heroes continue
+to learn and use the original actions.
+
+The private gate is stock-composed rather than a potion state machine. It uses
+the encounter list already owned by `eval_enemies_nearby` (falling back to the
+current reward target), runs a literal clone of stock `list_eval`, and removes
+only the `spell_extra_value` term. Removing that term both measures the fight
+without renewable Flash Flask/Stun Serum confidence and prevents recursive
+`IsSpellAvailable` validation. Disposable potions are valid only when this
+base score is below `1`, the exact loss boundary used by stock `should_I_run`.
+Easy encounters therefore use the dagger and rechargeable spells; an encounter
+Majesty predicts the unassisted Alchemist would lose can consume the four
+stock potions in their native rank order.
 Combat continues to use stock `attack_object`: `getbestspell(#list_attack)`
 selects the highest-ranked available spell, moves to the hero's casting range,
 and calls `castspell`. Stun Serum is rank 5 and Flash Flask is rank 4; the

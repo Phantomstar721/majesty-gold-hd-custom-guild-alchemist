@@ -50,7 +50,13 @@ retail/SDK `AVk4Res Item`, retaining the complete Inactive, Minimap, and
 Interface animation-set structure while redirecting all nine referenced TILEs
 to private Phoenix bottle art. The unit's `ImageIDBase` is `PXF1`, so the
 ordinary hero inventory UI—not a custom marker—shows that the hero carries a
-Phial. The CGBR research glyph separately clones the exact APa1 icon control
+Phial. Creation, ownership checks, and deletion all use the explicit numeric
+`#PhoenixPhial` ID 113, following the proven Phantom equipment route; this is
+the integer the native Items renderer uses to index QITM. Its native
+inventory-text entry is therefore private QITM slot 113 and displays
+`Phoenix Phial` with a short note describing its 75-percent resurrection
+chance. The Alchemist and Phantom packages both preserve this slot so CAM load
+order cannot blank the item text. The CGBR research glyph separately clones the exact APa1 icon control
 used by Weapon Oil and points it at private `ALPI` art.
 
 ## Death, resurrection, and escape

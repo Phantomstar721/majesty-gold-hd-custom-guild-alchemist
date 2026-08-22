@@ -9,13 +9,15 @@
 expression #Intent_Purchasing_Phoenix_Phial 310
 expression #Phoenix_Phial_Price 1000
 expression #Phoenix_Phial_Revive_Chance 75
+// Private QITM index used by the native inventory-list renderer.
+expression #PhoenixPhial 113
 
 Function Phoenix_Phial_Check (agent ThisAgent, list Potentials) is boolean
 Declare
 	integer Intel_Roll;
 Begin
 	// Exact stock Market3 single-item ownership gate.
-	If ($AgentHasInventoryItem ("PhoenixPhial", ThisAgent))
+	If ($AgentHasInventoryItem (#PhoenixPhial, ThisAgent))
 		return False;
 
 	If ($Total_Gold (ThisAgent) < #Phoenix_Phial_Price)
@@ -60,7 +62,9 @@ Begin
 	// Literal Purchase_Market3_Item transaction with private item and price.
 	$SetThreadInterval (ThisAgent's "ActiveScript", #Normal_Cycle);
 	$Spend_Gold (ThisAgent, ThisAgent's "Target", #Phoenix_Phial_Price);
-	$CreateNewInventoryItem ("PhoenixPhial", ThisAgent, #Allow_Cloned_Quest_Item);
+	// Use the explicit private numeric item ID, as Phantom equipment does. The
+	// native Items panel indexes QITM by this stored integer.
+	$CreateNewInventoryItem (#PhoenixPhial, ThisAgent, #Allow_Cloned_Quest_Item);
 	ThisAgent's "ActiveScript" = $Done_Purchasing_Market_Stuff;
 End
 
@@ -92,9 +96,9 @@ function gravestone(agent thisagent)
 declare
 	integer grave_time;
 begin
-	If ($AgentHasInventoryItem ("PhoenixPhial", ThisAgent))
+	If ($AgentHasInventoryItem (#PhoenixPhial, ThisAgent))
 		begin
-			$DeleteInventoryItem ("PhoenixPhial", ThisAgent);
+			$DeleteInventoryItem (#PhoenixPhial, ThisAgent);
 			If ($RandomNumber (100) < #Phoenix_Phial_Revive_Chance)
 				begin
 					$ResumeThread (ThisAgent's "ActiveScript");

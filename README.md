@@ -25,6 +25,15 @@ Stun Serum's Rogue-range engagement and native five-second freeze lifecycle
 are recorded in [the Stun Serum stock-clone notes](docs/stun-serum-stock-clone.md).
 The completed greed-based Paralytic/Transmutation split is recorded in
 [the Weapon Oil stock-clone notes](docs/weapon-oil-stock-clone.md).
+The Alchemist-only Giant Spider form and its exactly reversible native
+Shapeshift Potion branch are recorded in
+[the Shapeshift stock-clone notes](docs/alchemist-shapeshift-stock-clone.md).
+The Haunt-derived actual-movement adjustment, AI speed rating, retreat
+threshold, and per-spell combat-confidence weights are recorded in
+[the movement and confidence notes](docs/alchemist-movement-and-confidence.md).
+The deterministic pre-bounty flask-shopping order and unchanged native Bazaar
+transaction are recorded in
+[the Magic Bazaar stock-clone notes](docs/magic-bazaar-stock-clone.md).
 
 Invigorating Elixer is intentionally scoped to true recruitable heroes. Its
 activation, targeting, timed effector, Palace-side count, expiry cleanup, and

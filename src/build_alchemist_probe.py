@@ -13,7 +13,9 @@ import xml.etree.ElementTree as ET
 
 from alchemist_art_package import (
     FLASH_FLASK_ACTIVATION_CUSTOM,
+    FLASH_FLASK_ACTIVATION_DELAY_MS,
     FLASH_FLASK_ACTIVATION_HEADER,
+    FLASH_FLASK_ACTIVATION_SOURCE_DELAY_MS,
     FLASH_FLASK_BUFF_CUSTOM,
     PHOENIX_EFFECT_HEADER,
     PHOENIX_EFFECT_PALETTE,
@@ -30,6 +32,7 @@ from alchemist_art_package import (
     generated_frost_armor_hold_tile,
     VINES_FIXED_HEADER,
     load_stock_pipeline,
+    set_single_overlay_animation_delay,
     write_interfacedata,
     write_maindata,
 )
@@ -1078,6 +1081,21 @@ def install_refined_stun_serum_images(game_path: Path, main_art: Path) -> None:
     if len([name for name in private_tile_indices if name.startswith(b"ASS2Bind")]) != 30:
         raise ValueError("Existing private Stun Serum restraint art is incomplete")
 
+    flash_frames = 0
+    old_flash_header = (3, 99, 103, 0, 32, 56, 43, 8)
+    for index, entry in enumerate(output_tiles):
+        if not entry.name.startswith(b"AFF2Flash"):
+            continue
+        header = struct.unpack_from("<8H", entry.data, 0)
+        if header not in (old_flash_header, FLASH_FLASK_ACTIVATION_HEADER):
+            raise ValueError("Existing Flash Flask frame has an unknown anchor")
+        corrected = bytearray(entry.data)
+        struct.pack_into("<8H", corrected, 0, *FLASH_FLASK_ACTIVATION_HEADER)
+        output_tiles[index] = CamEntry(entry.name, bytes(corrected))
+        flash_frames += 1
+    if flash_frames != 6:
+        raise ValueError("Existing private Flash Flask activation art is incomplete")
+
     data = game_path / "Data" / "maindata.cam"
     data_mx = game_path / "DataMX" / "mx_maindata.cam"
     palettes = stock.read_cam_entries(data, b"SPLT")
@@ -1164,6 +1182,19 @@ def install_refined_stun_serum_images(game_path: Path, main_art: Path) -> None:
     seen: set[bytes] = set()
     for index, entry in enumerate(image_entries):
         key = entry.name[:4]
+        if key == FLASH_FLASK_ACTIVATION_CUSTOM[:4]:
+            image_entries[index] = CamEntry(
+                entry.name,
+                set_single_overlay_animation_delay(
+                    entry.data,
+                    96,
+                    (
+                        FLASH_FLASK_ACTIVATION_SOURCE_DELAY_MS,
+                        FLASH_FLASK_ACTIVATION_DELAY_MS,
+                    ),
+                    FLASH_FLASK_ACTIVATION_DELAY_MS,
+                ),
+            )
         if key in replacements:
             image_entries[index] = CamEntry(entry.name, replacements[key])
             seen.add(key)
@@ -2947,6 +2978,13 @@ def validate_output(
                 != FLASH_FLASK_ACTIVATION_HEADER
             ):
                 raise ValueError("Flash Flask activation lost Eternal Soul's anchor")
+        if image_name == FLASH_FLASK_ACTIVATION_CUSTOM:
+            set_offset = struct.unpack_from("<I", image, 28)[0]
+            if (
+                struct.unpack_from("<I", image, set_offset + 28)[0]
+                != FLASH_FLASK_ACTIVATION_DELAY_MS
+            ):
+                raise ValueError("Flash Flask activation lost stock default cadence")
 
     for name in (
         b"ALTIraw textures",

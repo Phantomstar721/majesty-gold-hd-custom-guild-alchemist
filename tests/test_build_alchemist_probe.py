@@ -274,6 +274,14 @@ class AlchemistProbeTests(unittest.TestCase):
                 record["packaged_tile_sha256"],
             )
         self.assertGreater(len(output_tiles), len(stock_tiles))
+        flash_activation = packaged_effects[
+            art_package.FLASH_FLASK_ACTIVATION_CUSTOM
+        ]
+        flash_set_offset = struct.unpack_from("<I", flash_activation, 28)[0]
+        self.assertEqual(
+            struct.unpack_from("<I", flash_activation, flash_set_offset + 28)[0],
+            art_package.FLASH_FLASK_ACTIVATION_DELAY_MS,
+        )
         lifecycle_sets = stock.single_direction_imag_animation_sets(
             phoenix_lifecycle_imag
         )

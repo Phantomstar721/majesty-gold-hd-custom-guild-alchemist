@@ -34,7 +34,11 @@ three changes. There is no independent cleanup path.
 ## Art lifecycle
 
 - Activation is a private XR30/PHe2 clone: six playable frames, attachment 2,
-  duration 0, fixed 103x99 canvas/hotspot, and no callback.
+  duration 0, fixed 103x99 canvas, and no callback. XR30's original 50-ms
+  frame delay made the complete effect last only about 300 ms. Its private
+  set now uses delay zero, invoking Majesty's stock 100-ms fallback for an
+  approximately 600-ms one-shot. The TILE hotspot X is 51 rather than the
+  Phantom-centered 56, moving the effect five pixels right onto the Alchemist.
 - The overhead Flash Flask icon is a private XR25/Chill clone. Its approved
   eight art phases are interpolated over XR25's complete 29-frame loop.
 - Vigor's Heroic Spark uses a second private XR25/Chill clone. Its green

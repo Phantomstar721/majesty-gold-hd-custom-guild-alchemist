@@ -72,7 +72,9 @@ STUN_SERUM_DEBUFF_CUSTOM = b"ASS3Stun Serum Icon"
 PARALYTIC_OIL_RESTRAINT_CUSTOM = b"ASO3Oil Restraint"
 BUFF_ICON_PALETTE = 560
 FLASH_FLASK_ACTIVATION_PALETTE = 505
-FLASH_FLASK_ACTIVATION_HEADER = (3, 99, 103, 0, 32, 56, 43, 8)
+FLASH_FLASK_ACTIVATION_HEADER = (3, 99, 103, 0, 32, 51, 43, 8)
+FLASH_FLASK_ACTIVATION_SOURCE_DELAY_MS = 50
+FLASH_FLASK_ACTIVATION_DELAY_MS = 0
 VINES_FIXED_HEADER = (3, 113, 108, 108, 32, 54, 54, 8)
 PROGRESS_SOURCE = b"INSrreasearch"
 PROGRESS_CUSTOM = b"ALSRalchemy progress"
@@ -253,6 +255,34 @@ def generated_discrete_strip_tile(
     )
 
 
+def set_single_overlay_animation_delay(
+    imag: bytes,
+    expected_set_id: int,
+    allowed_source_delays: tuple[int, ...],
+    target_delay: int,
+) -> bytes:
+    """Change only one stock overlay set's native frame-delay field.
+
+    XR30 stores its 50-ms delay at set+0x1c. A value of zero invokes Majesty's
+    stock 100-ms default, slowing the same six-frame one-shot without a timer,
+    duplicated frames, or a second effector.
+    """
+    if len(imag) < 64 or struct.unpack_from("<I", imag, 20)[0] != 1:
+        raise ValueError("Expected one stock overlay animation set")
+    set_id, set_offset = struct.unpack_from("<II", imag, 24)
+    if set_id != expected_set_id or set_offset + 32 > len(imag):
+        raise ValueError("Stock overlay animation-set layout changed")
+    delay_offset = set_offset + 28
+    source_delay = struct.unpack_from("<I", imag, delay_offset)[0]
+    if source_delay not in allowed_source_delays:
+        raise ValueError(
+            f"Stock overlay delay {source_delay} is outside {allowed_source_delays}"
+        )
+    patched = bytearray(imag)
+    struct.pack_into("<I", patched, delay_offset, target_delay)
+    return bytes(patched)
+
+
 def generated_frost_armor_hold_tile(
     stock,
     palettes,
@@ -339,16 +369,7 @@ def generated_phoenix_resurrection_tile(
             f"frames, found {frame_count}"
         )
 
-    header = (
-        3,
-        height,
-        width,
-        struct.unpack_from("<H", template_tile, 6)[0],
-        32,
-        min(width - 1, struct.unpack_from("<H", template_tile, 10)[0] + 6),
-        min(height - 1, struct.unpack_from("<H", template_tile, 12)[0] + 18),
-        struct.unpack_from("<H", template_tile, 14)[0],
-    )
+    header = PHOENIX_EFFECT_HEADER
     if frame_index >= PHOENIX_VISIBLE_FRAMES:
         return stock.rgba_to_indexed_tile(
             Image.new("RGBA", (width, height), (0, 0, 0, 0)),
@@ -1131,6 +1152,12 @@ def write_maindata(
     flash_flask_activation_imag = stock.remap_imag_animation_tiles(
         flash_flask_activation_imag,
         flash_activation_replacements,
+    )
+    flash_flask_activation_imag = set_single_overlay_animation_delay(
+        flash_flask_activation_imag,
+        PHOENIX_EFFECT_TEMPLATE_ANIMATION_SET,
+        (FLASH_FLASK_ACTIVATION_SOURCE_DELAY_MS,),
+        FLASH_FLASK_ACTIVATION_DELAY_MS,
     )
 
     # Stun Serum's instantaneous bottle impact uses the same six-frame,

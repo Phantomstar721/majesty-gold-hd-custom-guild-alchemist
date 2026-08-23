@@ -136,12 +136,10 @@ verified approved sprite package:
 .\scripts\Build-CustomGuildAlchemist.ps1
 ```
 
-Add explicit compatibility or the retained Siege test fixture when needed:
+Add explicit Phantoms Haunt compatibility when needed:
 
 ```powershell
-.\scripts\Build-CustomGuildAlchemist.ps1 `
-  -IncludePhantomsHauntCompatibility `
-  -IncludeSiegeTestFixture
+.\scripts\Build-CustomGuildAlchemist.ps1 -IncludePhantomsHauntCompatibility
 ```
 
 Deploy a validated package with:
@@ -150,12 +148,13 @@ Deploy a validated package with:
 .\scripts\Deploy-CustomGuildAlchemist.ps1
 ```
 
-The Siege fixture is never included unless requested. It provides a completed
-level 3 Lab, researched Oil and Phoenix options, a fully researched level 3
-Magic Bazaar, supporting stock guilds, funded level 10 test heroes, and extra
-sovereign gold for repeatable testing.
+Every build ends with structural and semantic validation of the manifest, XML
+descriptions, CAM directories and payloads, WAVE formats, DSND routing, GPL
+source contracts, compiled bytecode, private IDs, sprite mappings, palette
+controls, building dependencies, and compatibility requirements.
 
-Source art, audio projects, generated media, internal research notes, build
-outputs, and deployment snapshots are intentionally excluded from the public
-repository. Public releases contain only the compiled mod package needed by
-players.
+During development, a validated package can be copied directly into the
+content directory of a locally subscribed Workshop item and tested without
+round-tripping through RGSeditor. RGSeditor is needed when the item itself is
+published or updated, not for each local development build. No local content
+path or publishing metadata is part of this repository.

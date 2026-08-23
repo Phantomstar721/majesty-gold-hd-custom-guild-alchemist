@@ -127,6 +127,8 @@ PARALYTIC_OIL_STATUS_ID = "ALo1"
 PARALYTIC_OIL_STATUS_NAME = "alchemist_paralytic_weapon_oil_status"
 TRANSMUTATION_OIL_STATUS_ID = "ALo2"
 TRANSMUTATION_OIL_STATUS_NAME = "alchemist_transmutation_weapon_oil_status"
+POISONED_WEAPON_STATUS_ID = "ALo3"
+POISONED_WEAPON_STATUS_NAME = "alchemist_poisoned_weapon_status"
 PHOENIX_PHIAL_INTENT_INDEX = 310
 PHOENIX_PHIAL_INTENT_TEXT = "Purchasing a Phoenix Phial at the alchemy lab"
 PHOENIX_PHIAL_ITEM_ID = 113
@@ -1493,6 +1495,11 @@ def build_brewing_overlays_xml(
             TRANSMUTATION_OIL_STATUS_NAME,
             "Transmutation Weapon Oil",
         ),
+        (
+            POISONED_WEAPON_STATUS_ID,
+            POISONED_WEAPON_STATUS_NAME,
+            "Poisoned Weapon",
+        ),
     ):
         status = ET.fromstring(ET.tostring(status_source, encoding="utf-8"))
         status.set("ID", status_id)
@@ -1590,6 +1597,10 @@ def build_stun_serum_xml(stock_actions_xml: Path, stock_overlays_xml: Path) -> b
     action.find("./Engine/Script").set("GPLFunction", "Alchemist_Stun_Serum_Begin")
     action.find("./Game/EffectorDuration").set("value", STUN_SERUM_DURATION_MS)
     action.find("./Game/TimeoutDuration").set("value", STUN_SERUM_COOLDOWN_MS)
+    validation = action.find("./Game/ValidationScript")
+    if validation is None:
+        validation = ET.SubElement(action.find("./Game"), "ValidationScript")
+    validation.set("value", "Alchemist_Stun_Serum_Check")
     level = action.find("./Game/CharacterLevel")
     if level is None:
         level = ET.SubElement(action.find("./Game"), "CharacterLevel")
@@ -2672,6 +2683,8 @@ def validate_output(
         != STUN_SERUM_COOLDOWN_MS
         or stun_action.find("./Game/CharacterLevel").get("value") != "5"
         or stun_action.find("./Game/SpellRank").get("value") != "5"
+        or stun_action.find("./Game/ValidationScript").get("value")
+        != "Alchemist_Stun_Serum_Check"
     ):
         raise ValueError("Stun Serum lost Paralytic Gaze's stock action contract")
     if stun_impact.find("./Engine/ImageIDBase").get("value") != "ASS1":
@@ -2713,6 +2726,11 @@ def validate_output(
             TRANSMUTATION_OIL_STATUS_ID,
             TRANSMUTATION_OIL_STATUS_NAME,
             "Transmutation Weapon Oil",
+        ),
+        (
+            POISONED_WEAPON_STATUS_ID,
+            POISONED_WEAPON_STATUS_NAME,
+            "Poisoned Weapon",
         ),
     )
     for status_id, status_name, description in oil_statuses:
@@ -3234,6 +3252,7 @@ def validate_output(
         b"Alchemy_Oil_Enchant_Equipment",
         b"Obtain_Alchemy_Oil",
         b"Alchemist_Done_Enhancing_Equipment",
+        b"Obtain_Poison",
         b"Alchemy_Paralytic_Oil_Begin",
         b"Alchemy_Paralytic_Oil_End",
         b"Alchemy_Paralytic_Oil_Immunity_End",
@@ -3245,6 +3264,7 @@ def validate_output(
         b"Phoenix_Phial_Resurrection_End",
         PARALYTIC_OIL_STATUS_NAME.encode("ascii"),
         TRANSMUTATION_OIL_STATUS_NAME.encode("ascii"),
+        POISONED_WEAPON_STATUS_NAME.encode("ascii"),
     ):
         if symbol not in compiled_symbols:
             raise ValueError(f"Compiled Alchemist bytecode lost oil symbol {symbol!r}")

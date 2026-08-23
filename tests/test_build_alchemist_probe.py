@@ -1069,7 +1069,7 @@ end
         self.assertIn("#Enchant_Equipment_Visit_Duration", source)
         self.assertIn("$Spend_Gold (ThisAgent, ThisBuilding, Gold)", source)
         self.assertNotIn("$SetAttribute (ThisAgent, What_To_Upgrade, Upgrade)", source)
-        self.assertNotIn("#ATTRIB_WeaponPoisoned", source)
+        self.assertEqual(source.count("#ATTRIB_WeaponPoisoned"), 1)
         self.assertIn(
             '$AddAttribute (\n\t\t\t\t\tThisAgent,\n\t\t\t\t\t"AlchemyWeaponOilType"',
             source,
@@ -1090,7 +1090,15 @@ end
         self.assertIn("Function Alchemist_Done_Enhancing_Equipment", source)
         self.assertIn('"alchemist_paralytic_weapon_oil_status"', source)
         self.assertIn('"alchemist_transmutation_weapon_oil_status"', source)
-        self.assertEqual(source.count('"Infinite"'), 2)
+        self.assertIn("Function Obtain_Poison", source)
+        self.assertIn(
+            '$SetAttribute (ThisAgent, #ATTRIB_WeaponPoisoned, 1)', source
+        )
+        self.assertIn('"alchemist_poisoned_weapon_status"', source)
+        self.assertIn(
+            'ThisAgent\'s "ActiveScript" = $Done_Poisoning_Weapon', source
+        )
+        self.assertEqual(source.count('"Infinite"'), 3)
         self.assertLess(
             source.index('$Exit_Building (ThisAgent, ThisAgent\'s "Target")'),
             source.index('"alchemist_paralytic_weapon_oil_status"'),
@@ -1242,7 +1250,7 @@ end
             resurrection.find("./Engine/AttachmentPointID").get("value"), "2"
         )
         statuses = output.findall("Description")[2:]
-        self.assertEqual(len(statuses), 2)
+        self.assertEqual(len(statuses), 3)
         self.assertEqual(
             [
                 (item.get("ID"), item.get("Name"), item.get("Description"))
@@ -1259,6 +1267,11 @@ end
                     builder.TRANSMUTATION_OIL_STATUS_NAME,
                     "Transmutation Weapon Oil",
                 ),
+                (
+                    builder.POISONED_WEAPON_STATUS_ID,
+                    builder.POISONED_WEAPON_STATUS_NAME,
+                    "Poisoned Weapon",
+                ),
             ],
         )
         for status in statuses:
@@ -1274,7 +1287,7 @@ end
             self.assertEqual(
                 status.find("./Game/StackPriority").get("value"), "0"
             )
-        self.assertEqual(len(output.findall("Description")), 4)
+        self.assertEqual(len(output.findall("Description")), 5)
         self.assertIsNone(
             output.find('./Description[@Name="phoenix_phial_visual_effector"]')
         )
@@ -1351,6 +1364,10 @@ end
         self.assertEqual(action.find("./Game/TimeoutDuration").get("value"), "45000")
         self.assertEqual(action.find("./Game/CharacterLevel").get("value"), "5")
         self.assertEqual(action.find("./Game/SpellRank").get("value"), "5")
+        self.assertEqual(
+            action.find("./Game/ValidationScript").get("value"),
+            "Alchemist_Stun_Serum_Check",
+        )
         restraint = output.find(
             './Description[@Name="alchemist_stun_serum_restraint"]'
         )
@@ -1386,6 +1403,10 @@ end
         )
         for stock_call in ("$Freeze_Unit (Target)", "$UnFreeze_Unit (ThisAgent)"):
             self.assertIn(stock_call, source)
+        self.assertIn("Function Alchemist_Stun_Serum_Check", source)
+        self.assertIn('Target\'s "Type" != "Lair"', source)
+        self.assertIn('Target\'s "Type" != "Building"', source)
+        self.assertIn('ThisAgent\'s "castingrange"', source)
         self.assertIn('"alchemist_stun_serum_restraint",', source)
         self.assertIn('"after"', source)
         self.assertNotIn('"alchemist_stun_serum_icon"', source)

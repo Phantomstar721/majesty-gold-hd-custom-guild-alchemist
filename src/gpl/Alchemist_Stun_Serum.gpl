@@ -4,6 +4,32 @@
 // duration and cleanup callback; stock Vines deliberately creates no icon.
 ///////////////////////////////////////////////////////////////////////////////
 
+// Literal private clone of stock Multiple_Attack_Check. Stock uses this
+// ValidationScript to keep an Attack spell out of $getbestspell when its
+// current target is dead, a Building, or a Lair. The only requested change is
+// using the Alchemist's established Rogue-range casting distance.
+Function Alchemist_Stun_Serum_Check (agent ThisAgent) is integer
+Declare
+	agent Target;
+
+Begin
+	Target = ThisAgent's "Target";
+
+	If ($IsDead (Target) == False)
+		begin
+			If (Target's "Type" != "Lair" && Target's "Type" != "Building")
+				begin
+					If ($DistanceBetweenAgents (ThisAgent, Target) <= ThisAgent's "castingrange")
+						return 1;
+				end
+		end
+
+	return 0;
+End
+
+
+///////////////////////////////////////////////////////////////////////////////
+
 Function Alchemist_Stun_Serum_Begin (agent ThisAgent, agent Target)
 Declare
 

@@ -83,19 +83,65 @@ lifetime. Live testing proved that this hybrid did not appear in the native
 Enchantments list; `Menu=11` alone was not a complete persistent-presenter
 contract.
 
-The corrected presenter clones the Magic Ring instead. The Ring is Majesty's
-literal permanent overlay analogue: `Static`, `Directionless`, `DontBlock`,
-`Menu=11`, no cleanup script, `StackPriority=0`, and it is created with
-duration `1`, `"Infinite"`. The private oil clones change only identity and
-description, point at the stock Speed Tonic icon art, and compose Vines'
-stock-supported `NotVisibleInISOView` flag so no overhead world icon appears.
-The native hero Enchantments/Effects list should therefore show either
-**Paralytic Weapon Oil** or **Transmutation Weapon Oil**. It is created
+Live testing also disproved the Magic Ring and Petrify presenter experiments;
+neither appeared. The inferred `StackPriority` explanation was wrong.
+
+The hero Spells/Enchantments controller is AP78, not AP22. This was proven from
+the live dialog-factory lifecycle and then traced against both supported
+executables. AP78 setup calls the Enchantments population function at Public
+`0x004A3830` / Beta2 `0x004A4110`. That function obtains the selected hero's
+active-effect collection, iterates its live effect objects, reads the effect's
+overlay-description pointer at `effect + 0x90`, and reads that overlay's own
+FourCC at description `+4` (Public `0x004A3971` / Beta2 `0x004A4251`).
+
+AP78 then uses a hard-coded switch over stock overlay FourCCs. Each recognized
+case supplies a hard-coded stock global-text index and icon/presentation index,
+builds one stock rich-text row, and appends it to Enchantments control
+`0x221B`. An unrecognized FourCC jumps directly to the next effect without
+creating a row. The switch does not use the overlay's XML name, description,
+`Menu`, `StackPriority`, `ImageIDBase`, GPL attributes, or lifetime flags as a
+fallback. Examples of recognized stock IDs include `XR01` for Speed Tonic and
+the stock Magic Bazaar/Ring effect IDs; private IDs have no generic path.
+
+The focused Beta2 live trace on 2026-08-22 captured the private Transmutation
+Oil presenter reaching that exact switch as `imageId=ALo2`. AP78 omitted it
+because `ALo2` is not a stock switch case. This also explains why setting the
+private descriptor's `ImageIDBase` to stock `XR01` did not help: AP78 tests the
+private overlay ID `ALo2`, not its rendered image channel. The trace itself was
+removed after it captured this result; it was diagnostic-only and its first
+implementation crashed after logging the candidate.
+
+There is therefore no data-only stock mechanism for listing independently
+private `ALo1`/`ALo2` effectors with their own names in AP78. Reusing a stock
+recognized overlay ID would collide with and relabel that stock effect. The
+approved runtime extension intercepts only AP78's first stock FourCC compare.
+It aliases `ALo1`, `ALo2`, and `ALo3` to the already-recognized `XR01` case for
+the duration of that one synchronous row build, then substitutes only the text
+argument at XR01's unchanged stock string-assignment call. Every stock ID,
+branch, icon/presentation index, rich-text construction call, append call,
+refresh, and cleanup remains byte-for-byte on its original path. Public and
+Beta2 use separately fingerprinted switch, call, and assignment addresses and
+fail closed if any stock byte changes.
+
+AP78 has one rich-text row per effect, not the Special Items panel's dedicated
+description control. The private rows therefore use compact single-line text:
+`Paralytic Oil - brief stun on weapon hit`, `Transmutation Oil - +5 gold on
+weapon hit`, and `Poisoned Weapon - poison on weapon hit`.
+A separately styled second description line would require a panel-layout
+extension and is outside this scoped switch clone.
+
+Native weapon poison is a persistent `#ATTRIB_WeaponPoisoned` value and does
+not create a stock effector, so it otherwise never enters AP78's active-effect
+collection. The packaged `Obtain_Poison` is a literal clone of the stock
+central purchase callback with one post-attribute insertion: it creates the
+private, static, invisible, duration-1/Infinite `ALo3` presenter. The stock
+attribute remains the sole gameplay owner; `ALo3` has no script, stats, world
+art, or cleanup. The package retains the same Magic-Ring-lifetime presenter
+contract for all three rows. Oil presenters are created
 by a private literal clone of `Done_Enhancing_Equipment`, immediately after
 stock `Exit_Building`, rather than while the hero is hidden inside the Lab. The
-overlay does not own state, combat timing, gold, or paralysis cleanup. Both
-descriptions use stock `XR01` art and `NotVisibleInISOView`; no custom UI hook
-is involved.
+overlays do not own state, combat timing, gold, poison, or paralysis cleanup.
+All three descriptions use stock `XR01` art and `NotVisibleInISOView`.
 
 The stock `Obtain_Enchantment` transaction still owns travel, visit duration,
 payment, building revenue, exit, and decision-tree restart. Its only new choice
@@ -110,7 +156,8 @@ guarded read of `AlchemyWeaponOilType` is the only modification. The Paralytic
 status uses Vines' exact effector-owned `Freeze_Unit` lifecycle. One private
 Vines-derived restraint, `alchemist_paralytic_oil_restraint`, owns the duration
 and `Alchemy_Paralytic_Oil_End` cleanup callback and is created with stock's
-`"after"` ordering. Its private `ASO3` image channel contains the approved
+`"after"` ordering. An A/B using the default creation path did not change world
+layering. Its private `ASO3` image channel contains the approved
 copper-and-acid-green alchemical restraint animation. It does not create Stun
 Serum's broken-bottle impact, restraint, or overhead potion debuff icon.
 The private image preserves Vines' two-set topology. Following the Haunt Frost

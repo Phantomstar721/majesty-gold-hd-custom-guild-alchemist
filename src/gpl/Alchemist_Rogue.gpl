@@ -73,10 +73,42 @@ End
 Function Alchemist_birth(agent ThisAgent)
 
 Declare
+	agent Home;
 
 Begin
 	$hero_birth(ThisAgent);
+	Home = ThisAgent's "Home";
+	If (
+		$IsValidGamePiece(Home) &&
+		$IsDead(Home) == False &&
+		Home's "Type" == "Building" &&
+		Home's "Title" == "AlchemistsLaboratory" &&
+		$GetUnitPlayerNumber(ThisAgent) == $GetUnitPlayerNumber(Home)
+	)
+		If ($HasAttribute("AlchemistRecruitmentVoice", ThisAgent) == False)
+			begin
+				$AddAttribute(
+					ThisAgent,
+					"AlchemistRecruitmentVoice",
+					"function",
+					$Alchemist_Recruitment_Voice
+				);
+				If ($RandomNumber(100) + 1 <= 20)
+					$RunThread(
+						ThisAgent's "AlchemistRecruitmentVoice",
+						250,
+						ThisAgent
+					);
+			end
 	$Alchemist_Sync_Speed_Profile(ThisAgent);
+End
+
+Function Alchemist_Recruitment_Voice(agent ThisAgent)
+
+Declare
+
+Begin
+	$PlaySound(ThisAgent, "Alchy_Hired", "Begin");
 End
 
 // Complete stock confidence function plus the two private guild branches.

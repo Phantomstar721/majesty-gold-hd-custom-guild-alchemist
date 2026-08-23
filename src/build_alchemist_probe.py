@@ -135,12 +135,44 @@ ALCHEMIST_VIGOR_SOUND = "Alchy_Vigor"
 ALCHEMIST_BOTTLE_BREAK_SOUND = "Alchy_Bottle"
 ALCHEMIST_LAB_SOUND = "Alchy_Lab"
 ALCHEMIST_HERO_SOUND = "Alchy_Hero"
+ALCHEMIST_CAST_VOICE_SOUND = "Alchy_Cast"
+ALCHEMIST_HIRED_VOICE_SOUND = "Alchy_Hired"
 ALCHEMIST_VIGOR_SOUND_ID = b"AXV1"
 ALCHEMIST_BOTTLE_BREAK_SOUND_ID = b"AXB1"
 ALCHEMIST_LAB_SOUND_ID = b"AXL1"
 ALCHEMIST_HERO_SOUND_ID = b"AXH1"
+ALCHEMIST_CAST_VOICE_SOUND_ID = b"AXC1"
+ALCHEMIST_HIRED_VOICE_SOUND_ID = b"AXR1"
 ALCHEMIST_BOTTLE_BREAK_WAVE_ID = b"AXBK"
 ALCHEMIST_LAB_WAVE_ID = b"AXLB"
+ALCHEMIST_VOICE_WAVES = (
+    (b"AHS1", "recruitment", b"Hire Voice"),
+    (b"AHD1", "deciding", b"Decide Voice"),
+    (b"AHI1", "idle", b"Idle Voice"),
+    (b"AHH1", "see-hostile", b"Hostile"),
+    (b"AHC1", "combat", b"Combat Voice"),
+    (b"AHF1", "flee", b"Flee Voice"),
+    (b"AHR1", "reward", b"Reward Voice"),
+    (b"AHN1", "find-item", b"Item Voice"),
+    (b"AHC2", "cast", b"Cast Voice"),
+    (b"AHL1", "level-up", b"Level Voice"),
+    (b"AH10", "level-10", b"Level Ten"),
+    (b"AHE1", "easter-egg", b"Easter Voice"),
+    (b"AHDH", "death", b"Death Voice"),
+)
+ALCHEMIST_HERO_VOICE_PHASES = (
+    ("VFX_GO_COMBAT", b"CTGT", b"AHC1"),
+    ("VFX_FLEE_COMBAT", b"CTFT", b"AHF1"),
+    ("VFX_DECIDING", b"CTDO", b"AHD1"),
+    ("VFX_GO_REWARD", b"CTDG", b"AHR1"),
+    ("VFX_FIND_COOL", b"CTFL", b"AHN1"),
+    ("VFX_SPECIAL1", b"CTSS", b"AHI1"),
+    ("Death", b"CTDH", b"AHDH"),
+    ("VFX_GAIN_LEVEL", b"CTGL", b"AHL1"),
+    ("VFX_SEE_HOSTILE", b"CTSE", b"AHH1"),
+    ("Easter_Egg", b"CTE1", b"AHE1"),
+    ("VFX_LEVEL_10", b"CTTL", b"AH10"),
+)
 PHOENIX_PHIAL_INTENT_INDEX = 310
 PHOENIX_PHIAL_INTENT_TEXT = "Purchasing a Phoenix Phial at the alchemy lab"
 PHOENIX_PHIAL_ITEM_ID = 113
@@ -2006,19 +2038,59 @@ def build_brewing_sounds_xml(stock_sounds_xml: Path) -> bytes:
     lab_phase.find("./Wave").set("value", ALCHEMIST_LAB_WAVE_ID.decode("ascii"))
     output.append(lab_sound)
 
-    # Keep the complete Cultist voice and hit surface until the private voice
-    # set is approved. Change only Attack to the Warrior/Healer WU03 blade hit.
+    # Cultist is the exact stock event surface needed here: it owns every
+    # approved personality phase except casting. Keeping cast out of the hero
+    # descriptor prevents Flash Flask from speaking through stock Cast.gpl.
     hero_source = stock_root.find('.//Description[@Name="Cultist"]')
     if hero_source is None:
         raise ValueError("Stock Cultist sound is missing")
     hero_sound = ET.fromstring(ET.tostring(hero_source, encoding="utf-8"))
     hero_sound.set("ID", ALCHEMIST_HERO_SOUND_ID.decode("ascii"))
     hero_sound.set("Name", ALCHEMIST_HERO_SOUND)
+    for phase_name, _source_wave, private_wave in ALCHEMIST_HERO_VOICE_PHASES:
+        voice_phase = hero_sound.find(f'./Engine/Phase[@ID="{phase_name}"]/Wave')
+        if voice_phase is None:
+            raise ValueError(f"Stock Cultist voice phase is missing: {phase_name}")
+        voice_phase.set("value", private_wave.decode("ascii"))
     attack_phase = hero_sound.find('./Engine/Phase[@ID="Attack"]')
     if attack_phase is None or attack_phase.find("./Wave") is None:
         raise ValueError("Stock Cultist Attack sound contract changed")
     attack_phase.find("./Wave").set("value", "WU03")
     output.append(hero_sound)
+
+    # Majesty has no per-class recruitment phase, and the common Cast helper
+    # always asks the unit's default sound for VFX_CAST_SPELL1. Follow Haunt's
+    # proven single-phase Rage clone instead: recruitment is called once from
+    # birth, while only the two thrown-bottle GPL callbacks call Alchy_Cast.
+    begin_source = stock_root.find('.//Description[@Name="Rage_of_Krolm"]')
+    if begin_source is None:
+        raise ValueError("Stock Rage_of_Krolm sound is missing")
+    for sound_id, sound_name, wave_id, group_name in (
+        (
+            ALCHEMIST_CAST_VOICE_SOUND_ID,
+            ALCHEMIST_CAST_VOICE_SOUND,
+            b"AHC2",
+            "Hero_Cast_Voice_Group",
+        ),
+        (
+            ALCHEMIST_HIRED_VOICE_SOUND_ID,
+            ALCHEMIST_HIRED_VOICE_SOUND,
+            b"AHS1",
+            "Voice_Special_1_Group",
+        ),
+    ):
+        private_sound = ET.fromstring(ET.tostring(begin_source, encoding="utf-8"))
+        private_sound.set("ID", sound_id.decode("ascii"))
+        private_sound.set("Name", sound_name)
+        private_phase = private_sound.find('./Engine/Phase[@ID="Begin"]')
+        if private_phase is None or private_phase.find("./Wave") is None:
+            raise ValueError("Stock Rage_of_Krolm Begin sound contract changed")
+        private_phase.find("./Wave").set("value", wave_id.decode("ascii"))
+        distance = private_phase.find("./DistanceModifier")
+        if distance is not None:
+            private_phase.remove(distance)
+        ET.SubElement(private_phase, "Group", {"value": group_name})
+        output.append(private_sound)
     ET.indent(output, space="\t")
     return ET.tostring(output, encoding="utf-8", xml_declaration=False) + b"\n"
 
@@ -2038,7 +2110,7 @@ def validate_game_wave(payload: bytes, label: str) -> None:
 
 
 def write_alchemist_audio_cam(audio_root: Path, output_path: Path) -> None:
-    inputs = (
+    inputs = [
         (
             ALCHEMIST_BOTTLE_BREAK_WAVE_ID,
             b"Flask Break",
@@ -2049,6 +2121,14 @@ def write_alchemist_audio_cam(audio_root: Path, output_path: Path) -> None:
             b"Lab Select",
             audio_root / "alchemist-laboratory-select-game.wav",
         ),
+    ]
+    inputs.extend(
+        (
+            wave_id,
+            description,
+            audio_root / f"alchemist-{event}-game.wav",
+        )
+        for wave_id, event, description in ALCHEMIST_VOICE_WAVES
     )
     entries = []
     for wave_id, description, source_path in inputs:
@@ -2118,7 +2198,7 @@ def replace_single_dsnd_wave(
 
 
 def write_alchemist_sounddesc_cam(source_path: Path, output_path: Path) -> None:
-    """Compile the four private Alchemist sounds through proven stock DSNDs."""
+    """Compile private Alchemist effects and voices through stock DSNDs."""
     specifications = (
         (
             b"DP01Drink_Potion",
@@ -2144,14 +2224,6 @@ def write_alchemist_sounddesc_cam(source_path: Path, output_path: Path) -> None:
             ALCHEMIST_LAB_SOUND.encode("ascii"),
             (b"BT01", ALCHEMIST_LAB_WAVE_ID),
         ),
-        (
-            b"CT01Cultist",
-            b"CT01",
-            b"Cultist",
-            ALCHEMIST_HERO_SOUND_ID,
-            ALCHEMIST_HERO_SOUND.encode("ascii"),
-            (b"WU04", b"WU03"),
-        ),
     )
     entries: list[CamEntry] = []
     for (
@@ -2169,6 +2241,69 @@ def write_alchemist_sounddesc_cam(source_path: Path, output_path: Path) -> None:
         if wave_replacement is not None:
             payload = replace_single_dsnd_wave(payload, *wave_replacement)
         entries.append(CamEntry(pad_name(private_id + private_name), payload))
+
+    # Preserve Cultist's complete non-cast hero voice topology and cooldown
+    # groups. Replace only the approved event WAVE targets and the dagger hit.
+    hero_template = read_cam_entry(source_path, b"DSND", b"CT01Cultist").data
+    hero_payload = clone_dsnd_identity(
+        hero_template,
+        b"CT01",
+        b"Cultist",
+        ALCHEMIST_HERO_SOUND_ID,
+        ALCHEMIST_HERO_SOUND.encode("ascii"),
+    )
+    for _phase_name, source_wave, private_wave in ALCHEMIST_HERO_VOICE_PHASES:
+        hero_payload = replace_single_dsnd_wave(
+            hero_payload, source_wave, private_wave
+        )
+    hero_payload = replace_single_dsnd_wave(hero_payload, b"WU04", b"WU03")
+    entries.append(
+        CamEntry(
+            pad_name(
+                ALCHEMIST_HERO_SOUND_ID + ALCHEMIST_HERO_SOUND.encode("ascii")
+            ),
+            hero_payload,
+        )
+    )
+
+    # Clone the exact single-phase descriptor already proven by Haunt for
+    # class-specific recruitment and explicit GPL voice dispatch. SG21 is the
+    # stock Wizard Hero_Cast_Voice_Group; SG14 is Voice_Special_1_Group.
+    begin_template = read_cam_entry(
+        source_path, b"DSND", b"RM01Rage_of_Krolm"
+    ).data
+    for sound_id, sound_name, wave_id, group_id in (
+        (
+            ALCHEMIST_CAST_VOICE_SOUND_ID,
+            ALCHEMIST_CAST_VOICE_SOUND.encode("ascii"),
+            b"AHC2",
+            b"SG21",
+        ),
+        (
+            ALCHEMIST_HIRED_VOICE_SOUND_ID,
+            ALCHEMIST_HIRED_VOICE_SOUND.encode("ascii"),
+            b"AHS1",
+            b"SG14",
+        ),
+    ):
+        payload = clone_dsnd_identity(
+            begin_template,
+            b"RM01",
+            b"Rage_of_Krolm",
+            sound_id,
+            sound_name,
+        )
+        payload = replace_single_dsnd_wave(payload, b"RM01", wave_id)
+        phase_offset = payload.find(b"EBE0")
+        if phase_offset < 0 or len(payload) - phase_offset != 56:
+            raise ValueError("Stock Rage_of_Krolm Begin phase layout changed")
+        payload = (
+            payload[: phase_offset + 8]
+            + group_id
+            + bytes(44)
+            + payload[phase_offset + 56 :]
+        )
+        entries.append(CamEntry(pad_name(sound_id + sound_name), payload))
     write_cam(output_path, (CamSection(b"DSND", tuple(entries)),))
 
 
@@ -3116,7 +3251,7 @@ def validate_output(
     if hero.find("./Game/NameGenType").get("value") != ALCHEMIST_NAME_GENERATOR_ID:
         raise ValueError("Alchemist must use the private NM18 name generator")
     if hero.find("./Engine/DefaultSound").get("value") != ALCHEMIST_HERO_SOUND:
-        raise ValueError("Alchemist hero lost its private Cultist sound clone")
+        raise ValueError("Alchemist hero lost its private stock voice clone")
     movement = hero.find('./Engine/Attachment[@kind="Movement"]')
     if movement is None or movement.get("ID") != "Class 1":
         raise ValueError("Alchemist must use the stock Warrior movement class")
@@ -3331,36 +3466,56 @@ def validate_output(
         output_root / "Data" / "alchemist_brewing_sounds.xml"
     ).getroot()
     expected_sounds = {
-        ALCHEMIST_VIGOR_SOUND: ("Effector Begin", "DP01"),
-        ALCHEMIST_BOTTLE_BREAK_SOUND: (
-            "Begin",
-            ALCHEMIST_BOTTLE_BREAK_WAVE_ID.decode("ascii"),
-        ),
-        ALCHEMIST_LAB_SOUND: (
-            "Select",
-            ALCHEMIST_LAB_WAVE_ID.decode("ascii"),
-        ),
-        ALCHEMIST_HERO_SOUND: ("Attack", "WU03"),
+        ALCHEMIST_VIGOR_SOUND: {"Effector Begin": "DP01"},
+        ALCHEMIST_BOTTLE_BREAK_SOUND: {
+            "Begin": ALCHEMIST_BOTTLE_BREAK_WAVE_ID.decode("ascii")
+        },
+        ALCHEMIST_LAB_SOUND: {
+            "Select": ALCHEMIST_LAB_WAVE_ID.decode("ascii")
+        },
+        ALCHEMIST_HERO_SOUND: {
+            **{
+                phase_name: private_wave.decode("ascii")
+                for phase_name, _source_wave, private_wave
+                in ALCHEMIST_HERO_VOICE_PHASES
+            },
+            "Attack": "WU03",
+        },
+        ALCHEMIST_CAST_VOICE_SOUND: {"Begin": "AHC2"},
+        ALCHEMIST_HIRED_VOICE_SOUND: {"Begin": "AHS1"},
     }
-    for sound_name, (phase_name, wave_id) in expected_sounds.items():
+    for sound_name, phases in expected_sounds.items():
         sound = sounds_root.find(f'./Description[@Name="{sound_name}"]')
         if sound is None:
             raise ValueError(f"Private Alchemist sound is missing: {sound_name}")
-        wave_node = sound.find(f'./Engine/Phase[@ID="{phase_name}"]/Wave')
-        if wave_node is None or wave_node.get("value") != wave_id:
-            raise ValueError(f"Private Alchemist sound routing changed: {sound_name}")
+        for phase_name, wave_id in phases.items():
+            wave_node = sound.find(f'./Engine/Phase[@ID="{phase_name}"]/Wave')
+            if wave_node is None or wave_node.get("value") != wave_id:
+                raise ValueError(
+                    f"Private Alchemist sound routing changed: {sound_name}"
+                )
+    if sounds_root.find(
+        f'./Description[@Name="{ALCHEMIST_HERO_SOUND}"]'
+        '/Engine/Phase[@ID="VFX_CAST_SPELL1"]'
+    ) is not None:
+        raise ValueError("Alchemist default voice must not speak for Flash Flask")
     audio_entries = read_cam_entries(
         output_root / "Data" / "alchemist_audio.cam", b"WAVE"
     )
-    if len(audio_entries) != 2:
-        raise ValueError("Alchemist audio CAM must contain exactly two private waves")
+    if len(audio_entries) != 2 + len(ALCHEMIST_VOICE_WAVES):
+        raise ValueError("Alchemist audio CAM has an unexpected private WAVE count")
     audio_by_id = {
         entry.name.rstrip(b"\x00")[:4]: entry.data for entry in audio_entries
     }
-    for wave_id, filename in (
+    expected_audio = [
         (ALCHEMIST_BOTTLE_BREAK_WAVE_ID, "alchemist-bottle-break-game.wav"),
         (ALCHEMIST_LAB_WAVE_ID, "alchemist-laboratory-select-game.wav"),
-    ):
+    ]
+    expected_audio.extend(
+        (wave_id, f"alchemist-{event}-game.wav")
+        for wave_id, event, _description in ALCHEMIST_VOICE_WAVES
+    )
+    for wave_id, filename in expected_audio:
         expected_wave = (SOURCE_ROOT.parent / "assets" / "audio" / filename).read_bytes()
         validate_game_wave(expected_wave, filename)
         if audio_by_id.get(wave_id) != expected_wave:
@@ -3379,10 +3534,17 @@ def validate_output(
         ALCHEMIST_LAB_SOUND_ID + ALCHEMIST_LAB_SOUND.encode("ascii"): (
             ALCHEMIST_LAB_WAVE_ID,
         ),
-        ALCHEMIST_HERO_SOUND_ID + ALCHEMIST_HERO_SOUND.encode("ascii"): (b"WU03",),
+        ALCHEMIST_HERO_SOUND_ID + ALCHEMIST_HERO_SOUND.encode("ascii"): (
+            *(private_wave for _phase, _source, private_wave in ALCHEMIST_HERO_VOICE_PHASES),
+            b"WU03",
+        ),
+        ALCHEMIST_CAST_VOICE_SOUND_ID
+        + ALCHEMIST_CAST_VOICE_SOUND.encode("ascii"): (b"AHC2",),
+        ALCHEMIST_HIRED_VOICE_SOUND_ID
+        + ALCHEMIST_HIRED_VOICE_SOUND.encode("ascii"): (b"AHS1",),
     }
     if len(sounddesc_entries) != len(expected_sounddesc):
-        raise ValueError("Alchemist sounddesc CAM must contain four private DSNDs")
+        raise ValueError("Alchemist sounddesc CAM has an unexpected private DSND count")
     for entry in sounddesc_entries:
         name = entry.name.rstrip(b"\x00")
         expected_waves = expected_sounddesc.get(name)
@@ -3941,6 +4103,33 @@ def validate_output(
     )
     if "$Steal_Check" in alchemist_tree:
         raise ValueError("Alchemist must not retain Rogue stealing")
+    for recruitment_contract in (
+        'Home\'s "Title" == "AlchemistsLaboratory"',
+        '"AlchemistRecruitmentVoice"',
+        "$RandomNumber(100) + 1 <= 20",
+        '$PlaySound(ThisAgent, "Alchy_Hired", "Begin")',
+    ):
+        if recruitment_contract not in alchemist_tree:
+            raise ValueError(
+                f"Alchemist recruitment voice contract is missing: "
+                f"{recruitment_contract}"
+            )
+    flash_source = (
+        output_root / "GPL" / "Alchemist_Flash_Flask.gpl"
+    ).read_text(encoding="utf-8")
+    stun_source = (
+        output_root / "GPL" / "Alchemist_Stun_Serum.gpl"
+    ).read_text(encoding="utf-8")
+    miasma_source = (
+        output_root / "GPL" / "Alchemist_Miasma_Mist.gpl"
+    ).read_text(encoding="utf-8")
+    cast_voice_call = '$PlaySound(ThisAgent, "Alchy_Cast", "Begin")'
+    if cast_voice_call in flash_source:
+        raise ValueError("Flash Flask must retain only its stock potion sound")
+    if stun_source.count(cast_voice_call) != 1:
+        raise ValueError("Stun Serum lost its explicit thrown-bottle cast voice")
+    if miasma_source.count(cast_voice_call) != 1:
+        raise ValueError("Miasma Mist lost its explicit thrown-bottle cast voice")
     expected_title = "Temple_Fervus" if use_ap10_title_alias else "AlchemistsLaboratory"
     if building_data.count(f"(title {expected_title})") != 3:
         raise ValueError(f"Expected all GPL levels to use title {expected_title}")
@@ -3968,6 +4157,7 @@ def validate_output(
         b"Alchemist_Flash_Flask_End",
         b"Alchemist_Stun_Serum_Begin",
         b"Alchemist_Stun_Serum_End",
+        b"Alchemist_Recruitment_Voice",
     ):
         if symbol not in compiled_symbols:
             raise ValueError(f"Compiled Alchemist bytecode lost Flash Flask symbol {symbol!r}")

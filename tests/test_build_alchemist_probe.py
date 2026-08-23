@@ -721,6 +721,12 @@ class AlchemistProbeTests(unittest.TestCase):
         self.assertIn("$SetAttribute(ThisAgent, #ATTRIB_Speed, 2)", source)
         self.assertIn("Function Alchemist_birth", source)
         self.assertIn("$hero_birth(ThisAgent)", source)
+        self.assertIn('Home\'s "Title" == "AlchemistsLaboratory"', source)
+        self.assertIn('"AlchemistRecruitmentVoice"', source)
+        self.assertIn("$RandomNumber(100) + 1 <= 20", source)
+        self.assertIn(
+            '$PlaySound(ThisAgent, "Alchy_Hired", "Begin")', source
+        )
         self.assertIn("function spell_extra_value(agent thisagent) is integer", source)
         for spell, weight in (
             ("flash_flask", "#Alchemist_Flash_Flask_Confidence"),
@@ -1464,6 +1470,7 @@ end
             self.assertIn(end, source)
         for forbidden in ("$RunThread", "$Sleep", "$CheckEffector"):
             self.assertNotIn(forbidden, source)
+        self.assertNotIn("Alchy_Cast", source)
 
     def test_stun_serum_clones_paralytic_gaze_and_vines_cleanup(self) -> None:
         game = Path(r"C:\Program Files (x86)\Steam\steamapps\common\Majesty HD")
@@ -1529,6 +1536,9 @@ end
         self.assertIn('ThisAgent\'s "castingrange"', source)
         self.assertIn('"alchemist_stun_serum_restraint",', source)
         self.assertIn('"after"', source)
+        self.assertEqual(
+            source.count('$PlaySound(ThisAgent, "Alchy_Cast", "Begin")'), 1
+        )
         self.assertNotIn('"alchemist_stun_serum_icon"', source)
         for forbidden in ("$RunThread", "$Sleep", "$CheckEffector"):
             self.assertNotIn(forbidden, source)
@@ -1601,6 +1611,9 @@ end
             self.assertIn(stock_contract, source)
         self.assertEqual(source.count("#Alchemist_Miasma_Mist_Debuff_Duration;"), 1)
         self.assertIn("$SetSpellUnitTimeout(ThisAgent, Duration)", source)
+        self.assertEqual(
+            source.count('$PlaySound(ThisAgent, "Alchy_Cast", "Begin")'), 1
+        )
         for forbidden_tracking in (
             "MiasmaMistTracking",
             "MiasmaMistCleanup",
@@ -1637,7 +1650,8 @@ end
 <Description type="Sound" subType="Standard" ID="DP01" Name="Drink_Potion"><Engine><Category value="0"/><Phase ID="Effector Begin"><Wave value="DP01"/></Phase></Engine></Description>
 <Description type="Sound" subType="Standard" ID="SL35" Name="Shield_of_Light"><Engine><Category value="0"/><Phase ID="Begin"><Wave value="SL35"/><Group value="Spell_Group"/></Phase></Engine></Description>
 <Description type="Sound" subType="Standard" ID="BT01" Name="FervisTemple"><Engine><Category value="0"/><Phase ID="Select"><Wave value="BT01"/><DistanceModifier value="10000.0"/></Phase><Phase ID="GetHit"><Wave value="HG36"/></Phase></Engine></Description>
-<Description type="Sound" subType="Standard" ID="CT01" Name="Cultist"><Engine><Category value="0"/><Phase ID="VFX_GO_COMBAT"><Wave value="CTGT"/></Phase><Phase ID="Attack"><Wave value="WU04"/><Group value="Attack_Group"/></Phase></Engine></Description>
+<Description type="Sound" subType="Standard" ID="CT01" Name="Cultist"><Engine><Category value="0"/><Phase ID="VFX_GO_COMBAT"><Wave value="CTGT"/></Phase><Phase ID="VFX_FLEE_COMBAT"><Wave value="CTFT"/></Phase><Phase ID="VFX_DECIDING"><Wave value="CTDO"/></Phase><Phase ID="VFX_GO_REWARD"><Wave value="CTDG"/></Phase><Phase ID="VFX_FIND_COOL"><Wave value="CTFL"/></Phase><Phase ID="VFX_SPECIAL1"><Wave value="CTSS"/></Phase><Phase ID="Death"><Wave value="CTDH"/></Phase><Phase ID="VFX_GAIN_LEVEL"><Wave value="CTGL"/></Phase><Phase ID="VFX_SEE_HOSTILE"><Wave value="CTSE"/></Phase><Phase ID="Easter_Egg"><Wave value="CTE1"/></Phase><Phase ID="VFX_LEVEL_10"><Wave value="CTTL"/></Phase><Phase ID="Attack"><Wave value="WU04"/><Group value="Attack_Group"/></Phase></Engine></Description>
+<Description type="Sound" subType="Standard" ID="RM01" Name="Rage_of_Krolm"><Engine><Category value="0"/><Phase ID="Begin"><Wave value="RM01"/><DistanceModifier value="10000.0"/></Phase></Engine></Description>
 </Majesty>"""
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "M_Sounds.xml"
@@ -1681,7 +1695,24 @@ end
         )
         self.assertEqual(
             hero.find('./Engine/Phase[@ID="VFX_GO_COMBAT"]/Wave').get("value"),
-            "CTGT",
+            "AHC1",
+        )
+        self.assertIsNone(hero.find('./Engine/Phase[@ID="VFX_CAST_SPELL1"]'))
+        cast = output.find(
+            f'./Description[@Name="{builder.ALCHEMIST_CAST_VOICE_SOUND}"]'
+        )
+        self.assertEqual(
+            cast.find('./Engine/Phase[@ID="Begin"]/Wave').get("value"), "AHC2"
+        )
+        self.assertEqual(
+            cast.find('./Engine/Phase[@ID="Begin"]/Group').get("value"),
+            "Hero_Cast_Voice_Group",
+        )
+        hired = output.find(
+            f'./Description[@Name="{builder.ALCHEMIST_HIRED_VOICE_SOUND}"]'
+        )
+        self.assertEqual(
+            hired.find('./Engine/Phase[@ID="Begin"]/Wave').get("value"), "AHS1"
         )
 
     def test_private_audio_cam_packages_only_approved_pcm_waves(self) -> None:
@@ -1695,6 +1726,7 @@ end
             [
                 builder.ALCHEMIST_BOTTLE_BREAK_WAVE_ID,
                 builder.ALCHEMIST_LAB_WAVE_ID,
+                *(wave_id for wave_id, _event, _description in builder.ALCHEMIST_VOICE_WAVES),
             ],
         )
         for entry in entries:
@@ -1718,6 +1750,10 @@ end
             + builder.ALCHEMIST_LAB_SOUND.encode("ascii"),
             builder.ALCHEMIST_HERO_SOUND_ID
             + builder.ALCHEMIST_HERO_SOUND.encode("ascii"),
+            builder.ALCHEMIST_CAST_VOICE_SOUND_ID
+            + builder.ALCHEMIST_CAST_VOICE_SOUND.encode("ascii"),
+            builder.ALCHEMIST_HIRED_VOICE_SOUND_ID
+            + builder.ALCHEMIST_HIRED_VOICE_SOUND.encode("ascii"),
         }
         self.assertEqual(set(by_name), expected_names)
         bottle = by_name[
@@ -1732,6 +1768,14 @@ end
             builder.ALCHEMIST_HERO_SOUND_ID
             + builder.ALCHEMIST_HERO_SOUND.encode("ascii")
         ]
+        cast = by_name[
+            builder.ALCHEMIST_CAST_VOICE_SOUND_ID
+            + builder.ALCHEMIST_CAST_VOICE_SOUND.encode("ascii")
+        ]
+        hired = by_name[
+            builder.ALCHEMIST_HIRED_VOICE_SOUND_ID
+            + builder.ALCHEMIST_HIRED_VOICE_SOUND.encode("ascii")
+        ]
         self.assertEqual(bottle.count(builder.ALCHEMIST_BOTTLE_BREAK_WAVE_ID), 1)
         self.assertEqual(laboratory.count(builder.ALCHEMIST_LAB_WAVE_ID), 1)
         self.assertEqual(hero.count(b"WU03"), 1)
@@ -1739,7 +1783,14 @@ end
         self.assertNotIn(b"BT01", laboratory)
         self.assertNotIn(b"WU04", hero)
         self.assertIn(b"HG36", laboratory)
-        self.assertIn(b"CTGT", hero)
+        for _phase, source_wave, private_wave in builder.ALCHEMIST_HERO_VOICE_PHASES:
+            self.assertNotIn(source_wave, hero)
+            self.assertEqual(hero.count(private_wave), 1)
+        self.assertNotIn(b"AHC2", hero)
+        self.assertEqual(cast.count(b"AHC2"), 1)
+        self.assertEqual(hired.count(b"AHS1"), 1)
+        self.assertIn(b"SG21", cast)
+        self.assertIn(b"SG14", hired)
 
     def test_brewing_menu_adds_stock_native_progress_child(self) -> None:
         brewing = bytearray(

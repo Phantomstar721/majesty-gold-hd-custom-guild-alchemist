@@ -105,7 +105,7 @@ def main() -> int:
     parser.add_argument(
         "--cam",
         type=Path,
-        default=ROOT / "dist/CustomGuildAlchemistProbe/Data/alchemist_maindata.cam",
+        default=ROOT / "dist/CustomGuildAlchemist/Data/alchemist_maindata.cam",
     )
     parser.add_argument(
         "--out-dir", type=Path, default=ROOT / "artifacts/reviews"

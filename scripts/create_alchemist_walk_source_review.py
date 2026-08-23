@@ -63,7 +63,7 @@ def main() -> int:
     row_height = cell_h * scale + 52
     review = Image.new("RGB", (cell_w * scale * 8, row_height * 2), (31, 34, 37))
     draw = ImageDraw.Draw(review)
-    draw.text((10, 8), f"{direction.upper()} — STOCK REFERENCE GAIT", fill=(245, 215, 95))
+    draw.text((10, 8), f"{direction.upper()} - STOCK REFERENCE GAIT", fill=(245, 215, 95))
     draw.text((10, row_height + 8), "ALCHEMIST SOURCE FRAMES (same baseline and body height)", fill=(245, 215, 95))
     for i in range(8):
         stock_cell = stage(stock[i], cell_w, cell_h, scale)

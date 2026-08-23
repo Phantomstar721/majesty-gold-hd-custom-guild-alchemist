@@ -12,7 +12,7 @@ import wave
 SOURCE_ROOT = Path(__file__).resolve().parents[1] / "src"
 sys.path.insert(0, str(SOURCE_ROOT))
 
-from build_alchemist_probe import read_cam_entries  # noqa: E402
+from build_custom_guild_alchemist import read_cam_entries  # noqa: E402
 
 
 EVENTS = (

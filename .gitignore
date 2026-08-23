@@ -1,7 +1,9 @@
 dist/
 artifacts/
+docs/internal/
 private/
-assets/generated/
+assets/
+local_tile_*.bmp
 __pycache__/
 *.pyc
 *.aup3-shm

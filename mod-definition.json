@@ -6,7 +6,7 @@
   "custom_buildings": [
     {
       "local_name": "AlchemistsLaboratory",
-      "probe_dialog_id": "CGAL",
+      "dialog_id": "CGAL",
       "controller_base": "AP10",
       "panel_resource_template": "AP10"
     }

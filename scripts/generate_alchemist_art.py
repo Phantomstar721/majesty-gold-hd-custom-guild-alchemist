@@ -355,8 +355,8 @@ def load_haunt_building_module(repo: Path):
 
     def lab_state_x_offset(variant_name, *, level):
         # The retained left tower makes the upgraded Laboratory footprint
-        # asymmetric.  Center the actual ground footprint—not the transparent
-        # source rectangle—inside the inherited Fervus canvas.
+        # asymmetric. Center the actual ground footprint, not the transparent
+        # source rectangle, inside the inherited Fervus canvas.
         return stock_state_x_offset(variant_name, level=level) + (8 if level in (2, 3) else 0)
 
     module.state_x_offset = lab_state_x_offset

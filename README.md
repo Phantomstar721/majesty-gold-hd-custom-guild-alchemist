@@ -26,6 +26,8 @@ are recorded in [the Stun Serum stock-clone notes](docs/stun-serum-stock-clone.m
 Miasma Mist's level-8 Meteor Storm/Endless Winter area lifecycle, threat gate,
 poison-tick damage, and refreshable Empowered Chill penalties are recorded in
 [the Miasma Mist stock-clone notes](docs/miasma-mist-stock-clone.md).
+The stock-owned sound routes and approved CC0 effect provenance are recorded in
+[the Alchemist sound-effect contract](docs/audio-sound-effects.md).
 The completed greed-based Paralytic/Transmutation split is recorded in
 [the Weapon Oil stock-clone notes](docs/weapon-oil-stock-clone.md).
 The Alchemist-only Giant Spider form and its exactly reversible native

@@ -56,6 +56,6 @@ begin
 				end
 
 			$SetAttribute(Palace, #ATTRIB_RageOfKrolmCount, HeroCount);
-			$PlaySound(ThisAgent, "alchemist_invigorating_elixer_sound", "Effector Begin");
+			$PlaySound(ThisAgent, "Alchy_Vigor", "Effector Begin");
 		end
 end

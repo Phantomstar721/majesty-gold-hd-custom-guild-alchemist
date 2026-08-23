@@ -889,6 +889,10 @@ class AlchemistProbeTests(unittest.TestCase):
             hero.find("./Game/NameGenType").get("value"),
             builder.ALCHEMIST_NAME_GENERATOR_ID,
         )
+        self.assertEqual(
+            hero.find("./Engine/DefaultSound").get("value"),
+            builder.ALCHEMIST_HERO_SOUND,
+        )
         buildings = [
             root.find(f'./Description[@Name="{name}"]')
             for name in builder.BUILDING_NAMES
@@ -896,6 +900,10 @@ class AlchemistProbeTests(unittest.TestCase):
         self.assertEqual(
             [building.find("./Game/HelpID").get("value") for building in buildings],
             list(builder.ALCHEMIST_BUILDING_HELP_IDS),
+        )
+        self.assertEqual(
+            [building.find("./Engine/DefaultSound").get("value") for building in buildings],
+            [builder.ALCHEMIST_LAB_SOUND] * 3,
         )
         spells = hero.findall("./Game/AllowedSpells/Spell")
         self.assertEqual(
@@ -1431,6 +1439,11 @@ end
         self.assertEqual(effect.get("Name"), "alchemist_flash_flask_effector")
         self.assertEqual(effect.find("./Engine/ImageIDBase").get("value"), "AFF2")
         self.assertEqual(effect.find("./Engine/AttachmentPointID").get("value"), "2")
+        self.assertIsNone(action.find("./Engine/Sound"))
+        self.assertIsNone(action.find("./Engine/SoundPhase"))
+        self.assertEqual(
+            effect.find("./Engine/DefaultSound").get("value"), "Drink_Potion"
+        )
 
     def test_flash_flask_copies_stock_duration_owned_stat_cleanup(self) -> None:
         source = (builder.GPL_SOURCE_ROOT / "Alchemist_Flash_Flask.gpl").read_text(
@@ -1467,6 +1480,10 @@ end
         self.assertEqual(action.find("./Game/TimeoutDuration").get("value"), "45000")
         self.assertEqual(action.find("./Game/CharacterLevel").get("value"), "5")
         self.assertEqual(action.find("./Game/SpellRank").get("value"), "5")
+        self.assertEqual(
+            action.find("./Engine/Sound").get("value"),
+            builder.ALCHEMIST_BOTTLE_BREAK_SOUND,
+        )
         self.assertEqual(
             action.find("./Game/ValidationScript").get("value"),
             "Alchemist_Stun_Serum_Check",
@@ -1535,6 +1552,10 @@ end
         self.assertEqual(action.find("./Game/TimeoutDuration").get("value"), "60000")
         self.assertEqual(action.find("./Game/CharacterLevel").get("value"), "8")
         self.assertEqual(action.find("./Game/SpellRank").get("value"), "4")
+        self.assertEqual(
+            action.find("./Engine/Sound").get("value"),
+            builder.ALCHEMIST_BOTTLE_BREAK_SOUND,
+        )
         self.assertEqual(
             action.find("./Game/ValidationScript").get("value"),
             "Alchemist_Miasma_Mist_Check",
@@ -1612,18 +1633,113 @@ end
         self.assertNotIn("$RunThread", source)
 
     def test_brewing_sound_has_a_private_description(self) -> None:
-        stock = """<Majesty><Description type="Sound" subType="Standard" ID="DP01" Name="Drink_Potion"><Engine><Category value="0"/><Phase ID="Effector Begin"><Wave value="DP01"/></Phase></Engine></Description></Majesty>"""
+        stock = """<Majesty>
+<Description type="Sound" subType="Standard" ID="DP01" Name="Drink_Potion"><Engine><Category value="0"/><Phase ID="Effector Begin"><Wave value="DP01"/></Phase></Engine></Description>
+<Description type="Sound" subType="Standard" ID="SL35" Name="Shield_of_Light"><Engine><Category value="0"/><Phase ID="Begin"><Wave value="SL35"/><Group value="Spell_Group"/></Phase></Engine></Description>
+<Description type="Sound" subType="Standard" ID="BT01" Name="FervisTemple"><Engine><Category value="0"/><Phase ID="Select"><Wave value="BT01"/><DistanceModifier value="10000.0"/></Phase><Phase ID="GetHit"><Wave value="HG36"/></Phase></Engine></Description>
+<Description type="Sound" subType="Standard" ID="CT01" Name="Cultist"><Engine><Category value="0"/><Phase ID="VFX_GO_COMBAT"><Wave value="CTGT"/></Phase><Phase ID="Attack"><Wave value="WU04"/><Group value="Attack_Group"/></Phase></Engine></Description>
+</Majesty>"""
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "M_Sounds.xml"
             path.write_text(stock, encoding="utf-8")
             output = ET.fromstring(builder.build_brewing_sounds_xml(path))
-        sound = output.find("Description")
-        self.assertEqual(sound.get("ID"), "AXS1")
-        self.assertEqual(sound.get("Name"), "alchemist_invigorating_elixer_sound")
+        sound = output.find(
+            f'./Description[@Name="{builder.ALCHEMIST_VIGOR_SOUND}"]'
+        )
+        self.assertEqual(
+            sound.get("ID"), builder.ALCHEMIST_VIGOR_SOUND_ID.decode("ascii")
+        )
+        self.assertEqual(sound.get("Name"), builder.ALCHEMIST_VIGOR_SOUND)
         self.assertEqual(
             sound.find('./Engine/Phase[@ID="Effector Begin"]/Wave').get("value"),
             "DP01",
         )
+        bottle = output.find(
+            f'./Description[@Name="{builder.ALCHEMIST_BOTTLE_BREAK_SOUND}"]'
+        )
+        self.assertEqual(
+            bottle.find('./Engine/Phase[@ID="Begin"]/Wave').get("value"), "AXBK"
+        )
+        self.assertEqual(
+            bottle.find('./Engine/Phase[@ID="Begin"]/Group').get("value"),
+            "Spell_Group",
+        )
+        laboratory = output.find(
+            f'./Description[@Name="{builder.ALCHEMIST_LAB_SOUND}"]'
+        )
+        self.assertEqual(
+            laboratory.find('./Engine/Phase[@ID="Select"]/Wave').get("value"),
+            "AXLB",
+        )
+        self.assertEqual(
+            laboratory.find('./Engine/Phase[@ID="GetHit"]/Wave').get("value"),
+            "HG36",
+        )
+        hero = output.find(f'./Description[@Name="{builder.ALCHEMIST_HERO_SOUND}"]')
+        self.assertEqual(
+            hero.find('./Engine/Phase[@ID="Attack"]/Wave').get("value"), "WU03"
+        )
+        self.assertEqual(
+            hero.find('./Engine/Phase[@ID="VFX_GO_COMBAT"]/Wave').get("value"),
+            "CTGT",
+        )
+
+    def test_private_audio_cam_packages_only_approved_pcm_waves(self) -> None:
+        repo = Path(__file__).resolve().parents[1]
+        with tempfile.TemporaryDirectory() as directory:
+            output = Path(directory) / "alchemist_audio.cam"
+            builder.write_alchemist_audio_cam(repo / "assets" / "audio", output)
+            entries = builder.read_cam_entries(output, b"WAVE")
+        self.assertEqual(
+            [entry.name.rstrip(b"\x00")[:4] for entry in entries],
+            [
+                builder.ALCHEMIST_BOTTLE_BREAK_WAVE_ID,
+                builder.ALCHEMIST_LAB_WAVE_ID,
+            ],
+        )
+        for entry in entries:
+            builder.validate_game_wave(entry.data, entry.name.decode("ascii"))
+
+    def test_private_sounddesc_cam_clones_stock_phase_contracts(self) -> None:
+        stock = Path(
+            r"C:\Program Files (x86)\Steam\steamapps\common\Majesty HD\Data\sounddesc.cam"
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            output = Path(directory) / "alchemist_sounddesc.cam"
+            builder.write_alchemist_sounddesc_cam(stock, output)
+            entries = builder.read_cam_entries(output, b"DSND")
+        by_name = {entry.name.rstrip(b"\x00"): entry.data for entry in entries}
+        expected_names = {
+            builder.ALCHEMIST_VIGOR_SOUND_ID
+            + builder.ALCHEMIST_VIGOR_SOUND.encode("ascii"),
+            builder.ALCHEMIST_BOTTLE_BREAK_SOUND_ID
+            + builder.ALCHEMIST_BOTTLE_BREAK_SOUND.encode("ascii"),
+            builder.ALCHEMIST_LAB_SOUND_ID
+            + builder.ALCHEMIST_LAB_SOUND.encode("ascii"),
+            builder.ALCHEMIST_HERO_SOUND_ID
+            + builder.ALCHEMIST_HERO_SOUND.encode("ascii"),
+        }
+        self.assertEqual(set(by_name), expected_names)
+        bottle = by_name[
+            builder.ALCHEMIST_BOTTLE_BREAK_SOUND_ID
+            + builder.ALCHEMIST_BOTTLE_BREAK_SOUND.encode("ascii")
+        ]
+        laboratory = by_name[
+            builder.ALCHEMIST_LAB_SOUND_ID
+            + builder.ALCHEMIST_LAB_SOUND.encode("ascii")
+        ]
+        hero = by_name[
+            builder.ALCHEMIST_HERO_SOUND_ID
+            + builder.ALCHEMIST_HERO_SOUND.encode("ascii")
+        ]
+        self.assertEqual(bottle.count(builder.ALCHEMIST_BOTTLE_BREAK_WAVE_ID), 1)
+        self.assertEqual(laboratory.count(builder.ALCHEMIST_LAB_WAVE_ID), 1)
+        self.assertEqual(hero.count(b"WU03"), 1)
+        self.assertNotIn(b"SL35", bottle)
+        self.assertNotIn(b"BT01", laboratory)
+        self.assertNotIn(b"WU04", hero)
+        self.assertIn(b"HG36", laboratory)
+        self.assertIn(b"CTGT", hero)
 
     def test_brewing_menu_adds_stock_native_progress_child(self) -> None:
         brewing = bytearray(

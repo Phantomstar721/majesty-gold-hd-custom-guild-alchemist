@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 from dataclasses import dataclass
+import io
 import json
 from pathlib import Path
 import re
@@ -9,6 +10,7 @@ import shutil
 import struct
 import subprocess
 import sys
+import wave
 import xml.etree.ElementTree as ET
 
 from alchemist_art_package import (
@@ -129,6 +131,16 @@ TRANSMUTATION_OIL_STATUS_ID = "ALo2"
 TRANSMUTATION_OIL_STATUS_NAME = "alchemist_transmutation_weapon_oil_status"
 POISONED_WEAPON_STATUS_ID = "ALo3"
 POISONED_WEAPON_STATUS_NAME = "alchemist_poisoned_weapon_status"
+ALCHEMIST_VIGOR_SOUND = "Alchy_Vigor"
+ALCHEMIST_BOTTLE_BREAK_SOUND = "Alchy_Bottle"
+ALCHEMIST_LAB_SOUND = "Alchy_Lab"
+ALCHEMIST_HERO_SOUND = "Alchy_Hero"
+ALCHEMIST_VIGOR_SOUND_ID = b"AXV1"
+ALCHEMIST_BOTTLE_BREAK_SOUND_ID = b"AXB1"
+ALCHEMIST_LAB_SOUND_ID = b"AXL1"
+ALCHEMIST_HERO_SOUND_ID = b"AXH1"
+ALCHEMIST_BOTTLE_BREAK_WAVE_ID = b"AXBK"
+ALCHEMIST_LAB_WAVE_ID = b"AXLB"
 PHOENIX_PHIAL_INTENT_INDEX = 310
 PHOENIX_PHIAL_INTENT_TEXT = "Purchasing a Phoenix Phial at the alchemy lab"
 PHOENIX_PHIAL_ITEM_ID = 113
@@ -1439,6 +1451,7 @@ def build_units_xml(stock_buildings_xml: Path, stock_characters_xml: Path) -> by
     alchemist.set("Name", ALCHEMIST_HERO_NAME)
     alchemist.set("Description", ALCHEMIST_HERO_NAME)
     alchemist.find("./Engine/ImageIDBase").set("value", ALCHEMIST_HERO_ID)
+    alchemist.find("./Engine/DefaultSound").set("value", ALCHEMIST_HERO_SOUND)
     hero_help = alchemist.find("./Game/HelpID")
     if hero_help is None:
         raise ValueError("Stock Cultist help contract is missing")
@@ -1520,6 +1533,7 @@ def build_units_xml(stock_buildings_xml: Path, stock_characters_xml: Path) -> by
             "Alchemy Lab" if level == 0 else f"Alchemy Lab Level {level + 1}",
         )
         description.find("./Engine/ImageIDBase").set("value", BUILDING_IDS[level])
+        description.find("./Engine/DefaultSound").set("value", ALCHEMIST_LAB_SOUND)
         dialog = description.find("./Game/DialogID")
         if dialog is None:
             raise ValueError(f"{source_name} has no DialogID")
@@ -1703,6 +1717,16 @@ def build_flash_flask_xml(stock_actions_xml: Path, stock_overlays_xml: Path) -> 
     action.set("Name", FLASH_FLASK_ACTION_NAME)
     action.set("Description", "Flash Flask")
     action.find("./Engine/ImageSet").set("value", "Special")
+    # Stock healing potions play Drink_Potion from the duration-0 visual
+    # effector, not from their action. Preserve that ownership exactly so the
+    # cork pop occurs once when Flash Flask activates.
+    action_engine = action.find("./Engine")
+    for inherited_sound in (
+        action_engine.find("./Sound"),
+        action_engine.find("./SoundPhase"),
+    ):
+        if inherited_sound is not None:
+            action_engine.remove(inherited_sound)
     action.find("./Engine/Script").set(
         "GPLFunction", "Alchemist_Flash_Flask_Begin"
     )
@@ -1732,6 +1756,7 @@ def build_flash_flask_xml(stock_actions_xml: Path, stock_overlays_xml: Path) -> 
     effect.find("./Engine/ImageIDBase").set(
         "value", FLASH_FLASK_ACTIVATION_CUSTOM[:4].decode("ascii")
     )
+    effect.find("./Engine/DefaultSound").set("value", "Drink_Potion")
 
     output = ET.Element("Majesty")
     output.extend((action, icon, effect))
@@ -1764,6 +1789,7 @@ def build_stun_serum_xml(stock_actions_xml: Path, stock_overlays_xml: Path) -> b
     action.set("ID", STUN_SERUM_ACTION_ID)
     action.set("Name", STUN_SERUM_ACTION_NAME)
     action.set("Description", "Stun Serum")
+    action.find("./Engine/Sound").set("value", ALCHEMIST_BOTTLE_BREAK_SOUND)
     action.find("./Engine/Script").set("GPLFunction", "Alchemist_Stun_Serum_Begin")
     action.find("./Game/EffectorDuration").set("value", STUN_SERUM_DURATION_MS)
     action.find("./Game/TimeoutDuration").set("value", STUN_SERUM_COOLDOWN_MS)
@@ -1873,6 +1899,9 @@ def build_miasma_mist_xml(
     action.set("ID", MIASMA_MIST_ACTION_ID)
     action.set("Name", MIASMA_MIST_ACTION_NAME)
     action.set("Description", "Miasma Mist")
+    action_engine = action.find("./Engine")
+    ET.SubElement(action_engine, "Sound", {"value": ALCHEMIST_BOTTLE_BREAK_SOUND})
+    ET.SubElement(action_engine, "SoundPhase", {"begin": "Begin"})
     action.find("./Engine/Script").set(
         "GPLFunction", "Alchemist_Miasma_Mist_Hit"
     )
@@ -1939,15 +1968,208 @@ def build_brewing_sounds_xml(stock_sounds_xml: Path) -> bytes:
     if source is None:
         raise ValueError("Stock Drink_Potion sound is missing")
     sound = ET.fromstring(ET.tostring(source, encoding="utf-8"))
-    sound.set("ID", "AXS1")
-    sound.set("Name", "alchemist_invigorating_elixer_sound")
+    sound.set("ID", ALCHEMIST_VIGOR_SOUND_ID.decode("ascii"))
+    sound.set("Name", ALCHEMIST_VIGOR_SOUND)
     phase = sound.find('./Engine/Phase[@ID="Effector Begin"]')
     if phase is None or phase.find("./Wave") is None:
         raise ValueError("Stock Drink_Potion sound contract changed")
     output = ET.Element("Majesty")
     output.append(sound)
+
+    # One private spell sound, cloned from Shield of Light's Begin/Spell_Group
+    # contract, is shared by both thrown-flask actions.
+    spell_source = stock_root.find('.//Description[@Name="Shield_of_Light"]')
+    if spell_source is None:
+        raise ValueError("Stock Shield_of_Light sound is missing")
+    bottle_break = ET.fromstring(ET.tostring(spell_source, encoding="utf-8"))
+    bottle_break.set("ID", ALCHEMIST_BOTTLE_BREAK_SOUND_ID.decode("ascii"))
+    bottle_break.set("Name", ALCHEMIST_BOTTLE_BREAK_SOUND)
+    bottle_phase = bottle_break.find('./Engine/Phase[@ID="Begin"]')
+    if bottle_phase is None or bottle_phase.find("./Wave") is None:
+        raise ValueError("Stock Shield_of_Light Begin sound contract changed")
+    bottle_phase.find("./Wave").set(
+        "value", ALCHEMIST_BOTTLE_BREAK_WAVE_ID.decode("ascii")
+    )
+    output.append(bottle_break)
+
+    # The Laboratory retains every Fervus building sound phase except Select.
+    # Only the selected wave is privatized to the approved bubbling/glass cue.
+    lab_source = stock_root.find('.//Description[@Name="FervisTemple"]')
+    if lab_source is None:
+        raise ValueError("Stock FervisTemple sound is missing")
+    lab_sound = ET.fromstring(ET.tostring(lab_source, encoding="utf-8"))
+    lab_sound.set("ID", ALCHEMIST_LAB_SOUND_ID.decode("ascii"))
+    lab_sound.set("Name", ALCHEMIST_LAB_SOUND)
+    lab_phase = lab_sound.find('./Engine/Phase[@ID="Select"]')
+    if lab_phase is None or lab_phase.find("./Wave") is None:
+        raise ValueError("Stock FervisTemple Select sound contract changed")
+    lab_phase.find("./Wave").set("value", ALCHEMIST_LAB_WAVE_ID.decode("ascii"))
+    output.append(lab_sound)
+
+    # Keep the complete Cultist voice and hit surface until the private voice
+    # set is approved. Change only Attack to the Warrior/Healer WU03 blade hit.
+    hero_source = stock_root.find('.//Description[@Name="Cultist"]')
+    if hero_source is None:
+        raise ValueError("Stock Cultist sound is missing")
+    hero_sound = ET.fromstring(ET.tostring(hero_source, encoding="utf-8"))
+    hero_sound.set("ID", ALCHEMIST_HERO_SOUND_ID.decode("ascii"))
+    hero_sound.set("Name", ALCHEMIST_HERO_SOUND)
+    attack_phase = hero_sound.find('./Engine/Phase[@ID="Attack"]')
+    if attack_phase is None or attack_phase.find("./Wave") is None:
+        raise ValueError("Stock Cultist Attack sound contract changed")
+    attack_phase.find("./Wave").set("value", "WU03")
+    output.append(hero_sound)
     ET.indent(output, space="\t")
     return ET.tostring(output, encoding="utf-8", xml_declaration=False) + b"\n"
+
+
+def validate_game_wave(payload: bytes, label: str) -> None:
+    with wave.open(io.BytesIO(payload), "rb") as source:
+        if source.getnchannels() != 1:
+            raise ValueError(f"{label} must be mono")
+        if source.getsampwidth() != 2:
+            raise ValueError(f"{label} must use signed 16-bit PCM")
+        if source.getframerate() != 22050:
+            raise ValueError(f"{label} must use a 22050 Hz sample rate")
+        if source.getcomptype() != "NONE":
+            raise ValueError(f"{label} must use uncompressed PCM")
+        if source.getnframes() == 0:
+            raise ValueError(f"{label} contains no audio frames")
+
+
+def write_alchemist_audio_cam(audio_root: Path, output_path: Path) -> None:
+    inputs = (
+        (
+            ALCHEMIST_BOTTLE_BREAK_WAVE_ID,
+            b"Flask Break",
+            audio_root / "alchemist-bottle-break-game.wav",
+        ),
+        (
+            ALCHEMIST_LAB_WAVE_ID,
+            b"Lab Select",
+            audio_root / "alchemist-laboratory-select-game.wav",
+        ),
+    )
+    entries = []
+    for wave_id, description, source_path in inputs:
+        if not source_path.is_file():
+            raise FileNotFoundError(source_path)
+        payload = source_path.read_bytes()
+        validate_game_wave(payload, source_path.name)
+        entries.append(CamEntry(pad_name(wave_id + description), payload))
+    write_cam(
+        output_path,
+        (CamSection(b"WAVE", tuple(entries)),),
+    )
+
+
+def dsnd_head_size(sound_name: bytes) -> int:
+    """Return the stock DSND HEAD identity-body size for *sound_name*."""
+    return 8 + len(sound_name) + 2
+
+
+def clone_dsnd_identity(
+    template: bytes,
+    source_id: bytes,
+    source_name: bytes,
+    private_id: bytes,
+    private_name: bytes,
+) -> bytes:
+    """Privatize one stock DSND while preserving its complete phase table."""
+    if len(source_id) != 4 or len(private_id) != 4:
+        raise ValueError("DSND identities must use four-byte IDs")
+    head_offset = template.find(b"HEAD")
+    if head_offset < 0:
+        raise ValueError("Stock DSND template has no HEAD block")
+    head_size = u32(template, head_offset + 4)
+    identity_offset = head_offset + 16
+    name_offset = head_offset + 24
+    head_end = head_offset + 16 + head_size
+    if template[identity_offset : identity_offset + 4] != source_id:
+        raise ValueError("Stock DSND HEAD identity changed")
+    if template[name_offset:head_end] != source_name + b"\x00\x00":
+        raise ValueError("Stock DSND HEAD name changed")
+    payload = bytearray(
+        template[:identity_offset]
+        + private_id
+        + template[identity_offset + 4 : name_offset]
+        + private_name
+        + b"\x00\x00"
+        + template[head_end:]
+    )
+    struct.pack_into("<I", payload, 4, len(payload) - 16)
+    struct.pack_into("<I", payload, 20, len(payload) - 32)
+    struct.pack_into("<I", payload, head_offset + 4, dsnd_head_size(private_name))
+    return bytes(payload)
+
+
+def replace_single_dsnd_wave(
+    payload: bytes, source_wave: bytes, private_wave: bytes
+) -> bytes:
+    """Replace exactly one phase WAVE target in an already-private DSND."""
+    if len(source_wave) != 4 or len(private_wave) != 4:
+        raise ValueError("DSND WAVE targets must use four-byte IDs")
+    count = payload.count(source_wave)
+    if count != 1:
+        raise ValueError(
+            f"Private DSND expected one {source_wave!r} phase target, found {count}"
+        )
+    return payload.replace(source_wave, private_wave)
+
+
+def write_alchemist_sounddesc_cam(source_path: Path, output_path: Path) -> None:
+    """Compile the four private Alchemist sounds through proven stock DSNDs."""
+    specifications = (
+        (
+            b"DP01Drink_Potion",
+            b"DP01",
+            b"Drink_Potion",
+            ALCHEMIST_VIGOR_SOUND_ID,
+            ALCHEMIST_VIGOR_SOUND.encode("ascii"),
+            None,
+        ),
+        (
+            b"SL35Shield_of_Light",
+            b"SL35",
+            b"Shield_of_Light",
+            ALCHEMIST_BOTTLE_BREAK_SOUND_ID,
+            ALCHEMIST_BOTTLE_BREAK_SOUND.encode("ascii"),
+            (b"SL35", ALCHEMIST_BOTTLE_BREAK_WAVE_ID),
+        ),
+        (
+            b"BT01FervisTemple",
+            b"BT01",
+            b"FervisTemple",
+            ALCHEMIST_LAB_SOUND_ID,
+            ALCHEMIST_LAB_SOUND.encode("ascii"),
+            (b"BT01", ALCHEMIST_LAB_WAVE_ID),
+        ),
+        (
+            b"CT01Cultist",
+            b"CT01",
+            b"Cultist",
+            ALCHEMIST_HERO_SOUND_ID,
+            ALCHEMIST_HERO_SOUND.encode("ascii"),
+            (b"WU04", b"WU03"),
+        ),
+    )
+    entries: list[CamEntry] = []
+    for (
+        template_entry,
+        source_id,
+        source_name,
+        private_id,
+        private_name,
+        wave_replacement,
+    ) in specifications:
+        template = read_cam_entry(source_path, b"DSND", template_entry).data
+        payload = clone_dsnd_identity(
+            template, source_id, source_name, private_id, private_name
+        )
+        if wave_replacement is not None:
+            payload = replace_single_dsnd_wave(payload, *wave_replacement)
+        entries.append(CamEntry(pad_name(private_id + private_name), payload))
+    write_cam(output_path, (CamSection(b"DSND", tuple(entries)),))
 
 
 def add_native_rage_progress_control(brewing_menu: bytes, rage_menu: bytes) -> bytes:
@@ -2761,6 +2983,8 @@ def build_manifest(
 \t\t\t\t\t<CAM>Data\\alchemist_probe_miscdata.cam</CAM>
 \t\t\t\t\t<CAM>Data\\alchemist_maindata.cam</CAM>
 \t\t\t\t\t<CAM>Data\\alchemist_interfacedata.cam</CAM>
+\t\t\t\t\t<CAM>Data\\alchemist_audio.cam</CAM>
+\t\t\t\t\t<CAM>Data\\alchemist_sounddesc.cam</CAM>
 \t\t\t\t\t<Descriptions>Data\\alchemist_probe_units.xml</Descriptions>
 \t\t\t\t\t<Descriptions>Data\\alchemist_brewing_overlays.xml</Descriptions>
 \t\t\t\t\t<Descriptions>Data\\alchemist_brewing_sounds.xml</Descriptions>
@@ -2820,6 +3044,8 @@ def validate_output(
         output_root / "Data" / "alchemist_probe_miscdata.cam",
         output_root / "Data" / "alchemist_maindata.cam",
         output_root / "Data" / "alchemist_interfacedata.cam",
+        output_root / "Data" / "alchemist_audio.cam",
+        output_root / "Data" / "alchemist_sounddesc.cam",
         output_root / "Data" / "Alchemist.bcd",
         output_root / "GPL" / "Alchemist.gplproj",
         output_root / "GPL" / "Alchemist_Building_Data.dat",
@@ -2889,8 +3115,8 @@ def validate_output(
         raise ValueError("Alchemist must use its private help page")
     if hero.find("./Game/NameGenType").get("value") != ALCHEMIST_NAME_GENERATOR_ID:
         raise ValueError("Alchemist must use the private NM18 name generator")
-    if hero.find("./Engine/DefaultSound").get("value") != "Cultist":
-        raise ValueError("Alchemist probe must retain the stock Cultist sound")
+    if hero.find("./Engine/DefaultSound").get("value") != ALCHEMIST_HERO_SOUND:
+        raise ValueError("Alchemist hero lost its private Cultist sound clone")
     movement = hero.find('./Engine/Attachment[@kind="Movement"]')
     if movement is None or movement.get("ID") != "Class 1":
         raise ValueError("Alchemist must use the stock Warrior movement class")
@@ -2913,6 +3139,11 @@ def validate_output(
         raise ValueError("Alchemist must use Warrior's stock 1..1 melee range")
     if any(item.find("./Game/DialogID").get("value") != "CGAL" for item in buildings):
         raise ValueError("Every Laboratory level must use CGAL")
+    if any(
+        item.find("./Engine/DefaultSound").get("value") != ALCHEMIST_LAB_SOUND
+        for item in buildings
+    ):
+        raise ValueError("Every Laboratory level must use the private Fervus sound clone")
     if [item.find("./Game/HelpID").get("value") for item in buildings] != list(
         ALCHEMIST_BUILDING_HELP_IDS
     ):
@@ -2993,6 +3224,12 @@ def validate_output(
         flash_effect.find("./Engine/AttachmentPointID").get("value") != "2"
     ):
         raise ValueError("Flash Flask activation lost its stock self-cast contract")
+    if flash_action.find("./Engine/Sound") is not None or flash_action.find(
+        "./Engine/SoundPhase"
+    ) is not None:
+        raise ValueError("Flash Flask must not retain Shield of Light's action sound")
+    if flash_effect.find("./Engine/DefaultSound").get("value") != "Drink_Potion":
+        raise ValueError("Flash Flask lost the stock healing-potion cork sound")
     stun_root = ET.parse(output_root / "Data" / "alchemist_stun_serum.xml").getroot()
     stun_action = stun_root.find('./Description[@Name="stun_serum"]')
     stun_impact = stun_root.find(
@@ -3016,6 +3253,8 @@ def validate_output(
         or stun_action.find("./Game/SpellRank").get("value") != "5"
         or stun_action.find("./Game/ValidationScript").get("value")
         != "Alchemist_Stun_Serum_Check"
+        or stun_action.find("./Engine/Sound").get("value")
+        != ALCHEMIST_BOTTLE_BREAK_SOUND
     ):
         raise ValueError("Stun Serum lost Paralytic Gaze's stock action contract")
     if stun_impact.find("./Engine/ImageIDBase").get("value") != "ASS1":
@@ -3067,6 +3306,8 @@ def validate_output(
         or miasma_action.find("./Game/SpellRank").get("value") != "4"
         or miasma_action.find("./Game/ValidationScript").get("value")
         != "Alchemist_Miasma_Mist_Check"
+        or miasma_action.find("./Engine/Sound").get("value")
+        != ALCHEMIST_BOTTLE_BREAK_SOUND
     ):
         raise ValueError("Miasma Mist lost its stock Meteor Storm action contract")
     if (
@@ -3086,6 +3327,75 @@ def validate_output(
         or miasma_particle.find("./Engine/ImageIDBase").get("value") != "AMm4"
     ):
         raise ValueError("Miasma Mist lost its private cloud/debuff presentation")
+    sounds_root = ET.parse(
+        output_root / "Data" / "alchemist_brewing_sounds.xml"
+    ).getroot()
+    expected_sounds = {
+        ALCHEMIST_VIGOR_SOUND: ("Effector Begin", "DP01"),
+        ALCHEMIST_BOTTLE_BREAK_SOUND: (
+            "Begin",
+            ALCHEMIST_BOTTLE_BREAK_WAVE_ID.decode("ascii"),
+        ),
+        ALCHEMIST_LAB_SOUND: (
+            "Select",
+            ALCHEMIST_LAB_WAVE_ID.decode("ascii"),
+        ),
+        ALCHEMIST_HERO_SOUND: ("Attack", "WU03"),
+    }
+    for sound_name, (phase_name, wave_id) in expected_sounds.items():
+        sound = sounds_root.find(f'./Description[@Name="{sound_name}"]')
+        if sound is None:
+            raise ValueError(f"Private Alchemist sound is missing: {sound_name}")
+        wave_node = sound.find(f'./Engine/Phase[@ID="{phase_name}"]/Wave')
+        if wave_node is None or wave_node.get("value") != wave_id:
+            raise ValueError(f"Private Alchemist sound routing changed: {sound_name}")
+    audio_entries = read_cam_entries(
+        output_root / "Data" / "alchemist_audio.cam", b"WAVE"
+    )
+    if len(audio_entries) != 2:
+        raise ValueError("Alchemist audio CAM must contain exactly two private waves")
+    audio_by_id = {
+        entry.name.rstrip(b"\x00")[:4]: entry.data for entry in audio_entries
+    }
+    for wave_id, filename in (
+        (ALCHEMIST_BOTTLE_BREAK_WAVE_ID, "alchemist-bottle-break-game.wav"),
+        (ALCHEMIST_LAB_WAVE_ID, "alchemist-laboratory-select-game.wav"),
+    ):
+        expected_wave = (SOURCE_ROOT.parent / "assets" / "audio" / filename).read_bytes()
+        validate_game_wave(expected_wave, filename)
+        if audio_by_id.get(wave_id) != expected_wave:
+            raise ValueError(f"Alchemist audio CAM lost private WAVE {wave_id!r}")
+    sounddesc_entries = read_cam_entries(
+        output_root / "Data" / "alchemist_sounddesc.cam", b"DSND"
+    )
+    expected_sounddesc = {
+        ALCHEMIST_VIGOR_SOUND_ID + ALCHEMIST_VIGOR_SOUND.encode("ascii"): (
+            b"DP01",
+        ),
+        ALCHEMIST_BOTTLE_BREAK_SOUND_ID
+        + ALCHEMIST_BOTTLE_BREAK_SOUND.encode("ascii"): (
+            ALCHEMIST_BOTTLE_BREAK_WAVE_ID,
+        ),
+        ALCHEMIST_LAB_SOUND_ID + ALCHEMIST_LAB_SOUND.encode("ascii"): (
+            ALCHEMIST_LAB_WAVE_ID,
+        ),
+        ALCHEMIST_HERO_SOUND_ID + ALCHEMIST_HERO_SOUND.encode("ascii"): (b"WU03",),
+    }
+    if len(sounddesc_entries) != len(expected_sounddesc):
+        raise ValueError("Alchemist sounddesc CAM must contain four private DSNDs")
+    for entry in sounddesc_entries:
+        name = entry.name.rstrip(b"\x00")
+        expected_waves = expected_sounddesc.get(name)
+        if expected_waves is None:
+            raise ValueError(f"Unexpected private Alchemist DSND: {name!r}")
+        internal_name = name[4:]
+        if internal_name + b"\x00\x00" not in entry.data:
+            raise ValueError(f"Private Alchemist DSND identity changed: {name!r}")
+        for wave_id in expected_waves:
+            if entry.data.count(wave_id) != 1:
+                raise ValueError(
+                    f"Private Alchemist DSND lost WAVE target {wave_id!r}: {name!r}"
+                )
     overlays = ET.parse(
         output_root / "Data" / "alchemist_brewing_overlays.xml"
     ).getroot()
@@ -3775,6 +4085,14 @@ def build(
     )
     (data_dir / "alchemist_brewing_sounds.xml").write_bytes(
         build_brewing_sounds_xml(sdk_data / "M_Sounds.xml")
+    )
+    write_alchemist_audio_cam(
+        SOURCE_ROOT.parent / "assets" / "audio",
+        data_dir / "alchemist_audio.cam",
+    )
+    write_alchemist_sounddesc_cam(
+        game_path / "Data" / "sounddesc.cam",
+        data_dir / "alchemist_sounddesc.cam",
     )
     (data_dir / "alchemist_combat_potions.xml").write_bytes(
         build_alchemist_combat_potions_xml(

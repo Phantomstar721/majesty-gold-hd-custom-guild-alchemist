@@ -23,17 +23,15 @@ before Miasma Mist when both are available.
 
 ## Area lifecycle
 
-The private cloud unit copies the Endless Winter/Meteor Storm contract:
+The private cloud unit copies stock Meteor Storm's stationary contract:
 
 - lifetime: `21000` game milliseconds;
 - radius: `175` world units;
 - immediate pulse on creation;
 - subsequent pulses: the spell unit's engine-owned `ActiveScript` every
   `1600` game milliseconds;
-- target-following sample: every `25` game milliseconds;
-- tracking detaches under the same Endless Winter conditions (dead or housed
-  target, native speed trail, or a single movement jump beyond the full
-  radius), after which the cloud remains at its last valid location.
+- the spell unit remains at its original landing point for its complete
+  lifetime; it has no Endless Winter tracking thread or target parent.
 
 Every pulse compiles enemies in the stock radius and launches a private,
 invisible Meteor Storm-shaped missile at each eligible non-structure target.
@@ -74,4 +72,3 @@ Source masters live under
 `assets/source/spells/miasma-mist/`. The generated cloud rotates its internal
 vapor bands while preserving a fixed outer footprint, avoiding the pulse and
 size-jump failures seen in earlier effect experiments.
-

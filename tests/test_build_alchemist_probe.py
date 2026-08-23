@@ -1,4 +1,5 @@
 import json
+import math
 import struct
 import sys
 import tempfile
@@ -244,6 +245,7 @@ class AlchemistProbeTests(unittest.TestCase):
                     art_package.VIGOR_EFFECT_CUSTOM,
                     art_package.FLASH_FLASK_BUFF_CUSTOM,
                     art_package.FLASH_FLASK_ACTIVATION_CUSTOM,
+                    art_package.MIASMA_DEBUFF_CUSTOM,
                 )
             }
             stock_imag = stock.read_cam_entry(
@@ -337,6 +339,7 @@ class AlchemistProbeTests(unittest.TestCase):
             (art_package.VIGOR_EFFECT_CUSTOM, b"ALV1Spark", 29, 560),
             (art_package.FLASH_FLASK_BUFF_CUSTOM, b"AFF1Flask", 29, 560),
             (art_package.FLASH_FLASK_ACTIVATION_CUSTOM, b"AFF2Flash", 6, 505),
+            (art_package.MIASMA_DEBUFF_CUSTOM, b"AMm5Drop", 29, 505),
         ):
             indices = stock.animation_tile_indices(
                 packaged_effects[name], len(output_tiles)
@@ -358,6 +361,28 @@ class AlchemistProbeTests(unittest.TestCase):
                     for index in indices
                 )
             )
+        for name in (
+            art_package.VIGOR_EFFECT_CUSTOM,
+            art_package.FLASH_FLASK_BUFF_CUSTOM,
+            art_package.MIASMA_DEBUFF_CUSTOM,
+        ):
+            for index in stock.animation_tile_indices(
+                packaged_effects[name], len(output_tiles)
+            ):
+                height, width, rows = stock.decode_indexed_v3_tile(
+                    output_tiles[index].data
+                )
+                visible = [
+                    (x, y)
+                    for y, row in enumerate(rows)
+                    for x, value in enumerate(row)
+                    if value != 0
+                ]
+                self.assertTrue(visible)
+                visible_width = max(x for x, _y in visible) - min(x for x, _y in visible) + 1
+                visible_height = max(y for _x, y in visible) - min(y for _x, y in visible) + 1
+                self.assertLessEqual(visible_width, math.ceil(width * 0.82))
+                self.assertLessEqual(visible_height, math.ceil(height * 0.82))
         activation_indices = stock.animation_tile_indices(
             packaged_effects[art_package.FLASH_FLASK_ACTIVATION_CUSTOM],
             len(output_tiles),
@@ -1483,6 +1508,15 @@ end
         ):
             self.assertIn(stock_contract, source)
         self.assertEqual(source.count("#Alchemist_Miasma_Mist_Debuff_Duration;"), 1)
+        self.assertIn("$SetSpellUnitTimeout(ThisAgent, Duration)", source)
+        for forbidden_tracking in (
+            "MiasmaMistTracking",
+            "MiasmaMistCleanup",
+            "Alchemist_Miasma_Mist_Track",
+            "$SetParent",
+            "$TeleportToUnit",
+        ):
+            self.assertNotIn(forbidden_tracking, source)
 
     def test_phoenix_phial_composes_stock_purchase_rebirth_and_flee(self) -> None:
         source = (builder.GPL_SOURCE_ROOT / "Alchemist_Phoenix_Phial.gpl").read_text(

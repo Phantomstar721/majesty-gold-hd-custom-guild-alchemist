@@ -1,6 +1,6 @@
 ///////////////////////////////////////////////////////////////////////////////
-// Private Alchemist clone of stock Meteor Storm's 21-second spell-unit
-// lifecycle and the Haunt's target-following Endless Winter composition.
+// Private Alchemist clone of stock Meteor Storm's stationary 21-second
+// spell-unit lifecycle and the Haunt's Endless Winter presentation/penalties.
 // The 175-radius pulse remains engine-scheduled every 1600 ms.  Each pulse
 // deals one point of damage, matching one native poison tick, and refreshes a
 // single 10-second enhanced-Chill-shaped debuff without stacking its stats.
@@ -57,88 +57,10 @@ declare
 
 begin
 	Duration = $GetSpellAttribute("miasma_mist", "effector_duration");
-	$SetParent(ThisAgent, Target);
-	$SetSpellUnitTimeout(ThisAgent, Duration + 500);
+	$SetSpellUnitTimeout(ThisAgent, Duration);
 	$CreateEffector(ThisAgent, "miasma_mist_cloud_effector", Duration);
-
-	$AddAttribute(
-		ThisAgent,
-		"MiasmaMistTracking",
-		"function",
-		$Alchemist_Miasma_Mist_Track
-	);
-	$AddAttribute(
-		ThisAgent,
-		"MiasmaMistCleanup",
-		"function",
-		$Alchemist_Miasma_Mist_Cleanup
-	);
-	$RunThread(ThisAgent's "MiasmaMistCleanup", Duration + 100, ThisAgent);
-	$NewThread(ThisAgent's "MiasmaMistTracking", 25, ThisAgent);
 	$NewThread(ThisAgent's "ActiveScript", 1600, ThisAgent);
-	$Alchemist_Miasma_Mist_Track(ThisAgent);
 	$Alchemist_Miasma_Mist_Active(ThisAgent);
-end
-
-
-function Alchemist_Miasma_Mist_Cleanup(agent ThisAgent)
-
-declare
-
-begin
-	If ($IsValidGamePiece(ThisAgent) == False)
-		return;
-
-	$KillThread(ThisAgent's "MiasmaMistTracking");
-	$KillThread(ThisAgent's "ActiveScript");
-	$DeleteGamePiece(ThisAgent);
-end
-
-
-function Alchemist_Miasma_Mist_Track(agent ThisAgent)
-
-declare
-	agent Tracked_Target;
-	coordinate Anchor_Location;
-	coordinate Target_Location;
-	integer Travel_Distance;
-
-begin
-	If ($IsValidGamePiece(ThisAgent) == False)
-		return;
-
-	Tracked_Target = $Parent(ThisAgent);
-	If ($IsValidGamePiece(Tracked_Target) == False)
-		begin
-			$KillThread(ThisAgent's "MiasmaMistTracking");
-			return;
-		end
-
-	If (
-		$IsDead(Tracked_Target) ||
-		$IsEnteringBuilding(Tracked_Target) ||
-		$InsideBuilding(Tracked_Target) ||
-		$HasSpeedTrail(Tracked_Target)
-	)
-		begin
-			$KillThread(ThisAgent's "MiasmaMistTracking");
-			return;
-		end
-
-	Anchor_Location = $LocationOf(ThisAgent);
-	Target_Location = $LocationOf(Tracked_Target);
-	Travel_Distance = $DistanceBetweenCoords(Anchor_Location, Target_Location);
-	If (Travel_Distance > #Alchemist_Miasma_Mist_Radius)
-		begin
-			$KillThread(ThisAgent's "MiasmaMistTracking");
-			return;
-		end
-
-	If (
-		($GetX(Anchor_Location) != $GetX(Target_Location)) ||
-		($GetY(Anchor_Location) != $GetY(Target_Location))
-	)
-		$TeleportToUnit(ThisAgent, 50000, Tracked_Target, 0);
 end
 
 

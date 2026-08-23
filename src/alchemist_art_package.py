@@ -80,6 +80,7 @@ MIASMA_DEBUFF_CUSTOM = b"AMm5Miasma Icon"
 MIASMA_ANCHOR_CUSTOM = b"AMm6Miasma Anchor"
 MIASMA_PALETTE = 505
 BUFF_ICON_PALETTE = 560
+OVERHEAD_EFFECT_FIT_RATIO = 0.80
 FLASH_FLASK_ACTIVATION_PALETTE = 505
 FLASH_FLASK_ACTIVATION_HEADER = (3, 99, 103, 0, 32, 51, 43, 8)
 FLASH_FLASK_ACTIVATION_SOURCE_DELAY_MS = 50
@@ -336,6 +337,7 @@ def generated_approved_strip_tile(
     output_frame_count: int,
     palette_index: int,
     fixed_header: tuple[int, int, int, int, int, int, int, int] | None = None,
+    fit_ratio: float = 0.94,
 ) -> bytes:
     """Fit one approved strip phase into a stock overlay's fixed attachment."""
     source_frames = keyed_strip_frames(source_png, source_frame_count)
@@ -358,8 +360,8 @@ def generated_approved_strip_tile(
         width = fixed_header[2]
         height = fixed_header[1]
     fit = min(
-        width * 0.94 / max(1, source.width),
-        height * 0.94 / max(1, source.height),
+        width * fit_ratio / max(1, source.width),
+        height * fit_ratio / max(1, source.height),
     )
     source = source.resize(
         (
@@ -1309,6 +1311,7 @@ def write_maindata(
                 frame,
                 len(buff_template_indices),
                 BUFF_ICON_PALETTE,
+                fit_ratio=OVERHEAD_EFFECT_FIT_RATIO,
             ),
         )
         flash_buff_replacements[source_index] = append(
@@ -1322,6 +1325,7 @@ def write_maindata(
                 frame,
                 len(buff_template_indices),
                 BUFF_ICON_PALETTE,
+                fit_ratio=OVERHEAD_EFFECT_FIT_RATIO,
             ),
         )
     vigor_effect_imag = stock.remap_imag_animation_tiles(
@@ -1565,6 +1569,7 @@ def write_maindata(
                 frame,
                 len(buff_template_indices),
                 MIASMA_PALETTE,
+                fit_ratio=OVERHEAD_EFFECT_FIT_RATIO,
             ),
         )
     miasma_debuff_imag = stock.remap_imag_animation_tiles(

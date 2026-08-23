@@ -9,6 +9,7 @@
 expression #Alchemist_Base_Movement_Bonus -45
 expression #Alchemist_Flash_Flask_Confidence 60
 expression #Alchemist_Stun_Serum_Confidence 100
+expression #Alchemist_Miasma_Mist_Confidence 30
 
 Function Alchemist_Compat_Phantom_Max_Haunt_Level(agent ThisAgent) is integer
 
@@ -145,6 +146,9 @@ begin
 
 			if ($isspellavailable(thisagent,"stun_serum",1))
 				value += #Alchemist_Stun_Serum_Confidence;
+
+			if ($isspellavailable(thisagent,"miasma_mist",1))
+				value += #Alchemist_Miasma_Mist_Confidence;
 		end
 
 	return value;

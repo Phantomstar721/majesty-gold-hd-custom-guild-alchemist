@@ -1,0 +1,250 @@
+///////////////////////////////////////////////////////////////////////////////
+// Private Alchemist clone of stock Meteor Storm's 21-second spell-unit
+// lifecycle and the Haunt's target-following Endless Winter composition.
+// The 175-radius pulse remains engine-scheduled every 1600 ms.  Each pulse
+// deals one point of damage, matching one native poison tick, and refreshes a
+// single 10-second enhanced-Chill-shaped debuff without stacking its stats.
+///////////////////////////////////////////////////////////////////////////////
+
+expression #Alchemist_Miasma_Mist_Radius 175
+expression #Alchemist_Miasma_Mist_Debuff_Duration 10000
+
+function Alchemist_Miasma_Mist_Check(agent ThisAgent) is integer
+
+declare
+	agent Target;
+
+begin
+	If ($IsDead(ThisAgent))
+		return 0;
+
+	Target = ThisAgent's "Target";
+	If ($NotValid(Target))
+		return 0;
+	If ($IsDead(Target))
+		return 0;
+	If (Target's "Type" == "Building" || Target's "Type" == "Lair")
+		return 0;
+	If ($DistanceBetweenAgents(ThisAgent, Target) > ThisAgent's "castingrange")
+		return 0;
+
+	// Reuse the Alchemist's stock-list-eval combat-consumable boundary.  This
+	// keeps the expensive area spell for fights the stock evaluator considers
+	// dangerous rather than spending it on trivial incidental enemies.
+	If ($alchemist_combat_consumable_check(ThisAgent) == 0)
+		return 0;
+
+	return 1;
+end
+
+
+function Alchemist_Miasma_Mist_Hit(agent ThisAgent, agent Target)
+
+declare
+
+begin
+	If ($Alchemist_Miasma_Mist_Check(ThisAgent) == 0)
+		return;
+
+	$CreateSpellUnit(ThisAgent, "miasma_mist_cloud", Target);
+end
+
+
+function Alchemist_Miasma_Mist_Unit_Created(agent ThisAgent, agent Target)
+
+declare
+	integer Duration;
+
+begin
+	Duration = $GetSpellAttribute("miasma_mist", "effector_duration");
+	$SetParent(ThisAgent, Target);
+	$SetSpellUnitTimeout(ThisAgent, Duration + 500);
+	$CreateEffector(ThisAgent, "miasma_mist_cloud_effector", Duration);
+
+	$AddAttribute(
+		ThisAgent,
+		"MiasmaMistTracking",
+		"function",
+		$Alchemist_Miasma_Mist_Track
+	);
+	$AddAttribute(
+		ThisAgent,
+		"MiasmaMistCleanup",
+		"function",
+		$Alchemist_Miasma_Mist_Cleanup
+	);
+	$RunThread(ThisAgent's "MiasmaMistCleanup", Duration + 100, ThisAgent);
+	$NewThread(ThisAgent's "MiasmaMistTracking", 25, ThisAgent);
+	$NewThread(ThisAgent's "ActiveScript", 1600, ThisAgent);
+	$Alchemist_Miasma_Mist_Track(ThisAgent);
+	$Alchemist_Miasma_Mist_Active(ThisAgent);
+end
+
+
+function Alchemist_Miasma_Mist_Cleanup(agent ThisAgent)
+
+declare
+
+begin
+	If ($IsValidGamePiece(ThisAgent) == False)
+		return;
+
+	$KillThread(ThisAgent's "MiasmaMistTracking");
+	$KillThread(ThisAgent's "ActiveScript");
+	$DeleteGamePiece(ThisAgent);
+end
+
+
+function Alchemist_Miasma_Mist_Track(agent ThisAgent)
+
+declare
+	agent Tracked_Target;
+	coordinate Anchor_Location;
+	coordinate Target_Location;
+	integer Travel_Distance;
+
+begin
+	If ($IsValidGamePiece(ThisAgent) == False)
+		return;
+
+	Tracked_Target = $Parent(ThisAgent);
+	If ($IsValidGamePiece(Tracked_Target) == False)
+		begin
+			$KillThread(ThisAgent's "MiasmaMistTracking");
+			return;
+		end
+
+	If (
+		$IsDead(Tracked_Target) ||
+		$IsEnteringBuilding(Tracked_Target) ||
+		$InsideBuilding(Tracked_Target) ||
+		$HasSpeedTrail(Tracked_Target)
+	)
+		begin
+			$KillThread(ThisAgent's "MiasmaMistTracking");
+			return;
+		end
+
+	Anchor_Location = $LocationOf(ThisAgent);
+	Target_Location = $LocationOf(Tracked_Target);
+	Travel_Distance = $DistanceBetweenCoords(Anchor_Location, Target_Location);
+	If (Travel_Distance > #Alchemist_Miasma_Mist_Radius)
+		begin
+			$KillThread(ThisAgent's "MiasmaMistTracking");
+			return;
+		end
+
+	If (
+		($GetX(Anchor_Location) != $GetX(Target_Location)) ||
+		($GetY(Anchor_Location) != $GetY(Target_Location))
+	)
+		$TeleportToUnit(ThisAgent, 50000, Tracked_Target, 0);
+end
+
+
+function Alchemist_Miasma_Mist_Active(agent ThisAgent)
+
+declare
+	list Targets;
+	agent Target;
+
+begin
+	If ($IsValidGamePiece(ThisAgent) == False)
+		return;
+
+	Targets = $compile_enemies(ThisAgent, #Alchemist_Miasma_Mist_Radius);
+	foreach Target in Targets do
+		If (Target's "Type" != "Building" && Target's "Type" != "Lair")
+			$CreateMissile("miasma_mist_missile", ThisAgent, Target);
+end
+
+
+function Alchemist_Miasma_Mist_Missile_Hit(agent ThisAgent, agent Target)
+
+declare
+
+begin
+	If ($IsDead(Target))
+		return;
+	If (Target's "Type" == "Building" || Target's "Type" == "Lair")
+		return;
+
+	// Native poison removes one HP each PeriodicHPDeltaPeriod.  Preserve that
+	// exact low per-pulse damage rather than introducing a new damage roll.
+	$player_spell_attack(Target, 1, 1);
+	If ($IsDead(Target))
+		return;
+
+	$Alchemist_Miasma_Mist_Apply(Target);
+end
+
+
+function Alchemist_Miasma_Mist_Apply(agent Target)
+
+declare
+
+begin
+	If ($HasAttribute("AlchemistMiasmaMistRemaining", Target) == False)
+		begin
+			$AddAttribute(
+				Target,
+				"AlchemistMiasmaMistRemaining",
+				"integer",
+				#Alchemist_Miasma_Mist_Debuff_Duration
+			);
+			$AddAttribute(Target, "AlchemistMiasmaMistActive", "boolean", False);
+			$AddAttribute(
+				Target,
+				"AlchemistMiasmaMistWatch",
+				"function",
+				$Alchemist_Miasma_Mist_Watch
+			);
+		end
+
+	If (Target's "AlchemistMiasmaMistActive" == False)
+		begin
+			Target's "AlchemistMiasmaMistActive" = True;
+			$MagicalAdjustAttribute(Target, #ATTRIB_Dodge, -10);
+			$MagicalAdjustAttribute(Target, #ATTRIB_Parry, -10);
+			$AdjustAttribute(Target, #ATTRIB_MovementRateModifier, 100);
+			$AdjustAttribute(Target, #ATTRIB_ActionRateModifier, 1000);
+		end
+
+	Target's "AlchemistMiasmaMistRemaining" =
+		#Alchemist_Miasma_Mist_Debuff_Duration;
+
+	If ($CheckEffector(Target, "miasma_mist_debuff_icon") == False)
+		$CreateEffector(Target, "miasma_mist_debuff_icon", 1, "infinite");
+
+	If ($IsRunning(Target's "AlchemistMiasmaMistWatch") == False)
+		$NewThread(Target's "AlchemistMiasmaMistWatch", 100, Target);
+end
+
+
+function Alchemist_Miasma_Mist_Watch(agent ThisAgent)
+
+declare
+
+begin
+	If ($IsValidGamePiece(ThisAgent) == False)
+		return;
+
+	If (ThisAgent's "AlchemistMiasmaMistActive" == False)
+		begin
+			$KillThread(ThisAgent's "AlchemistMiasmaMistWatch");
+			return;
+		end
+
+	ThisAgent's "AlchemistMiasmaMistRemaining" -= 100;
+	If (ThisAgent's "AlchemistMiasmaMistRemaining" > 0)
+		return;
+
+	$KillThread(ThisAgent's "AlchemistMiasmaMistWatch");
+	ThisAgent's "AlchemistMiasmaMistActive" = False;
+	$MagicalAdjustAttribute(ThisAgent, #ATTRIB_Dodge, 10);
+	$MagicalAdjustAttribute(ThisAgent, #ATTRIB_Parry, 10);
+	$AdjustAttribute(ThisAgent, #ATTRIB_MovementRateModifier, -100);
+	$AdjustAttribute(ThisAgent, #ATTRIB_ActionRateModifier, -1000);
+	If ($CheckEffector(ThisAgent, "miasma_mist_debuff_icon"))
+		$DeleteEffector(ThisAgent, "miasma_mist_debuff_icon");
+end

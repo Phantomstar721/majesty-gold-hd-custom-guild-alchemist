@@ -685,6 +685,7 @@ class AlchemistProbeTests(unittest.TestCase):
         self.assertIn("expression #Alchemist_Base_Movement_Bonus -45", source)
         self.assertIn("expression #Alchemist_Flash_Flask_Confidence 60", source)
         self.assertIn("expression #Alchemist_Stun_Serum_Confidence 100", source)
+        self.assertIn("expression #Alchemist_Miasma_Mist_Confidence 30", source)
         self.assertIn("Function Alchemist_Sync_Speed_Profile", source)
         self.assertIn('"AlchemistBaseMovementApplied"', source)
         self.assertIn("#ATTRIB_MovementRateModifier", source)
@@ -695,6 +696,7 @@ class AlchemistProbeTests(unittest.TestCase):
         for spell, weight in (
             ("flash_flask", "#Alchemist_Flash_Flask_Confidence"),
             ("stun_serum", "#Alchemist_Stun_Serum_Confidence"),
+            ("miasma_mist", "#Alchemist_Miasma_Mist_Confidence"),
         ):
             self.assertIn(f'$isspellavailable(thisagent,"{spell}",1)', source)
             self.assertIn(f"value += {weight};", source)
@@ -841,7 +843,7 @@ class AlchemistProbeTests(unittest.TestCase):
         self.assertIn("$RevertUnitType ( thisagent )", source)
         self.assertIn("#ATTRIB_MaxHP, 40", source)
 
-    def test_alchemist_unit_replaces_cultist_spells_with_flash_flask(self) -> None:
+    def test_alchemist_unit_uses_only_private_alchemist_spells(self) -> None:
         game = Path(r"C:\Program Files (x86)\Steam\steamapps\common\Majesty HD")
         units = builder.build_units_xml(
             game / "SDK" / "OriginalQuests" / "Data" / "M_Buildings.xml",
@@ -853,7 +855,11 @@ class AlchemistProbeTests(unittest.TestCase):
         spells = hero.findall("./Game/AllowedSpells/Spell")
         self.assertEqual(
             [(spell.get("ID"), spell.get("Value")) for spell in spells],
-            [("0", "stun_serum"), ("1", "flash_flask")],
+            [
+                ("0", "stun_serum"),
+                ("1", "flash_flask"),
+                ("2", "miasma_mist"),
+            ],
         )
         units_text = units.decode("utf-8")
         for cultist_spell in ("camouflage", "change_shape", "charm_monster"):
@@ -968,6 +974,7 @@ end
             'source="Alchemist_Shapeshift.gpl"\n'
             'source="Alchemist_Stun_Serum.gpl"\n'
             'source="Alchemist_Flash_Flask.gpl"\n'
+            'source="Alchemist_Miasma_Mist.gpl"\n'
             'source="Alchemist_Brewing.gpl"\n'
             'source="Alchemist_Economy.gpl"\n'
             'source="Alchemist_Weapon_Oil.gpl"\n'
@@ -1412,6 +1419,70 @@ end
         self.assertNotIn('"alchemist_stun_serum_icon"', source)
         for forbidden in ("$RunThread", "$Sleep", "$CheckEffector"):
             self.assertNotIn(forbidden, source)
+
+    def test_miasma_mist_clones_meteor_storm_and_endless_winter(self) -> None:
+        game = Path(r"C:\Program Files (x86)\Steam\steamapps\common\Majesty HD")
+        data = game / "SDK" / "OriginalQuests" / "Data"
+        output = ET.fromstring(
+            builder.build_miasma_mist_xml(
+                data / "M_Actions.xml",
+                data / "M_Characters.xml",
+                data / "M_Projectiles.xml",
+                data / "M_Overlays.xml",
+                data / "M_ParticleSystems.xml",
+            )
+        )
+        action = output.find('./Description[@Name="miasma_mist"]')
+        self.assertIsNotNone(action)
+        self.assertEqual(action.find("./Engine/ImageSet").get("value"), "Cast")
+        self.assertEqual(action.find("./Game/EffectorDuration").get("value"), "21000")
+        self.assertEqual(action.find("./Game/TimeoutDuration").get("value"), "60000")
+        self.assertEqual(action.find("./Game/CharacterLevel").get("value"), "8")
+        self.assertEqual(action.find("./Game/SpellRank").get("value"), "4")
+        self.assertEqual(
+            action.find("./Game/ValidationScript").get("value"),
+            "Alchemist_Miasma_Mist_Check",
+        )
+        expected = {
+            "miasma_mist_cloud": ("AMm6", "Alchemist_Miasma_Mist_Unit_Created"),
+            "miasma_mist_missile": ("AMm2", "Alchemist_Miasma_Mist_Missile_Hit"),
+            "miasma_mist_cloud_effector": ("AMm1", None),
+            "miasma_mist_debuff_icon": ("AMm5", None),
+            "miasma_mist_cloud_attachment": ("AMm4", None),
+        }
+        for name, (image, callback) in expected.items():
+            description = output.find(f'./Description[@Name="{name}"]')
+            self.assertIsNotNone(description)
+            self.assertEqual(description.find("./Engine/ImageIDBase").get("value"), image)
+            if callback is not None:
+                self.assertEqual(
+                    description.find("./Engine/Script").get("GPLFunction"), callback
+                )
+
+        source = (builder.GPL_SOURCE_ROOT / "Alchemist_Miasma_Mist.gpl").read_text(
+            encoding="utf-8"
+        )
+        for stock_contract in (
+            "expression #Alchemist_Miasma_Mist_Radius 175",
+            "expression #Alchemist_Miasma_Mist_Debuff_Duration 10000",
+            '$NewThread(ThisAgent\'s "ActiveScript", 1600, ThisAgent)',
+            "$Alchemist_Miasma_Mist_Active(ThisAgent)",
+            "$player_spell_attack(Target, 1, 1)",
+            "$alchemist_combat_consumable_check(ThisAgent)",
+            'Target\'s "Type" == "Building"',
+            'Target\'s "Type" == "Lair"',
+            "#ATTRIB_Dodge, -10",
+            "#ATTRIB_Dodge, 10",
+            "#ATTRIB_Parry, -10",
+            "#ATTRIB_Parry, 10",
+            "#ATTRIB_MovementRateModifier, 100",
+            "#ATTRIB_MovementRateModifier, -100",
+            "#ATTRIB_ActionRateModifier, 1000",
+            "#ATTRIB_ActionRateModifier, -1000",
+            '"miasma_mist_debuff_icon", 1, "infinite"',
+        ):
+            self.assertIn(stock_contract, source)
+        self.assertEqual(source.count("#Alchemist_Miasma_Mist_Debuff_Duration;"), 1)
 
     def test_phoenix_phial_composes_stock_purchase_rebirth_and_flee(self) -> None:
         source = (builder.GPL_SOURCE_ROOT / "Alchemist_Phoenix_Phial.gpl").read_text(

@@ -34,3 +34,12 @@
 		(IGdeathscript		gravestone)
 	}
 [end]
+
+[miasma_mist_cloud]
+	{Spell
+		(type		spell)
+		(subtype	spell)
+		(title		miasma_mist_cloud)
+		(activeScript	Alchemist_Miasma_Mist_Active)
+	}
+[end]

@@ -169,6 +169,16 @@ STUN_SERUM_RESTRAINT_ID = "ASS2"
 STUN_SERUM_DEBUFF_ID = "ASS3"
 STUN_SERUM_DURATION_MS = "5000"
 STUN_SERUM_COOLDOWN_MS = "45000"
+MIASMA_MIST_ACTION_ID = "AMa1"
+MIASMA_MIST_ACTION_NAME = "miasma_mist"
+MIASMA_MIST_CLOUD_UNIT_ID = "AMM1"
+MIASMA_MIST_MISSILE_ID = "AMM2"
+MIASMA_MIST_CLOUD_OVERLAY_ID = "AMM3"
+MIASMA_MIST_PARTICLE_ID = "AMM4"
+MIASMA_MIST_DEBUFF_ID = "AMM5"
+MIASMA_MIST_DURATION_MS = "21000"
+MIASMA_MIST_COOLDOWN_MS = "60000"
+MIASMA_MIST_DEBUFF_DURATION_MS = "10000"
 WEAPON_OIL_PROGRESS_OUTER_RECT = (30, 62, 162, 20)
 WEAPON_OIL_PROGRESS_LABEL_RECT = (31, 65, 160, 14)
 PHOENIX_PHIAL_PROGRESS_OUTER_RECT = (30, 87, 162, 20)
@@ -815,6 +825,7 @@ def build_gpl_project(include_siege_test_fixture: bool) -> str:
         'source="Alchemist_Shapeshift.gpl"',
         'source="Alchemist_Stun_Serum.gpl"',
         'source="Alchemist_Flash_Flask.gpl"',
+        'source="Alchemist_Miasma_Mist.gpl"',
         'source="Alchemist_Brewing.gpl"',
         'source="Alchemist_Economy.gpl"',
         'source="Alchemist_Weapon_Oil.gpl"',
@@ -1333,6 +1344,11 @@ def build_units_xml(stock_buildings_xml: Path, stock_characters_xml: Path) -> by
         "Spell",
         {"ID": "1", "Value": FLASH_FLASK_ACTION_NAME},
     )
+    ET.SubElement(
+        allowed_spells,
+        "Spell",
+        {"ID": "2", "Value": MIASMA_MIST_ACTION_NAME},
+    )
     # Warrior's direct bladed-melee contract is attacktype 1 (in GPL),
     # attack_action basic_attack (in GPL), and a 1..1 engine attack range.
     # ALC1 already clones Warrior's Attack animation/timing table.
@@ -1656,6 +1672,109 @@ def build_stun_serum_xml(stock_actions_xml: Path, stock_overlays_xml: Path) -> b
 
     output = ET.Element("Majesty")
     output.extend((action, impact, restraint, oil_restraint, immunity))
+    ET.indent(output, space="\t")
+    return ET.tostring(output, encoding="utf-8", xml_declaration=False) + b"\n"
+
+
+def build_miasma_mist_xml(
+    stock_actions_xml: Path,
+    stock_characters_xml: Path,
+    stock_projectiles_xml: Path,
+    stock_overlays_xml: Path,
+    stock_particles_xml: Path,
+) -> bytes:
+    """Privatize Meteor Storm/Endless Winter's complete area-spell contract."""
+    actions_root = ET.parse(stock_actions_xml).getroot()
+    characters_root = ET.parse(stock_characters_xml).getroot()
+    projectiles_root = ET.parse(stock_projectiles_xml).getroot()
+    overlays_root = ET.parse(stock_overlays_xml).getroot()
+    particles_root = ET.parse(stock_particles_xml).getroot()
+
+    stock_action = actions_root.find('.//Description[@Name="meteor_storm"]')
+    stock_unit = characters_root.find('.//Description[@Name="meteor_storm"]')
+    stock_missile = projectiles_root.find(
+        './/Description[@Name="meteor_storm_missile"]'
+    )
+    stock_cloud = overlays_root.find(
+        './/Description[@Name="meteor_storm_effector2"]'
+    )
+    stock_icon = overlays_root.find('.//Description[@Name="Poison_icon"]')
+    stock_particle = particles_root.find(
+        './/Description[@Name="Meteor_Storm_attachment"]'
+    )
+    if any(
+        item is None
+        for item in (
+            stock_action,
+            stock_unit,
+            stock_missile,
+            stock_cloud,
+            stock_icon,
+            stock_particle,
+        )
+    ):
+        raise ValueError("Stock Meteor Storm/Poison presentation contract is incomplete")
+
+    action = ET.fromstring(ET.tostring(stock_action, encoding="utf-8"))
+    action.set("ID", MIASMA_MIST_ACTION_ID)
+    action.set("Name", MIASMA_MIST_ACTION_NAME)
+    action.set("Description", "Miasma Mist")
+    action.find("./Engine/Script").set(
+        "GPLFunction", "Alchemist_Miasma_Mist_Hit"
+    )
+    action.find("./Game/EffectorDuration").set("value", MIASMA_MIST_DURATION_MS)
+    action.find("./Game/TimeoutDuration").set("value", MIASMA_MIST_COOLDOWN_MS)
+    action.find("./Game/CharacterLevel").set("value", "8")
+    # Stun Serum rank 5 must remain the first combat-start spell. Rank 4 keeps
+    # Miasma beside Flash Flask and above every native Bazaar flask.
+    action.find("./Game/SpellRank").set("value", "4")
+    validation = action.find("./Game/ValidationScript")
+    if validation is None:
+        validation = ET.SubElement(action.find("./Game"), "ValidationScript")
+    validation.set("value", "Alchemist_Miasma_Mist_Check")
+
+    unit = ET.fromstring(ET.tostring(stock_unit, encoding="utf-8"))
+    unit.set("ID", MIASMA_MIST_CLOUD_UNIT_ID)
+    unit.set("Name", "miasma_mist_cloud")
+    unit.set("Description", "Miasma Mist")
+    unit.find("./Engine/ImageIDBase").set("value", "AMm6")
+    unit.find("./Engine/Script").set(
+        "GPLFunction", "Alchemist_Miasma_Mist_Unit_Created"
+    )
+
+    missile = ET.fromstring(ET.tostring(stock_missile, encoding="utf-8"))
+    missile.set("ID", MIASMA_MIST_MISSILE_ID)
+    missile.set("Name", "miasma_mist_missile")
+    missile.set("Description", "Miasma Mist")
+    missile.find("./Engine/ImageIDBase").set("value", "AMm2")
+    missile.find("./Engine/Script").set(
+        "GPLFunction", "Alchemist_Miasma_Mist_Missile_Hit"
+    )
+
+    cloud = ET.fromstring(ET.tostring(stock_cloud, encoding="utf-8"))
+    cloud.set("ID", MIASMA_MIST_CLOUD_OVERLAY_ID)
+    cloud.set("Name", "miasma_mist_cloud_effector")
+    cloud.set("Description", "Miasma Mist")
+    cloud.find("./Engine/ImageIDBase").set("value", "AMm1")
+    attachment = cloud.find("./Engine/AttachmentPointID")
+    if attachment is None:
+        attachment = ET.SubElement(cloud.find("./Engine"), "AttachmentPointID")
+    attachment.set("value", "2")
+
+    icon = ET.fromstring(ET.tostring(stock_icon, encoding="utf-8"))
+    icon.set("ID", MIASMA_MIST_DEBUFF_ID)
+    icon.set("Name", "miasma_mist_debuff_icon")
+    icon.set("Description", "Miasma Mist")
+    icon.find("./Engine/ImageIDBase").set("value", "AMm5")
+
+    particle = ET.fromstring(ET.tostring(stock_particle, encoding="utf-8"))
+    particle.set("ID", MIASMA_MIST_PARTICLE_ID)
+    particle.set("Name", "miasma_mist_cloud_attachment")
+    particle.set("Description", "Miasma Mist")
+    particle.find("./Engine/ImageIDBase").set("value", "AMm4")
+
+    output = ET.Element("Majesty")
+    output.extend((action, unit, missile, cloud, icon, particle))
     ET.indent(output, space="\t")
     return ET.tostring(output, encoding="utf-8", xml_declaration=False) + b"\n"
 
@@ -2449,6 +2568,7 @@ def build_manifest(
 \t\t\t\t\t<Descriptions>Data\\alchemist_combat_potions.xml</Descriptions>
 \t\t\t\t\t<Descriptions>Data\\alchemist_flash_flask.xml</Descriptions>
 \t\t\t\t\t<Descriptions>Data\\alchemist_stun_serum.xml</Descriptions>
+\t\t\t\t\t<Descriptions>Data\\alchemist_miasma_mist.xml</Descriptions>
 \t\t\t\t\t<GPL>
 \t\t\t\t\t\t<Target>Data\\Alchemist.bcd</Target>
 \t\t\t\t\t\t<Source>GPL\\Alchemist_Building_Data.dat</Source>
@@ -2462,6 +2582,7 @@ def build_manifest(
 \t\t\t\t\t\t<Source>GPL\\Alchemist_Shapeshift.gpl</Source>
 \t\t\t\t\t\t<Source>GPL\\Alchemist_Stun_Serum.gpl</Source>
 \t\t\t\t\t\t<Source>GPL\\Alchemist_Flash_Flask.gpl</Source>
+\t\t\t\t\t\t<Source>GPL\\Alchemist_Miasma_Mist.gpl</Source>
 \t\t\t\t\t\t<Source>GPL\\Alchemist_Brewing.gpl</Source>
 \t\t\t\t\t\t<Source>GPL\\Alchemist_Economy.gpl</Source>
 \t\t\t\t\t\t<Source>GPL\\Alchemist_Weapon_Oil.gpl</Source>
@@ -2494,6 +2615,7 @@ def validate_output(
         output_root / "Data" / "alchemist_combat_potions.xml",
         output_root / "Data" / "alchemist_flash_flask.xml",
         output_root / "Data" / "alchemist_stun_serum.xml",
+        output_root / "Data" / "alchemist_miasma_mist.xml",
         output_root / "Data" / "alchemist_probe_textdata.cam",
         output_root / "Data" / "alchemist_probe_gpltext.cam",
         output_root / "Data" / "alchemist_probe_miscdata.cam",
@@ -2512,6 +2634,7 @@ def validate_output(
         output_root / "GPL" / "Alchemist_Shapeshift.gpl",
         output_root / "GPL" / "Alchemist_Flash_Flask.gpl",
         output_root / "GPL" / "Alchemist_Stun_Serum.gpl",
+        output_root / "GPL" / "Alchemist_Miasma_Mist.gpl",
         output_root / "GPL" / "Alchemist_Brewing.gpl",
         output_root / "GPL" / "Alchemist_Economy.gpl",
         output_root / "GPL" / "Alchemist_Weapon_Oil.gpl",
@@ -2575,6 +2698,7 @@ def validate_output(
     if [(spell.get("ID"), spell.get("Value")) for spell in allowed_spells] != [
         ("0", STUN_SERUM_ACTION_NAME),
         ("1", FLASH_FLASK_ACTION_NAME),
+        ("2", MIASMA_MIST_ACTION_NAME),
     ]:
         raise ValueError("Alchemist private combat-spell order changed")
     attack_range = hero.find("./Game/AttackRange")
@@ -2695,6 +2819,66 @@ def validate_output(
         != "Alchemist_Stun_Serum_End"
     ):
         raise ValueError("Stun Serum cage lost stock Vines cleanup ownership")
+    miasma_root = ET.parse(
+        output_root / "Data" / "alchemist_miasma_mist.xml"
+    ).getroot()
+    miasma_action = miasma_root.find('./Description[@Name="miasma_mist"]')
+    miasma_unit = miasma_root.find(
+        './Description[@Name="miasma_mist_cloud"]'
+    )
+    miasma_missile = miasma_root.find(
+        './Description[@Name="miasma_mist_missile"]'
+    )
+    miasma_cloud = miasma_root.find(
+        './Description[@Name="miasma_mist_cloud_effector"]'
+    )
+    miasma_icon = miasma_root.find(
+        './Description[@Name="miasma_mist_debuff_icon"]'
+    )
+    miasma_particle = miasma_root.find(
+        './Description[@Name="miasma_mist_cloud_attachment"]'
+    )
+    if any(
+        item is None
+        for item in (
+            miasma_action,
+            miasma_unit,
+            miasma_missile,
+            miasma_cloud,
+            miasma_icon,
+            miasma_particle,
+        )
+    ):
+        raise ValueError("Miasma Mist stock-clone descriptions are incomplete")
+    if (
+        miasma_action.find("./Engine/ImageSet").get("value") != "Cast"
+        or miasma_action.find("./Game/EffectorDuration").get("value")
+        != MIASMA_MIST_DURATION_MS
+        or miasma_action.find("./Game/TimeoutDuration").get("value")
+        != MIASMA_MIST_COOLDOWN_MS
+        or miasma_action.find("./Game/CharacterLevel").get("value") != "8"
+        or miasma_action.find("./Game/SpellRank").get("value") != "4"
+        or miasma_action.find("./Game/ValidationScript").get("value")
+        != "Alchemist_Miasma_Mist_Check"
+    ):
+        raise ValueError("Miasma Mist lost its stock Meteor Storm action contract")
+    if (
+        miasma_unit.find("./Engine/ImageIDBase").get("value") != "AMm6"
+        or miasma_unit.find("./Engine/Script").get("GPLFunction")
+        != "Alchemist_Miasma_Mist_Unit_Created"
+        or miasma_missile.find("./Engine/ImageIDBase").get("value") != "AMm2"
+        or miasma_missile.find("./Engine/Script").get("GPLFunction")
+        != "Alchemist_Miasma_Mist_Missile_Hit"
+    ):
+        raise ValueError("Miasma Mist lost its private spell-unit/projectile contract")
+    if (
+        miasma_cloud.find("./Engine/ImageIDBase").get("value") != "AMm1"
+        or miasma_cloud.find("./Engine/AttachmentPointID").get("value") != "2"
+        or miasma_icon.find("./Engine/ImageIDBase").get("value") != "AMm5"
+        or miasma_icon.find("./Game/StackPriority").get("value") != "1"
+        or miasma_particle.find("./Engine/ImageIDBase").get("value") != "AMm4"
+    ):
+        raise ValueError("Miasma Mist lost its private cloud/debuff presentation")
     overlays = ET.parse(
         output_root / "Data" / "alchemist_brewing_overlays.xml"
     ).getroot()
@@ -3359,6 +3543,15 @@ def build(
             sdk_data / "M_Overlays.xml",
         )
     )
+    (data_dir / "alchemist_miasma_mist.xml").write_bytes(
+        build_miasma_mist_xml(
+            sdk_data / "M_Actions.xml",
+            sdk_data / "M_Characters.xml",
+            sdk_data / "M_Projectiles.xml",
+            sdk_data / "M_Overlays.xml",
+            sdk_data / "M_ParticleSystems.xml",
+        )
+    )
     build_text_cam(
         game_data / "textdata.cam",
         data_dir / "alchemist_probe_textdata.cam",
@@ -3434,6 +3627,7 @@ def build(
     shutil.copy2(GPL_SOURCE_ROOT / "Alchemist_Rogue.gpl", gpl_dir)
     shutil.copy2(GPL_SOURCE_ROOT / "Alchemist_Stun_Serum.gpl", gpl_dir)
     shutil.copy2(GPL_SOURCE_ROOT / "Alchemist_Flash_Flask.gpl", gpl_dir)
+    shutil.copy2(GPL_SOURCE_ROOT / "Alchemist_Miasma_Mist.gpl", gpl_dir)
     shutil.copy2(GPL_SOURCE_ROOT / "Alchemist_Brewing.gpl", gpl_dir)
     shutil.copy2(GPL_SOURCE_ROOT / "Alchemist_Weapon_Oil.gpl", gpl_dir)
     shutil.copy2(GPL_SOURCE_ROOT / "Alchemist_Combat_Oils.gpl", gpl_dir)

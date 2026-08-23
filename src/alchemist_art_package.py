@@ -70,6 +70,15 @@ STUN_SERUM_IMPACT_CUSTOM = b"ASS1Stun Serum Hit"
 STUN_SERUM_RESTRAINT_CUSTOM = b"ASS2Stun Serum Bind"
 STUN_SERUM_DEBUFF_CUSTOM = b"ASS3Stun Serum Icon"
 PARALYTIC_OIL_RESTRAINT_CUSTOM = b"ASO3Oil Restraint"
+MIASMA_STORM_SOURCE = b"WRg1meteor_swarm_E1"
+MIASMA_MISSILE_SOURCE = b"WPg3meteor_missile"
+MIASMA_PARTICLE_SOURCE = b"XL20MeteorStrmEffct"
+MIASMA_STORM_CUSTOM = b"AMm1Miasma Cloud"
+MIASMA_MISSILE_CUSTOM = b"AMm2Miasma Missile"
+MIASMA_PARTICLE_CUSTOM = b"AMm4Miasma Vapor"
+MIASMA_DEBUFF_CUSTOM = b"AMm5Miasma Icon"
+MIASMA_ANCHOR_CUSTOM = b"AMm6Miasma Anchor"
+MIASMA_PALETTE = 505
 BUFF_ICON_PALETTE = 560
 FLASH_FLASK_ACTIVATION_PALETTE = 505
 FLASH_FLASK_ACTIVATION_HEADER = (3, 99, 103, 0, 32, 51, 43, 8)
@@ -153,6 +162,168 @@ def keyed_strip_frames(source_png: Path, frame_count: int) -> list[Image.Image]:
         )
         normalized.append(canvas)
     return normalized
+
+
+def black_key_grid_frames(
+    source_png: Path, columns: int, rows: int
+) -> list[Image.Image]:
+    """Split a pure-black phase sheet and recover soft translucent alpha."""
+    with Image.open(source_png) as loaded:
+        sheet = loaded.convert("RGB")
+    frames: list[Image.Image] = []
+    for row in range(rows):
+        for column in range(columns):
+            left = round(sheet.width * column / columns)
+            right = round(sheet.width * (column + 1) / columns)
+            top = round(sheet.height * row / rows)
+            bottom = round(sheet.height * (row + 1) / rows)
+            rgb = sheet.crop((left, top, right, bottom))
+            red, green, blue = rgb.split()
+            alpha = ImageChops.lighter(ImageChops.lighter(red, green), blue).point(
+                lambda value: 0 if value <= 7 else min(255, round((value - 7) * 1.35))
+            )
+            rgba = rgb.convert("RGBA")
+            rgba.putalpha(alpha)
+            bbox = alpha.getbbox()
+            if bbox is None:
+                raise ValueError(
+                    f"Miasma source cell {column},{row} has no visible art"
+                )
+            frames.append(rgba.crop(bbox))
+    return frames
+
+
+def generated_miasma_vortex_tile(
+    stock,
+    template_tile: bytes,
+    palettes,
+    source_png: Path,
+    frame_index: int,
+    frame_count: int,
+) -> bytes:
+    """Clone Endless Winter's fixed ground-plane rotation with orange vapor."""
+    from PIL import ImageEnhance
+
+    height = struct.unpack_from("<H", template_tile, 2)[0]
+    width = struct.unpack_from("<H", template_tile, 4)[0]
+    source_frames = black_key_grid_frames(source_png, 4, 2)
+    normalized_frames: list[Image.Image] = []
+    for source in source_frames:
+        fit = min(
+            width * 0.88 / max(1, source.width),
+            height * 0.88 / max(1, source.height),
+        )
+        source = source.resize(
+            (
+                max(2, round(source.width * fit)),
+                max(2, round(source.height * fit)),
+            ),
+            Image.Resampling.LANCZOS,
+        )
+        normalized = Image.new("RGBA", (width, height), (0, 0, 0, 0))
+        normalized.alpha_composite(
+            source,
+            ((width - source.width) // 2, (height - source.height) // 2),
+        )
+        normalized_frames.append(normalized)
+
+    phase = frame_index / max(1, frame_count)
+    source_position = phase * len(normalized_frames)
+    source_index = math.floor(source_position) % len(normalized_frames)
+    next_index = (source_index + 1) % len(normalized_frames)
+    blend = source_position - math.floor(source_position)
+    moving = Image.blend(
+        normalized_frames[source_index],
+        normalized_frames[next_index],
+        blend,
+    )
+    deprojected = moving.resize((width, width), Image.Resampling.BICUBIC)
+    deprojected = deprojected.rotate(
+        -360.0 * phase,
+        resample=Image.Resampling.BICUBIC,
+        expand=False,
+        center=(width / 2.0, width / 2.0),
+    )
+    rotated = deprojected.resize((width, height), Image.Resampling.BICUBIC)
+
+    # Keep the cloud footprint still while the interior curls advance, exactly
+    # as the Haunt keeps Endless Winter from rotating its whole ground plane.
+    mask = Image.new("L", (width, height), 0)
+    pixels = mask.load()
+    center_x = (width - 1) / 2.0
+    center_y = (height - 1) / 2.0
+    radius_x = max(1.0, width * 0.47)
+    radius_y = max(1.0, height * 0.47)
+    for y in range(height):
+        for x in range(width):
+            radius = math.sqrt(
+                ((x - center_x) / radius_x) ** 2
+                + ((y - center_y) / radius_y) ** 2
+            )
+            if radius <= 0.76:
+                alpha = 255
+            elif radius >= 0.98:
+                alpha = 0
+            else:
+                transition = (radius - 0.76) / 0.22
+                smooth = transition * transition * (3.0 - 2.0 * transition)
+                alpha = round(255 * (1.0 - smooth))
+            pixels[x, y] = alpha
+    canvas = Image.composite(rotated, normalized_frames[0], mask)
+    canvas = ImageEnhance.Brightness(canvas).enhance(0.72)
+    header = list(struct.unpack_from("<8H", template_tile, 0))
+    header[4] = 32
+    return stock.rgba_to_indexed_tile(
+        canvas,
+        palettes,
+        MIASMA_PALETTE,
+        tuple(header),
+    )
+
+
+def generated_miasma_particle_tile(
+    stock,
+    template_tile: bytes,
+    palettes,
+    source_png: Path,
+    frame_index: int,
+    frame_count: int,
+) -> bytes:
+    """Render a small translucent vapor curl for the stock Meteor emitter."""
+    from PIL import ImageEnhance
+
+    height = struct.unpack_from("<H", template_tile, 2)[0]
+    width = struct.unpack_from("<H", template_tile, 4)[0]
+    frames = black_key_grid_frames(source_png, 4, 2)
+    source = frames[frame_index % len(frames)]
+    source.thumbnail(
+        (
+            max(3, round(width * 0.78)),
+            max(3, round(height * 0.78)),
+        ),
+        Image.Resampling.LANCZOS,
+    )
+    source = source.rotate(
+        frame_index * 360.0 / max(1, frame_count),
+        resample=Image.Resampling.BICUBIC,
+        expand=True,
+    )
+    source = ImageEnhance.Brightness(source).enhance(0.60)
+    alpha = source.getchannel("A").point(lambda value: round(value * 0.62))
+    source.putalpha(alpha)
+    canvas = Image.new("RGBA", (width, height), (0, 0, 0, 0))
+    canvas.alpha_composite(
+        source,
+        ((width - source.width) // 2, (height - source.height) // 2),
+    )
+    header = list(struct.unpack_from("<8H", template_tile, 0))
+    header[4] = 32
+    return stock.rgba_to_indexed_tile(
+        canvas,
+        palettes,
+        MIASMA_PALETTE,
+        tuple(header),
+    )
 
 
 def generated_approved_strip_tile(
@@ -811,6 +982,31 @@ def write_maindata(
     paralytic_oil_restraint_imag = stock.read_cam_entry(
         source, b"IMAG", b"CRB1vines_e"
     ).data
+    miasma_storm_source_imag = stock.read_cam_entry(
+        source, b"IMAG", MIASMA_STORM_SOURCE
+    ).data
+    miasma_anchor_imag = stock.replace_embedded_attachment_id(
+        miasma_storm_source_imag,
+        b"XL20",
+        b"\x00\x00\x00\x00",
+    )
+    miasma_storm_imag = stock.replace_embedded_attachment_id(
+        miasma_storm_source_imag,
+        b"XL20",
+        b"AMM4",
+    )
+    miasma_missile_imag = stock.read_cam_entry(
+        source, b"IMAG", MIASMA_MISSILE_SOURCE
+    ).data
+    miasma_missile_imag = stock.replace_embedded_attachment_id(
+        miasma_missile_imag,
+        b"XL21",
+        b"\x00\x00\x00\x00",
+    )
+    miasma_particle_imag = stock.read_cam_entry(
+        source, b"IMAG", MIASMA_PARTICLE_SOURCE
+    ).data
+    miasma_debuff_imag = buff_icon_template_imag
 
     approved_bundle = (
         load_approved_sprite_bundle(
@@ -1078,6 +1274,12 @@ def write_maindata(
     paralytic_oil_restraint_source_png = (
         repo / "assets/source/effects/paralytic-oil/approved-restraint-master.png"
     )
+    miasma_cloud_source_png = (
+        repo / "assets/source/spells/miasma-mist/cloud-vortex-sheet.png"
+    )
+    miasma_debuff_source_png = (
+        repo / "assets/source/spells/miasma-mist/debuff-strip.png"
+    )
     for source_png in (
         vigor_source_png,
         flash_buff_source_png,
@@ -1086,6 +1288,8 @@ def write_maindata(
         stun_restraint_source_png,
         stun_debuff_source_png,
         paralytic_oil_restraint_source_png,
+        miasma_cloud_source_png,
+        miasma_debuff_source_png,
     ):
         if not source_png.is_file():
             raise FileNotFoundError(source_png)
@@ -1252,6 +1456,120 @@ def write_maindata(
         )
     stun_serum_debuff_imag = stock.remap_imag_low16_tile_indices(
         stun_serum_debuff_imag, stun_debuff_replacements
+    )
+
+    # Miasma Mist is a literal private Meteor Storm/Endless Winter art
+    # composition: a visible storm IMAG with its private stock particle
+    # attachment, a transparent tracking anchor, an invisible fast missile,
+    # and a private XR25/Poison-style animated debuff icon.
+    # Meteor Storm is a three-direction IMAG, not the single-direction XR30
+    # topology. Endless Winter reads every real high-index reference and
+    # remaps all occurrences; preserve that exact proven path here.
+    miasma_storm_indices = sorted(
+        index
+        for index in stock.referenced_tile_indices(
+            miasma_storm_source_imag, len(tiles)
+        )
+        if index >= 8000
+    )
+    if not miasma_storm_indices:
+        raise ValueError("Stock Meteor Storm image has no playable TILEs")
+    miasma_storm_template = max(
+        (tiles[index].data for index in miasma_storm_indices),
+        key=lambda tile: (
+            struct.unpack_from("<H", tile, 2)[0]
+            * struct.unpack_from("<H", tile, 4)[0]
+        ),
+    )
+    miasma_storm_replacements: dict[int, int] = {}
+    for frame, source_index in enumerate(miasma_storm_indices):
+        miasma_storm_replacements[source_index] = append(
+            f"AMm1Cloud{frame:02d}".encode("ascii"),
+            generated_miasma_vortex_tile(
+                stock,
+                miasma_storm_template,
+                palettes,
+                miasma_cloud_source_png,
+                frame,
+                len(miasma_storm_indices),
+            ),
+        )
+    miasma_storm_imag = stock.remap_imag_tile_indices(
+        miasma_storm_imag,
+        miasma_storm_replacements,
+    )
+
+    miasma_anchor_blank = append(
+        b"AMm6Anchor00",
+        stock.blank_indexed_v3_tile(miasma_storm_template),
+    )
+    miasma_anchor_imag = stock.remap_imag_tile_indices(
+        miasma_anchor_imag,
+        {index: miasma_anchor_blank for index in miasma_storm_indices},
+    )
+
+    miasma_missile_indices = stock.animation_tile_indices(
+        miasma_missile_imag, len(tiles)
+    )
+    if not miasma_missile_indices:
+        raise ValueError("Stock Meteor Storm missile has no playable TILEs")
+    miasma_missile_template = max(
+        (tiles[index].data for index in miasma_missile_indices),
+        key=lambda tile: (
+            struct.unpack_from("<H", tile, 2)[0]
+            * struct.unpack_from("<H", tile, 4)[0]
+        ),
+    )
+    miasma_missile_blank = append(
+        b"AMm2Missile00",
+        stock.blank_indexed_v3_tile(miasma_missile_template),
+    )
+    miasma_missile_imag = stock.remap_imag_tile_indices(
+        miasma_missile_imag,
+        {index: miasma_missile_blank for index in miasma_missile_indices},
+    )
+
+    miasma_particle_indices = stock.animation_tile_indices(
+        miasma_particle_imag, len(tiles)
+    )
+    if not miasma_particle_indices:
+        raise ValueError("Stock Meteor Storm particle image has no playable TILEs")
+    miasma_particle_replacements: dict[int, int] = {}
+    for frame, source_index in enumerate(miasma_particle_indices):
+        miasma_particle_replacements[source_index] = append(
+            f"AMm4Vapor{frame:02d}".encode("ascii"),
+            generated_miasma_particle_tile(
+                stock,
+                tiles[source_index].data,
+                palettes,
+                miasma_cloud_source_png,
+                frame,
+                len(miasma_particle_indices),
+            ),
+        )
+    miasma_particle_imag = stock.remap_imag_animation_tiles(
+        miasma_particle_imag,
+        miasma_particle_replacements,
+    )
+
+    miasma_debuff_replacements: dict[int, int] = {}
+    for frame, source_index in enumerate(buff_template_indices):
+        miasma_debuff_replacements[source_index] = append(
+            f"AMm5Drop{frame:02d}".encode("ascii"),
+            generated_approved_strip_tile(
+                stock,
+                mx_tiles[source_index].data,
+                palettes,
+                miasma_debuff_source_png,
+                8,
+                frame,
+                len(buff_template_indices),
+                MIASMA_PALETTE,
+            ),
+        )
+    miasma_debuff_imag = stock.remap_imag_animation_tiles(
+        miasma_debuff_imag,
+        miasma_debuff_replacements,
     )
 
     profile_index = append(
@@ -1429,6 +1747,11 @@ def write_maindata(
             stock.pad_name(PARALYTIC_OIL_RESTRAINT_CUSTOM),
             paralytic_oil_restraint_imag,
         ),
+        stock.CamEntry(stock.pad_name(MIASMA_STORM_CUSTOM), miasma_storm_imag),
+        stock.CamEntry(stock.pad_name(MIASMA_MISSILE_CUSTOM), miasma_missile_imag),
+        stock.CamEntry(stock.pad_name(MIASMA_PARTICLE_CUSTOM), miasma_particle_imag),
+        stock.CamEntry(stock.pad_name(MIASMA_DEBUFF_CUSTOM), miasma_debuff_imag),
+        stock.CamEntry(stock.pad_name(MIASMA_ANCHOR_CUSTOM), miasma_anchor_imag),
     )
     stock.write_cam(
         (

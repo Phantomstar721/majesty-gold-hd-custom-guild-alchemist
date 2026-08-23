@@ -16,7 +16,7 @@ which would add temple allegiance and animal-spawning side effects.
 Enable both entries and place the Alchemist probe after Phantoms Haunt:
 
 1. `Custom Guild: Phantoms Haunt`
-2. `Custom Guild: Alchemist (CGAL Probe)`
+2. `Custom Guild: Alchemist Lab`
 
 The probe's temporary BDEP payload contains both `PHG1` and `ALB1`. This is only
 for the two-mod experiment while the CAM merger is unfinished.

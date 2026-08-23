@@ -540,10 +540,14 @@ class AlchemistProbeTests(unittest.TestCase):
         root = ET.fromstring(builder.build_manifest())
         mod = root.find("Mod")
         self.assertEqual(mod.get("id"), builder.MOD_ID)
-        self.assertEqual(mod.findtext("Name"), "CustomGuildAlchemistProbe")
+        self.assertEqual(mod.findtext("Name"), "CustomGuildAlchemist")
         self.assertEqual(
             mod.findtext("DisplayName[@lang='en_US']"),
-            "Custom Guild: Alchemist (CGAL Probe)",
+            "Custom Guild: Alchemist Lab",
+        )
+        self.assertEqual(
+            mod.findtext("Description[@lang='en_US']/Short"),
+            "Adds the Alchemy Lab, Alchemist heroes, and sovereign brews.",
         )
 
     def test_alias_manifest_identifies_the_runtime_experiment(self) -> None:
@@ -877,6 +881,22 @@ class AlchemistProbeTests(unittest.TestCase):
         root = ET.fromstring(units)
         hero = root.find('./Description[@Name="Alchemist"]')
         self.assertIsNotNone(hero)
+        self.assertEqual(
+            hero.find("./Game/HelpID").get("value"),
+            builder.ALCHEMIST_HERO_HELP_ID,
+        )
+        self.assertEqual(
+            hero.find("./Game/NameGenType").get("value"),
+            builder.ALCHEMIST_NAME_GENERATOR_ID,
+        )
+        buildings = [
+            root.find(f'./Description[@Name="{name}"]')
+            for name in builder.BUILDING_NAMES
+        ]
+        self.assertEqual(
+            [building.find("./Game/HelpID").get("value") for building in buildings],
+            list(builder.ALCHEMIST_BUILDING_HELP_IDS),
+        )
         spells = hero.findall("./Game/AllowedSpells/Spell")
         self.assertEqual(
             [(spell.get("ID"), spell.get("Value")) for spell in spells],
@@ -1181,6 +1201,11 @@ end
             builder.build_gpl_text_cam(stock, output)
             intents = builder.read_cam_entry(output, b"STRT", b"AITX").data
             items = builder.read_cam_entry(output, b"STRT", b"QITM").data
+            help_pages = builder.read_cam_entry(output, b"STRT", b"HPTX").data
+            name_tables = {
+                table_id: builder.read_cam_entry(output, b"STRT", table_id).data
+                for table_id in builder.ALCHEMIST_NAME_TABLE_IDS
+            }
         stock_intents = builder.read_cam_entry(stock, b"STRT", b"AITX").data
         stock_count = struct.unpack_from("<H", stock_intents, 0)[0]
         self.assertEqual(stock_count, builder.ALCHEMY_OIL_INTENT_INDEX)
@@ -1211,6 +1236,52 @@ end
         self.assertEqual(
             items[item_offset + 4 : item_end].decode("cp1252"),
             builder.PHOENIX_PHIAL_ITEM_TEXT,
+        )
+        help_count = struct.unpack_from("<H", help_pages, 0)[0]
+        help_offsets = struct.unpack_from(f"<{help_count}I", help_pages, 4)
+        decoded_help = {}
+        for help_offset in help_offsets:
+            help_end = help_pages.index(b"\x00", help_offset + 4)
+            decoded_help[struct.unpack_from("<I", help_pages, help_offset)[0]] = (
+                help_pages[help_offset + 4 : help_end].decode("cp1252")
+            )
+        for help_id, expected_text in builder.ALCHEMIST_HELP_PAGES.items():
+            self.assertEqual(decoded_help[builder.fourcc_id(help_id)], expected_text)
+        self.assertFalse(
+            any("\u2014" in text for text in builder.ALCHEMIST_HELP_PAGES.values())
+        )
+        expected_name_tables = (
+            builder.ALCHEMIST_NAME_GIVENS,
+            tuple(f" {ending}" for ending in builder.ALCHEMIST_NAME_ENDINGS),
+            (),
+            (),
+        )
+        self.assertEqual(len(builder.ALCHEMIST_NAME_GIVENS), 43)
+        self.assertEqual(len(builder.ALCHEMIST_NAME_ENDINGS), 43)
+        self.assertEqual(len(set(builder.ALCHEMIST_NAME_GIVENS)), 43)
+        self.assertEqual(len(set(builder.ALCHEMIST_NAME_ENDINGS)), 43)
+        for table_id, expected_names in zip(
+            builder.ALCHEMIST_NAME_TABLE_IDS, expected_name_tables
+        ):
+            table = name_tables[table_id]
+            table_count = struct.unpack_from("<H", table, 0)[0]
+            table_offsets = struct.unpack_from(f"<{table_count}I", table, 4)
+            actual_names = []
+            for index, table_offset in enumerate(table_offsets):
+                self.assertEqual(struct.unpack_from("<I", table, table_offset)[0], index)
+                table_end = table.index(b"\x00", table_offset + 4)
+                actual_names.append(
+                    table[table_offset + 4 : table_end].decode("cp1252")
+                )
+            self.assertEqual(tuple(actual_names), expected_names)
+        self.assertFalse(
+            any(
+                "\u2014" in text
+                for text in (
+                    *builder.ALCHEMIST_NAME_GIVENS,
+                    *builder.ALCHEMIST_NAME_ENDINGS,
+                )
+            )
         )
 
     def test_brewing_source_copies_stock_rage_for_true_heroes(self) -> None:

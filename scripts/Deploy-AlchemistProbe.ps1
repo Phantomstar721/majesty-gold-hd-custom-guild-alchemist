@@ -45,6 +45,6 @@ foreach ($sourceFile in $sourceFiles) {
         throw "Deployment verification failed: SHA-256 differs for $relativePath"
     }
 }
-Write-Host "Deployed Custom Guild: Alchemist (CGAL Probe):"
+Write-Host "Deployed Custom Guild: Alchemist Lab:"
 Write-Host $target
 Write-Host "Verified $($sourceFiles.Count) files by SHA-256."

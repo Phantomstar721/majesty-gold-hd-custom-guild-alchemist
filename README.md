@@ -37,6 +37,11 @@ threshold, and per-spell combat-confidence weights are recorded in
 The deterministic pre-bounty flask-shopping order and unchanged native Bazaar
 transaction are recorded in
 [the Magic Bazaar stock-clone notes](docs/magic-bazaar-stock-clone.md).
+Approved hero and Laboratory help copy, plus the private `NM18` name pool, are
+recorded in
+[the help-text and name-pool notes](docs/help-text-and-name-pool-proposal.md).
+`NM18` is registered by the dual-profile Expanded Building Slots runtime through
+Majesty's stock name-generator registry lifecycle, leaving Cultist names intact.
 
 Invigorating Elixer is intentionally scoped to true recruitable heroes. Its
 activation, targeting, timed effector, Palace-side count, expiry cleanup, and

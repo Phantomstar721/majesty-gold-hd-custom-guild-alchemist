@@ -202,6 +202,148 @@ BUILDING_NAMES = (
     "AlchemistsLaboratory3",
 )
 SOURCE_BUILDING_NAMES = ("Temple_Fervus1", "Temple_Fervus2", "Temple_Fervus3")
+ALCHEMIST_HERO_HELP_ID = "hAL0"
+ALCHEMIST_BUILDING_HELP_IDS = ("hAL1", "hAL2", "hAL3")
+ALCHEMIST_NAME_GENERATOR_ID = "NM18"
+ALCHEMIST_NAME_TABLE_IDS = (b"HN69", b"HN70", b"HN71", b"HN72")
+ALCHEMIST_NAME_GIVENS = (
+    "Adalia",
+    "Aeris",
+    "Alys",
+    "Ameline",
+    "Anora",
+    "Beatrix",
+    "Brinna",
+    "Bryony",
+    "Calista",
+    "Celandra",
+    "Cerys",
+    "Corvina",
+    "Delphine",
+    "Delyra",
+    "Elara",
+    "Elspeth",
+    "Eudora",
+    "Evania",
+    "Fenella",
+    "Hester",
+    "Ilyra",
+    "Isolde",
+    "Jessamine",
+    "Katell",
+    "Lavinia",
+    "Lenora",
+    "Maelis",
+    "Melisande",
+    "Mirabel",
+    "Mirelda",
+    "Nerissa",
+    "Odette",
+    "Petra",
+    "Rosamund",
+    "Rowena",
+    "Sabine",
+    "Selene",
+    "Sybilla",
+    "Tamsin",
+    "Verena",
+    "Vespera",
+    "Olyra",
+    "Zora",
+)
+ALCHEMIST_NAME_ENDINGS = (
+    "Alembic",
+    "Amberglass",
+    "Ashvial",
+    "Blackflask",
+    "Brasscoil",
+    "Brightbottle",
+    "Cinderbrew",
+    "Fireglass",
+    "Emberglass",
+    "Flamebrew",
+    "Flaskwise",
+    "Fullflask",
+    "Glassweaver",
+    "Giltglass",
+    "Brightvial",
+    "Mortarwise",
+    "Quickmeasure",
+    "Quicksilver",
+    "Silverstill",
+    "Singedbrow",
+    "Smokesleeve",
+    "Sootsleeve",
+    "Stonepestle",
+    "Vitriol",
+    "of the Brass Crucible",
+    "of the Copper Coil",
+    "of the Emerald Flask",
+    "of the Golden Measure",
+    "of the Scarlet Flask",
+    "of the Viridian Flame",
+    "of the Silver Still",
+    "the Apothecary",
+    "the Artificer",
+    "the Bottlemaker",
+    "the Brewmistress",
+    "the Catalyst",
+    "the Distiller",
+    "the Experimenter",
+    "the Formula Keeper",
+    "the Crucible Keeper",
+    "the Singed",
+    "the Meticulous",
+    "the Transmuter",
+)
+ALCHEMIST_HELP_PAGES = {
+    ALCHEMIST_HERO_HELP_ID: (
+        "- Fights in melee with a dagger, but prepares for combat from a distance\n\n"
+        "- Seeks out Magic Bazaar potions, Weapon Oil and Phoenix Phials\n\n"
+        "- Immune to poison\n\n"
+        "- Learns Flash Flask at level 3, Stun Serum at level 5 and Miasma Mist at level 8\n\n\n"
+        "\x01BCBCFFAlchemists are restless scholars who carry their experiments out of the workshop "
+        "and into the wilds of Ardania. They lack a Warrior's discipline and a Wizard's "
+        "raw command of magic, but careful preparation makes them elusive and dangerous "
+        "opponents. Every battle is another field trial, and every monster is a promising "
+        "source of ingredients, provided the formula survives its inventor."
+    ),
+    ALCHEMIST_BUILDING_HELP_IDS[0]: (
+        "- Requires a level 2 Palace\n\n"
+        "- Recruits Alchemists\n\n"
+        "- Houses up to four guild members\n\n"
+        "- Can research Weapon Oil for 250 gold\n\n"
+        "- Researched Weapon Oil may be purchased by visiting weapon-wielding heroes for 100 gold\n\n"
+        "\x01DDBB44Upgrading the Laboratory adds\n"
+        "+ Phoenix Phial research\n"
+        "+ Increased building hit points\n\n\n"
+        "\x01BCBCFFBehind the stained windows of an Alchemy Lab, copper vessels simmer beside ranks "
+        "of carefully labeled bottles. Its practitioners promise that every scorch mark, "
+        "shattered flask and alarming odor is simply another step toward a reliable result."
+    ),
+    ALCHEMIST_BUILDING_HELP_IDS[1]: (
+        "- Allows Phoenix Phials to be researched for 750 gold\n\n"
+        "- Researched Phoenix Phials may be purchased by visiting heroes for 1,000 gold\n\n"
+        "- A carried Phoenix Phial is consumed at death and has a 75% chance to revive its owner\n\n"
+        "\x01DDBB44Upgrading the Laboratory adds\n"
+        "+ Vigor Elixir\n"
+        "+ Increased building hit points\n\n\n"
+        "\x01BCBCFFWith a larger still and a better-stocked workbench, the Laboratory's experiments "
+        "turn from useful preparations to improbable feats. The Phoenix Phial is its proudest "
+        "achievement, although the alchemists remain evasive when asked about the other "
+        "twenty-five percent."
+    ),
+    ALCHEMIST_BUILDING_HELP_IDS[2]: (
+        "- Allows the sovereign to brew Vigor Elixir for 1,500 gold\n\n"
+        "- Vigor Elixir invigorates every hero in the realm for 30 seconds\n\n"
+        "- Invigorated heroes move faster, gain 20 maximum and current hit points, and fight with greater confidence\n\n"
+        "- Vigor Elixir and Rage of Krolm cannot be active at the same time\n\n\n"
+        "\x01BCBCFFCrowned by an elaborate distiller, a master Laboratory turns the wealth and "
+        "curiosities of an entire realm into bottled possibility. Its furnaces never cool, "
+        "its glassworks never empty and its alchemists insist that the occasional explosion "
+        "is a sign of vigorous scholarship."
+    ),
+}
 ALCHEMIST_BDEP_RULE = b"ALB1 : ABJ2 ABJ3 NOT NOT ||"
 PHANTOM_BDEP_RULE = b"PHG1 : ABJ2 ABJ3 NOT NOT ||"
 ALCHEMIST_BDEP_COMMENT = b"Alchemist probe requires Palace level 2"
@@ -1297,6 +1439,14 @@ def build_units_xml(stock_buildings_xml: Path, stock_characters_xml: Path) -> by
     alchemist.set("Name", ALCHEMIST_HERO_NAME)
     alchemist.set("Description", ALCHEMIST_HERO_NAME)
     alchemist.find("./Engine/ImageIDBase").set("value", ALCHEMIST_HERO_ID)
+    hero_help = alchemist.find("./Game/HelpID")
+    if hero_help is None:
+        raise ValueError("Stock Cultist help contract is missing")
+    hero_help.set("value", ALCHEMIST_HERO_HELP_ID)
+    name_generator = alchemist.find("./Game/NameGenType")
+    if name_generator is None:
+        raise ValueError("Stock Cultist name-generator contract is missing")
+    name_generator.set("value", ALCHEMIST_NAME_GENERATOR_ID)
     movement = alchemist.find('./Engine/Attachment[@kind="Movement"]')
     if movement is None:
         raise ValueError("Stock Cultist movement attachment is missing")
@@ -1374,6 +1524,10 @@ def build_units_xml(stock_buildings_xml: Path, stock_characters_xml: Path) -> by
         if dialog is None:
             raise ValueError(f"{source_name} has no DialogID")
         dialog.set("value", DIALOG_ID.decode("ascii"))
+        building_help = description.find("./Game/HelpID")
+        if building_help is None:
+            raise ValueError(f"{source_name} has no HelpID")
+        building_help.set("value", ALCHEMIST_BUILDING_HELP_IDS[level])
         upgrade_to = description.find("./Game/UpgradeTo")
         upgrade_from = description.find("./Game/UpgradeFrom")
         if upgrade_to is not None:
@@ -2381,9 +2535,13 @@ def build_text_cam(
 
 
 def build_gpl_text_cam(stock_gpl_text_cam: Path, output_path: Path) -> None:
-    """Append private intents and inventory text to the stock indexed tables."""
+    """Append private intents, inventory text, help pages, and hero names."""
     stock_intents = read_cam_entry(stock_gpl_text_cam, b"STRT", b"AITX").data
     stock_items = read_cam_entry(stock_gpl_text_cam, b"STRT", b"QITM").data
+    stock_help = read_cam_entry(stock_gpl_text_cam, b"STRT", b"HPTX").data
+    stock_name_template = read_cam_entry(
+        stock_gpl_text_cam, b"STRT", b"HN61"
+    ).data
     stock_count = struct.unpack_from("<H", stock_intents, 0)[0]
     if stock_count != ALCHEMY_OIL_INTENT_INDEX:
         raise ValueError(
@@ -2418,6 +2576,40 @@ def build_gpl_text_cam(stock_gpl_text_cam: Path, output_path: Path) -> None:
                     )
                 shared_item_text[item_id] = f"{names[struct_level]}\n\x01FFDDAA{bonus}"
     patched_items = patch_strt_by_index(stock_items, shared_item_text)
+    patched_help = patch_strt_by_id(
+        stock_help,
+        {
+            fourcc_id(help_id): text
+            for help_id, text in ALCHEMIST_HELP_PAGES.items()
+        },
+    )
+    if len(ALCHEMIST_NAME_GIVENS) != 43 or len(ALCHEMIST_NAME_ENDINGS) != 43:
+        raise ValueError("Approved Alchemist name pools must contain 43 entries each")
+    if len(set(ALCHEMIST_NAME_GIVENS)) != len(ALCHEMIST_NAME_GIVENS) or len(
+        set(ALCHEMIST_NAME_ENDINGS)
+    ) != len(ALCHEMIST_NAME_ENDINGS):
+        raise ValueError("Approved Alchemist name pools must be unique")
+    if any("\u2014" in text for text in (*ALCHEMIST_NAME_GIVENS, *ALCHEMIST_NAME_ENDINGS)):
+        raise ValueError("Approved Alchemist names contain a forbidden em dash")
+    name_version = stock_name_template[2:4]
+    private_name_tables = (
+        encode_strt(
+            name_version,
+            [
+                (index, text.encode("cp1252"))
+                for index, text in enumerate(ALCHEMIST_NAME_GIVENS)
+            ],
+        ),
+        encode_strt(
+            name_version,
+            [
+                (index, f" {text}".encode("cp1252"))
+                for index, text in enumerate(ALCHEMIST_NAME_ENDINGS)
+            ],
+        ),
+        encode_strt(name_version, []),
+        encode_strt(name_version, []),
+    )
     write_cam(
         output_path,
         (
@@ -2426,6 +2618,13 @@ def build_gpl_text_cam(stock_gpl_text_cam: Path, output_path: Path) -> None:
                 (
                     CamEntry(pad_name(b"AITX"), patched_intents),
                     CamEntry(pad_name(b"QITM"), patched_items),
+                    CamEntry(pad_name(b"HPTX"), patched_help),
+                    *(
+                        CamEntry(pad_name(name), table)
+                        for name, table in zip(
+                            ALCHEMIST_NAME_TABLE_IDS, private_name_tables
+                        )
+                    ),
                 ),
             ),
         ),
@@ -2535,11 +2734,11 @@ def build_manifest(
     use_ap10_title_alias: bool = False,
     include_siege_test_fixture: bool = False,
 ) -> str:
-    probe_detail = (
-        "Temporary fixture using stock Fervus and Cultist resources; its GPL title "
-        "aliases Temple_Fervus to isolate the AP10 spell callback."
+    runtime_note = (
+        " Development profile: the GPL title aliases Temple_Fervus to isolate "
+        "the AP10 spell callback."
         if use_ap10_title_alias
-        else "Temporary fixture using stock Fervus and Cultist resources."
+        else ""
     )
     siege_source = (
         "\n\t\t\t\t\t\t<Source>GPL\\Alchemist_Siege_Test.gpl</Source>"
@@ -2548,11 +2747,11 @@ def build_manifest(
     )
     return f'''<Majesty>
 \t<Mod id="{MOD_ID}">
-\t\t<Name>CustomGuildAlchemistProbe</Name>
-\t\t<DisplayName lang="en_US">Custom Guild: Alchemist (CGAL Probe)</DisplayName>
+\t\t<Name>CustomGuildAlchemist</Name>
+\t\t<DisplayName lang="en_US">Custom Guild: Alchemist Lab</DisplayName>
 \t\t<Description lang="en_US">
-\t\t\t<Short>Tests a custom AP10-derived Alchemist guild and Brewing panel.</Short>
-\t\t\t<Long>{probe_detail}</Long>
+\t\t\t<Short>Adds the Alchemy Lab, Alchemist heroes, and sovereign brews.</Short>
+\t\t\t<Long>Recruit potion-minded Alchemists, research useful concoctions for visiting heroes, and brew the kingdom-wide Vigor Elixir.{runtime_note}</Long>
 \t\t</Description>
 \t\t<DataConfiguration>
 \t\t\t<Dataset base="Any">
@@ -2686,6 +2885,10 @@ def validate_output(
         raise ValueError("Private Alchemist hero description is missing")
     if hero.find("./Engine/ImageIDBase").get("value") != ALCHEMIST_HERO_ID:
         raise ValueError("Alchemist must use its private image record")
+    if hero.find("./Game/HelpID").get("value") != ALCHEMIST_HERO_HELP_ID:
+        raise ValueError("Alchemist must use its private help page")
+    if hero.find("./Game/NameGenType").get("value") != ALCHEMIST_NAME_GENERATOR_ID:
+        raise ValueError("Alchemist must use the private NM18 name generator")
     if hero.find("./Engine/DefaultSound").get("value") != "Cultist":
         raise ValueError("Alchemist probe must retain the stock Cultist sound")
     movement = hero.find('./Engine/Attachment[@kind="Movement"]')
@@ -2710,6 +2913,10 @@ def validate_output(
         raise ValueError("Alchemist must use Warrior's stock 1..1 melee range")
     if any(item.find("./Game/DialogID").get("value") != "CGAL" for item in buildings):
         raise ValueError("Every Laboratory level must use CGAL")
+    if [item.find("./Game/HelpID").get("value") for item in buildings] != list(
+        ALCHEMIST_BUILDING_HELP_IDS
+    ):
+        raise ValueError("Every Laboratory level must use its private help page")
     if phoenix.get("Name") != "PhoenixPhial" or phoenix.find(
         './Game/Flags[@value="IsInventoryItem"]'
     ) is None:
@@ -3050,6 +3257,49 @@ def validate_output(
         != PHOENIX_PHIAL_ITEM_TEXT
     ):
         raise ValueError("Phoenix Phial QITM inventory text is incorrect")
+    help_strings = read_cam_entry(gpl_text_cam, b"STRT", b"HPTX").data
+    help_count = struct.unpack_from("<H", help_strings, 0)[0]
+    help_offsets = struct.unpack_from(f"<{help_count}I", help_strings, 4)
+    packaged_help: dict[int, str] = {}
+    for help_offset in help_offsets:
+        help_end = help_strings.index(b"\x00", help_offset + 4)
+        packaged_help[u32(help_strings, help_offset)] = help_strings[
+            help_offset + 4 : help_end
+        ].decode("cp1252")
+    for help_id, expected_text in ALCHEMIST_HELP_PAGES.items():
+        if packaged_help.get(fourcc_id(help_id)) != expected_text:
+            raise ValueError(f"Approved Alchemist help page is missing: {help_id}")
+    if any("\u2014" in text for text in ALCHEMIST_HELP_PAGES.values()):
+        raise ValueError("Approved Alchemist help copy contains a forbidden em dash")
+    expected_name_tables = (
+        ALCHEMIST_NAME_GIVENS,
+        tuple(f" {ending}" for ending in ALCHEMIST_NAME_ENDINGS),
+        (),
+        (),
+    )
+    for table_id, expected_names in zip(
+        ALCHEMIST_NAME_TABLE_IDS, expected_name_tables
+    ):
+        name_data = read_cam_entry(gpl_text_cam, b"STRT", table_id).data
+        name_count = struct.unpack_from("<H", name_data, 0)[0]
+        if name_count != len(expected_names):
+            raise ValueError(
+                f"Private {table_id.decode()} count changed: "
+                f"expected {len(expected_names)}, got {name_count}"
+            )
+        name_offsets = struct.unpack_from(f"<{name_count}I", name_data, 4)
+        packaged_names: list[str] = []
+        for index, name_offset in enumerate(name_offsets):
+            if u32(name_data, name_offset) != index:
+                raise ValueError(
+                    f"Private {table_id.decode()} slot {index} has the wrong ID"
+                )
+            name_end = name_data.index(b"\x00", name_offset + 4)
+            packaged_names.append(
+                name_data[name_offset + 4 : name_end].decode("cp1252")
+            )
+        if tuple(packaged_names) != expected_names:
+            raise ValueError(f"Private {table_id.decode()} name pool changed")
     menu = read_cam_entry(text_cam, b"SMNU", DIALOG_ID).data
     if menu == b"":
         raise ValueError("CGAL menu is empty")

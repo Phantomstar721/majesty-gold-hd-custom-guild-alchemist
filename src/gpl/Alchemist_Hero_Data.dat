@@ -43,3 +43,20 @@
 		(activeScript	Alchemist_Miasma_Mist_Active)
 	}
 [end]
+
+[alchemical_tempest]
+	{Spell
+		(type spell)
+		(subtype spell)
+		(title alchemical_tempest)
+		(activeScript Alchemical_Tempest_Active)
+	}
+[end]
+
+[philosophers_stone]
+	{Spell
+		(type spell)
+		(subtype spell)
+		(title philosophers_stone)
+	}
+[end]

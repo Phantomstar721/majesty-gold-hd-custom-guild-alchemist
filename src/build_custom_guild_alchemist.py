@@ -92,6 +92,8 @@ VIGOR_ROW_ICON_RECT = (3, 113, 25, 25)
 BREWING_PROGRESS_RECT = (31, 117, 160, 14)
 BREWING_PROGRESS_OUTER_RECT = VIGOR_ROW_OUTER_RECT
 STOCK_FERVUS_FIRST_SPELL_CONTROL_ID = 0x1140
+STOCK_FERVUS_SECOND_SPELL_CONTROL_ID = 0x1132
+STOCK_FERVUS_THIRD_SPELL_CONTROL_ID = 0x1133
 BREWING_INVIGORATING_CONTROL_ID = 0x2A10
 BREWING_INVIGORATING_ICON_CONTROL_ID = BREWING_INVIGORATING_CONTROL_ID + 1000
 BREWING_INVIGORATING_PRICE_CONTROL_ID = BREWING_INVIGORATING_CONTROL_ID - 1000
@@ -100,6 +102,8 @@ BREWING_FIRST_ICON_ID_OFFSET = 0x0174
 BREWING_FIRST_PRICE_ID_OFFSET = 0x02A4
 AP69_SECOND_RECIPE_RECORD_START = 0x0478
 AP69_SECOND_RECIPE_RECORD_END = 0x0620
+AP69_FIRST_RECIPE_RECORD_START = 0x0120
+AP69_FIRST_RECIPE_RECORD_END = 0x02D0
 APA1_ARROWS_RECORD_START = 0x0120
 APA1_ARROWS_RECORD_END = 0x0218
 APA1_ARROWS_ICON_RECORD_START = 0x0480
@@ -123,6 +127,18 @@ BREWING_PHOENIX_PHIAL_PROGRESS_CONTROL_ID = 0x2A17
 BREWING_PHOENIX_PHIAL_ACTIVE_DISPLAY_CONTROL_ID = 0x2A18
 BREWING_PHOENIX_PHIAL_ICON_CONTROL_ID = BREWING_PHOENIX_PHIAL_CONTROL_ID + 500
 BREWING_PHOENIX_PHIAL_PRICE_CONTROL_ID = BREWING_PHOENIX_PHIAL_CONTROL_ID + 1000
+BREWING_ALCHEMICAL_TEMPEST_CONTROL_ID = 0x2A20
+BREWING_PHILOSOPHERS_STONE_CONTROL_ID = 0x2A21
+BREWING_REAGENT_METER_CONTROL_ID = 0x2A22
+BREWING_REAGENT_METER_LABEL_CONTROL_ID = 0x2A23
+BREWING_ALCHEMICAL_TEMPEST_PRICE_CONTROL_ID = (
+    BREWING_ALCHEMICAL_TEMPEST_CONTROL_ID - 1000
+)
+BREWING_PHILOSOPHERS_STONE_PRICE_CONTROL_ID = (
+    BREWING_PHILOSOPHERS_STONE_CONTROL_ID - 1000
+)
+REAGENT_METER_OUTER_RECT = (30, 190, 162, 21)
+REAGENT_METER_INNER_RECT = (31, 193, 160, 15)
 # Northern Expansion's final stock AITX table contains 309 records. Private
 # intents append after it so expansion statuses are never replaced.
 ALCHEMY_OIL_INTENT_INDEX = 309
@@ -593,6 +609,8 @@ def build_siege_test_fixture(stock_quests: Path) -> str:
         '$RandomCoord ( palace, 850, 1050 ), "MaxHP" );'
         + '\n\t$SetAttribute ( alchemyLab, #ATTRIB_ResearchArrows, 1 );'
         + '\n\t$SetAttribute ( alchemyLab, #ATTRIB_ResearchPowerfulItem, 1 );'
+        + '\n\talchemyLab\'s "num_resources" = 20;'
+        + '\n\t$SetAttribute ( alchemyLab, #ATTRIB_ReturnAmount, 20 );'
         + '\n\tmagicBazaar = $SpawnUnit ( palace, "MagicBazaar3", '
         '$RandomCoord ( palace, 925, 1125 ), "MaxHP" );'
         + '\n\t$SetAttribute ( magicBazaar, #ATTRIB_ResearchBazaar_Item_One, 1 );'
@@ -1108,6 +1126,7 @@ def build_gpl_project(include_siege_test_fixture: bool) -> str:
         'source="Alchemist_Combat_Oils.gpl"',
         'source="Alchemist_Damage.gpl"',
         'source="Alchemist_Phoenix_Phial.gpl"',
+        'source="Alchemist_Reagents.gpl"',
     ]
     if include_siege_test_fixture:
         sources.append('source="Alchemist_Siege_Test.gpl"')
@@ -1647,6 +1666,23 @@ def build_units_xml(stock_buildings_xml: Path, stock_characters_xml: Path) -> by
     attack_range.set("min", "1")
     attack_range.set("max", "1")
     output.append(alchemist)
+    stock_lightning_storm = character_root.find(
+        './/Description[@Name="lightning_storm"]'
+    )
+    if stock_lightning_storm is None:
+        raise ValueError("Stock Lightning Storm spell-unit description is missing")
+    for unit_id, unit_name, script_name, description in (
+        ("ALT1", "alchemical_tempest", "Alchemical_Tempest_Hit", "Alchemical Tempest"),
+        ("ALS1", "philosophers_stone", "Philosophers_Stone_Hit", "Philosopher's Stone"),
+    ):
+        spell_unit = ET.fromstring(
+            ET.tostring(stock_lightning_storm, encoding="utf-8")
+        )
+        spell_unit.set("ID", unit_id)
+        spell_unit.set("Name", unit_name)
+        spell_unit.set("Description", description)
+        spell_unit.find("./Engine/Script").set("GPLFunction", script_name)
+        output.append(spell_unit)
     for level, source_name in enumerate(SOURCE_BUILDING_NAMES):
         source = stock_root.find(f'.//Description[@Name="{source_name}"]')
         if source is None:
@@ -2793,6 +2829,160 @@ def add_native_phoenix_phial_progress_control(
     return bytes(brewing_menu[:vigor_record] + display + brewing_menu[vigor_record:])
 
 
+def add_stock_sovereign_brewing_row(
+    brewing_menu: bytes,
+    stock_brewing_menu: bytes,
+    control_id: int,
+    y: int,
+    label_index: int,
+    tooltip_index: int,
+) -> bytes:
+    """Clone AP69's complete spell row and change only its private identity.
+
+    The row remains an ordinary AP69 spell control with a genuine stock Fervus
+    visual identity, so Majesty constructs and draws the complete button/icon/
+    price family. The scoped CGBR controller translates only its click into a
+    private level-three Lightning Storm clone; stock Fervus remains unchanged.
+    """
+    source = bytearray(
+        stock_brewing_menu[
+            AP69_FIRST_RECIPE_RECORD_START:AP69_FIRST_RECIPE_RECORD_END
+        ]
+    )
+    if len(source) != 0x1B0 or source[-4:] != b"\xff" * 4:
+        raise ValueError("Stock AP69 first sovereign-row template changed")
+    if (
+        u32(source, 0xE4) == 0
+        or u32(source, 0x54) != u32(source, 0xE4) + 1000
+        or u32(source, 0x184) != u32(source, 0xE4) - 1000
+    ):
+        raise ValueError("Stock AP69 first spell-row control family changed")
+    if source[0xA4:0xA8] != b"INBb" or u32(source, 0xAC) != 0x405:
+        raise ValueError("Stock AP69 first spell-row background contract changed")
+    struct.pack_into("<I", source, 0x0C, y - 2)
+    struct.pack_into("<I", source, 0x68, y)
+    struct.pack_into("<I", source, 0x124, y + 1)
+    struct.pack_into("<I", source, 0x88, label_index)
+    struct.pack_into("<I", source, 0x94, tooltip_index)
+    struct.pack_into("<I", source, 0x54, control_id + 1000)
+    struct.pack_into("<I", source, 0xE4, control_id)
+    struct.pack_into("<I", source, 0x184, control_id - 1000)
+    source = (
+        source.replace(b"INBb", b"ALBB")
+        .replace(b"INTI", b"ALTI")
+        .replace(b"INTN", b"ALIN")
+    )
+    # AP69 keeps its ordinary spell-row records before specialized streamed
+    # displays.  CGBR already has AP24's INSr display inserted ahead of AP69's
+    # terminal ornament, so inserting another AP69 row at the terminal would
+    # put the row after INSr.  Majesty then scans the compound button's ALBB
+    # member as an unrelated top-level record and its stock skip routine lands
+    # on image-set 0x407 as though it were an opcode.  Preserve AP69's literal
+    # control ordering by placing this complete row immediately before the
+    # first AP24 display instead.
+    progress_art = brewing_menu.find(b"INSr")
+    if progress_art < 0:
+        raise ValueError("CGBR has no stock AP24 display insertion boundary")
+    insertion = progress_art - 4 - RAGE_PROGRESS_INNER_OFFSET
+    if insertion < 4 or u32(brewing_menu, insertion - 4) != 0xFFFFFFFF:
+        raise ValueError("CGBR pre-display row insertion boundary changed")
+    return bytes(brewing_menu[:insertion] + source + brewing_menu[insertion:])
+
+
+def restore_native_fervus_probe_rows(
+    brewing_menu: bytes, stock_brewing_menu: bytes
+) -> bytes:
+    """Restore AP69's real lower spell rows in their native stream slots."""
+    output = bytearray(brewing_menu)
+    output[0x02D0:0x0620] = stock_brewing_menu[0x02D0:0x0620]
+    expected = (
+        (0x02DC, 114, 137, "Fervus second-row icon"),
+        (0x0330, 116, 139, "Fervus second-row action"),
+        (0x03EC, 117, 140, "Fervus second-row price"),
+        (0x0484, 87, 162, "Fervus third-row icon"),
+        (0x04D8, 89, 164, "Fervus third-row action"),
+        (0x0594, 90, 165, "Fervus third-row price"),
+    )
+    for offset, stock_y, private_y, label in expected:
+        if u32(output, offset) != stock_y:
+            raise ValueError(f"Stock AP69 {label} position changed")
+        struct.pack_into("<I", output, offset, private_y)
+    # AP69's spell buttons use stock font fnt4. Majesty's existing compact
+    # font fnt7 is used by sidebar status/button text and fits these longer
+    # private labels without changing either compound-control layout.
+    for offset, label in (
+        (0x03B4, "Fervus second-row action font"),
+        (0x055C, "Fervus third-row action font"),
+    ):
+        if output[offset : offset + 4] != b"fnt4":
+            raise ValueError(f"Stock AP69 {label} changed")
+        output[offset : offset + 4] = b"fnt7"
+    return bytes(output)
+
+
+def append_stock_research_action_control(
+    brewing_menu: bytes,
+    research_menu: bytes,
+    control_id: int,
+    y: int,
+    label_index: int,
+    tooltip_index: int,
+) -> bytes:
+    """Append APa1's complete native action record ahead of CGBR displays."""
+    source = bytearray(
+        research_menu[APA1_ARROWS_RECORD_START:APA1_ARROWS_RECORD_END]
+    )
+    if len(source) != 0xF8 or source[-4:] != b"\xff" * 4:
+        raise ValueError("Stock APa1 Arrows action record changed")
+    if u32(source, RESEARCH_ROW_CONTROL_ID_OFFSET) != STOCK_ARROWS_RESEARCH_CONTROL_ID:
+        raise ValueError("Stock APa1 Arrows action ID changed")
+    struct.pack_into("<I", source, RESEARCH_ROW_OUTER_X_OFFSET, 30)
+    struct.pack_into("<I", source, RESEARCH_ROW_OUTER_Y_OFFSET, y)
+    struct.pack_into("<I", source, RESEARCH_ROW_OUTER_WIDTH_OFFSET, 162)
+    struct.pack_into("<I", source, RESEARCH_ROW_CONTROL_ID_OFFSET, control_id)
+    struct.pack_into("<I", source, RESEARCH_ROW_LABEL_INDEX_OFFSET, label_index)
+    struct.pack_into("<I", source, RESEARCH_ROW_TOOLTIP_INDEX_OFFSET, tooltip_index)
+    if source.count(b"INBb") != 1:
+        raise ValueError("Stock APa1 Arrows action background changed")
+    source = source.replace(b"INBb", b"ALBB", 1)
+    progress_art = brewing_menu.find(b"INSr")
+    if progress_art < 0:
+        raise ValueError("CGBR has no stock AP24 display insertion boundary")
+    insertion = progress_art - 4 - RAGE_PROGRESS_INNER_OFFSET
+    if insertion < 4 or u32(brewing_menu, insertion - 4) != 0xFFFFFFFF:
+        raise ValueError("CGBR pre-display action insertion boundary changed")
+    return bytes(brewing_menu[:insertion] + source + brewing_menu[insertion:])
+
+
+def add_reagent_meter_control(brewing_menu: bytes, rage_menu: bytes) -> bytes:
+    """Clone AP24's native progress display at the bottom of CGBR."""
+    source = bytearray(rage_menu[RAGE_PROGRESS_RECORD_OFFSET:])
+    if len(source) != 0xEC or source[-8:] != b"\xff" * 8:
+        raise ValueError("Stock AP24 reagent-meter template changed")
+    struct.pack_into("<4I", source, 0x08, *REAGENT_METER_OUTER_RECT)
+    struct.pack_into(
+        "<4I", source, RAGE_PROGRESS_RECT_OFFSET, *REAGENT_METER_INNER_RECT
+    )
+    struct.pack_into("<I", source, 0x6C, BREWING_REAGENT_METER_CONTROL_ID)
+    struct.pack_into(
+        "<I",
+        source,
+        RAGE_ACTIVE_DISPLAY_ID_OFFSET,
+        BREWING_REAGENT_METER_LABEL_CONTROL_ID,
+    )
+    struct.pack_into("<I", source, RAGE_ACTIVE_DISPLAY_LABEL_INDEX_OFFSET, 33)
+    source = source.replace(b"INSr", b"ALSR")
+    if brewing_menu[-8:] != b"\xff" * 8:
+        raise ValueError("CGBR terminal marker changed before reagent-meter insertion")
+    # Stock SMNU streams end the final control with FFFFFFFF and then carry a
+    # second FFFFFFFF as the stream terminator. Preserve CGBR's final-control
+    # terminator, replace only its stream terminator, and let the literal AP24
+    # clone retain its own final-control and stream terminators. Removing both
+    # CGBR words would concatenate AP24's opcode onto the preceding control;
+    # retaining both would leave an invalid third terminator in the stream.
+    return bytes(brewing_menu[:-4] + source)
+
+
 def add_stock_visitors_control(
     laboratory_menu: bytes, blacksmith_menu: bytes
 ) -> bytes:
@@ -2867,6 +3057,7 @@ def build_text_cam(
         menu = move_brewing_control_below_recruit(menu)
     else:
         menu = disable_ap10_secondary_control(menu)
+    rage_menu = read_cam_entry(stock_text_cam, b"SMNU", SOURCE_RAGE_DIALOG_ID).data
     visitors_source = read_cam_entry(
         stock_text_cam, b"SMNU", SOURCE_VISITORS_DIALOG_ID
     ).data
@@ -2881,17 +3072,32 @@ def build_text_cam(
         .replace(b"INBg", b"ALBG")
         .replace(b"INTN", b"ALIN")
     )
+    stock_brewing_menu = read_cam_entry(
+        stock_text_cam, b"SMNU", SOURCE_BREWING_DIALOG_ID
+    ).data
+    brewing_menu = restore_native_fervus_probe_rows(
+        brewing_menu, stock_brewing_menu
+    )
     brewing_menu = privateize_brewing_action_control(brewing_menu)
-    rage_menu = read_cam_entry(stock_text_cam, b"SMNU", SOURCE_RAGE_DIALOG_ID).data
     brewing_menu = add_native_rage_progress_control(brewing_menu, rage_menu)
     research_menu = read_cam_entry(
         stock_text_cam, b"SMNU", SOURCE_RESEARCH_DIALOG_ID
     ).data
-    brewing_menu = add_stock_weapon_oil_research_control(
-        brewing_menu, research_menu
+    brewing_menu = append_stock_research_action_control(
+        brewing_menu,
+        research_menu,
+        BREWING_WEAPON_OIL_CONTROL_ID,
+        62,
+        36,
+        37,
     )
-    brewing_menu = add_stock_phoenix_phial_research_control(
-        brewing_menu, research_menu
+    brewing_menu = append_stock_research_action_control(
+        brewing_menu,
+        research_menu,
+        BREWING_PHOENIX_PHIAL_CONTROL_ID,
+        87,
+        34,
+        35,
     )
     brewing_menu = add_stock_weapon_oil_icon_control(
         brewing_menu, research_menu
@@ -2920,6 +3126,7 @@ def build_text_cam(
     if brewing_menu.count(b"INSr") != 3:
         raise ValueError("CGBR must contain exactly three stock Rage progress-art references")
     brewing_menu = brewing_menu.replace(b"INSr", b"ALSR")
+    brewing_menu = add_reagent_meter_control(brewing_menu, rage_menu)
     brewing_strings = read_cam_entry(
         stock_text_cam, b"STRT", SOURCE_BREWING_DIALOG_ID
     ).data
@@ -2953,11 +3160,14 @@ def build_text_cam(
             1: "Vigor Elixir",
             2: "Invigorate every unit for 30 seconds: faster movement, 20 bonus hit points, and greater confidence.",
             3: "1500",
-            4: "Phoenix Phial",
-            5: "Research Phoenix Phials for sale to heroes.",
+            # Keep AP69's two complete lower spell controls unchanged. Their
+            # streamed text properties still address the same stock STRT
+            # positions; only CGBR's private copies of those strings differ.
+            4: "Alchemical Tempest",
+            5: "Cast Alchemical Tempest.",
             6: "",
-            7: "Weapon Oil",
-            8: "Research weapon oil for the Laboratory's stock enchanting service.",
+            7: "Philosopher's Stone",
+            8: "Create a Philosopher's Stone.",
             # APa1's presenter replaces this fallback with each descriptor's
             # live price (250 for Oil, 750 for Phoenix).
             9: "250",
@@ -2965,6 +3175,11 @@ def build_text_cam(
             28: "Invigorated",
             29: "Researching Weapon Oil",
             30: "Researching Phoenix Phial",
+            33: "PARTS",
+            34: "Phoenix Phial",
+            35: "Research Phoenix Phials for sale to heroes.",
+            36: "Weapon Oil",
+            37: "Research weapon oil for the Laboratory's stock enchanting service.",
         },
     )
     write_cam(
@@ -3236,7 +3451,8 @@ def build_manifest(include_siege_test_fixture: bool = False) -> str:
 \t\t\t\t\t\t<Source>GPL\\Alchemist_Weapon_Oil.gpl</Source>
 \t\t\t\t\t\t<Source>GPL\\Alchemist_Combat_Oils.gpl</Source>
 \t\t\t\t\t\t<Source>GPL\\Alchemist_Damage.gpl</Source>
-\t\t\t\t\t\t<Source>GPL\\Alchemist_Phoenix_Phial.gpl</Source>{siege_source}
+\t\t\t\t\t\t<Source>GPL\\Alchemist_Phoenix_Phial.gpl</Source>
+\t\t\t\t\t\t<Source>GPL\\Alchemist_Reagents.gpl</Source>{siege_source}
 \t\t\t\t\t</GPL>
 \t\t\t\t</Load>
 \t\t\t</Dataset>
@@ -3291,6 +3507,7 @@ def validate_output(
         output_root / "GPL" / "Alchemist_Combat_Oils.gpl",
         output_root / "GPL" / "Alchemist_Damage.gpl",
         output_root / "GPL" / "Alchemist_Phoenix_Phial.gpl",
+        output_root / "GPL" / "Alchemist_Reagents.gpl",
     }
     if include_siege_test_fixture:
         expected.add(output_root / "GPL" / "Alchemist_Siege_Test.gpl")
@@ -3327,11 +3544,23 @@ def validate_output(
             raise ValueError("Approved sprite test package-file hashes changed")
     root = ET.parse(output_root / "Data" / "alchemist_units.xml").getroot()
     descriptions = root.findall("Description")
-    if [item.get("ID") for item in descriptions] != [ALCHEMIST_HERO_ID, *BUILDING_IDS, "PXF1"]:
+    if [item.get("ID") for item in descriptions] != [
+        ALCHEMIST_HERO_ID,
+        "ALT1",
+        "ALS1",
+        *BUILDING_IDS,
+        "PXF1",
+    ]:
         raise ValueError("Alchemist unit ID sequence is invalid")
     hero = descriptions[0]
-    buildings = descriptions[1:4]
-    phoenix = descriptions[4]
+    sovereign_units = descriptions[1:3]
+    buildings = descriptions[3:6]
+    phoenix = descriptions[6]
+    if [item.get("Name") for item in sovereign_units] != [
+        "alchemical_tempest",
+        "philosophers_stone",
+    ]:
+        raise ValueError("Private sovereign spell-unit descriptions are missing")
     if hero.get("Name") != ALCHEMIST_HERO_NAME:
         raise ValueError("Private Alchemist hero description is missing")
     if hero.find("./Engine/ImageIDBase").get("value") != ALCHEMIST_HERO_ID:
@@ -3888,12 +4117,42 @@ def validate_output(
     brewing_menu = read_cam_entry(text_cam, b"SMNU", BREWING_DIALOG_ID).data
     if brewing_menu == b"":
         raise ValueError("CGBR menu is empty")
+    if struct.pack("<I", BREWING_REAGENT_METER_CONTROL_ID) in menu:
+        raise ValueError("CGAL still contains the Reagent Stock meter")
+    reagent_meter_record = (
+        brewing_menu.index(struct.pack("<I", BREWING_REAGENT_METER_CONTROL_ID))
+        - 0x6C
+    )
+    if u32(brewing_menu, reagent_meter_record) != 9:
+        raise ValueError("CGBR Reagent Stock meter is not AP24's stock display record")
+    if struct.unpack_from(
+        "<4I", brewing_menu, reagent_meter_record + 0x08
+    ) != REAGENT_METER_OUTER_RECT:
+        raise ValueError("CGBR Reagent Stock meter outer rectangle changed")
+    if struct.unpack_from(
+        "<4I", brewing_menu, reagent_meter_record + RAGE_PROGRESS_RECT_OFFSET
+    ) != REAGENT_METER_INNER_RECT:
+        raise ValueError("CGBR Reagent Stock meter inner rectangle changed")
+    if (
+        u32(brewing_menu, reagent_meter_record + RAGE_ACTIVE_DISPLAY_ID_OFFSET)
+        != BREWING_REAGENT_METER_LABEL_CONTROL_ID
+    ):
+        raise ValueError("CGBR Reagent Stock label control changed")
+    if brewing_menu[-8:] != b"\xff" * 8 or brewing_menu[-12:] == b"\xff" * 12:
+        raise ValueError("CGBR SMNU stream does not have the stock two-word terminator")
     for menu_name, menu_data in (("CGAL", menu), ("CGBR", brewing_menu)):
         if b"ALTI" not in menu_data or b"ALBB" not in menu_data or b"ALBG" not in menu_data:
             raise ValueError(f"{menu_name} does not use the private interface art")
-        if b"INTI" in menu_data or b"INBb" in menu_data or b"INBg" in menu_data:
-            raise ValueError(f"{menu_name} still references stock interface art")
-    if b"ALIN" not in brewing_menu or b"INTN" in brewing_menu:
+    if b"INTI" in menu or b"INBb" in menu or b"INBg" in menu:
+        raise ValueError("CGAL still references stock interface art")
+    if (
+        brewing_menu.count(b"INTI") != 2
+        or brewing_menu.count(b"INBb") != 2
+        or brewing_menu.count(b"INTN") != 2
+        or b"INBg" in brewing_menu
+    ):
+        raise ValueError("CGBR does not contain exactly two literal stock Fervus rows")
+    if b"ALIN" not in brewing_menu:
         raise ValueError("CGBR does not use the private Vigor recipe-icon art")
     if (
         b"ALWI" not in brewing_menu
@@ -4058,18 +4317,72 @@ def validate_output(
         raise ValueError("CGBR active progress label is missing")
     if b"Phoenix Phial\x00" not in brewing_strings:
         raise ValueError("CGBR Phoenix Phial label is missing")
+    for private_text in (
+        b"Alchemical Tempest\x00",
+        b"Cast Alchemical Tempest.\x00",
+        b"Philosopher's Stone\x00",
+        b"Create a Philosopher's Stone.\x00",
+    ):
+        if private_text not in brewing_strings:
+            raise ValueError(f"CGBR private stock-row text is missing: {private_text!r}")
     brewing_string_count = struct.unpack_from("<H", brewing_strings, 0)[0]
     if brewing_string_count <= 28:
         raise ValueError("CGBR active progress label is not present at STRT index 28")
     brewing_string_offsets = struct.unpack_from(
         f"<{brewing_string_count}I", brewing_strings, 4
     )
+    for index, expected_text in (
+        (4, b"Alchemical Tempest"),
+        (5, b"Cast Alchemical Tempest."),
+        (7, b"Philosopher's Stone"),
+        (8, b"Create a Philosopher's Stone."),
+    ):
+        string_offset = brewing_string_offsets[index]
+        string_end = brewing_strings.index(b"\x00", string_offset + 4)
+        if brewing_strings[string_offset + 4 : string_end] != expected_text:
+            raise ValueError(
+                f"CGBR stock-row STRT index {index} changed from {expected_text!r}"
+            )
     active_label_offset = brewing_string_offsets[28]
     active_label_end = brewing_strings.index(b"\x00", active_label_offset + 4)
     if brewing_strings[active_label_offset + 4 : active_label_end] != b"Invigorated":
         raise ValueError("CGBR STRT index 28 is not the Invigorated label")
-    if brewing_menu.count(b"ALSR") != 3 or b"INSr" in brewing_menu:
+    if brewing_menu.count(b"ALSR") != 4 or b"INSr" in brewing_menu:
         raise ValueError("CGBR private progress art displays are missing")
+    first_progress_art = brewing_menu.index(b"ALSR")
+    for control_id, control_offset, label in (
+        (STOCK_FERVUS_SECOND_SPELL_CONTROL_ID, 0x03AC, "stock Fervus 0x1132"),
+        (STOCK_FERVUS_THIRD_SPELL_CONTROL_ID, 0x0554, "stock Fervus 0x1133"),
+    ):
+        marker = struct.pack("<I", control_id)
+        if brewing_menu.count(marker) != 1 or u32(brewing_menu, control_offset) != control_id:
+            raise ValueError(f"CGBR {label} native row is missing or moved")
+        if control_offset >= first_progress_art:
+            raise ValueError(f"CGBR {label} no longer occupies its native AP69 slot")
+    if brewing_menu[0x036C:0x0370] != b"INBb" or u32(brewing_menu, 0x0374) != 0x406:
+        raise ValueError("CGBR stock Fervus 0x1132 art changed")
+    if brewing_menu[0x0514:0x0518] != b"INBb" or u32(brewing_menu, 0x051C) != 0x407:
+        raise ValueError("CGBR stock Fervus 0x1133 art changed")
+    if brewing_menu[0x03B4:0x03B8] != b"fnt7" or brewing_menu[0x055C:0x0560] != b"fnt7":
+        raise ValueError("CGBR private stock rows lost Majesty's compact stock font")
+    for offset, rectangle, label in (
+        (0x02D8, (2, 137, 25, 25), "0x1132 icon"),
+        (0x032C, (30, 139, 162, 20), "0x1132 action"),
+        (0x03E8, (150, 140, 40, 17), "0x1132 price"),
+        (0x0480, (2, 162, 25, 25), "0x1133 icon"),
+        (0x04D4, (30, 164, 162, 20), "0x1133 action"),
+        (0x0590, (150, 165, 40, 17), "0x1133 price"),
+    ):
+        if struct.unpack_from("<4I", brewing_menu, offset) != rectangle:
+            raise ValueError(f"CGBR stock Fervus {label} rectangle changed")
+    for private_id in (
+        BREWING_ALCHEMICAL_TEMPEST_CONTROL_ID,
+        BREWING_PHILOSOPHERS_STONE_CONTROL_ID,
+    ):
+        if struct.pack("<I", private_id) in brewing_menu:
+            raise ValueError(
+                "CGBR sovereign visuals must retain genuine stock Fervus IDs"
+            )
     if struct.pack("<I", RAGE_PROGRESS_CONTROL_ID) not in brewing_menu:
         raise ValueError("CGBR native progress control ID is missing")
     if struct.pack("<I", RAGE_ACTIVE_DISPLAY_CONTROL_ID) not in brewing_menu:
@@ -4520,6 +4833,7 @@ def build(
         damage_source, encoding="utf-8"
     )
     shutil.copy2(GPL_SOURCE_ROOT / "Alchemist_Phoenix_Phial.gpl", gpl_dir)
+    shutil.copy2(GPL_SOURCE_ROOT / "Alchemist_Reagents.gpl", gpl_dir)
     economy_source = build_alchemist_economy(
         sdk_data.parent
         / "GPL"

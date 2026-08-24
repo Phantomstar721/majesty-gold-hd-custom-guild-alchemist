@@ -1,0 +1,325 @@
+///////////////////////////////////////////////////////////////////////////////
+// Alchemist Reagent Stock
+//
+// Collection follows Majesty's ordinary monster-death gold distribution and
+// carried-resource deposit lifecycle. A slain monster makes at most one roll;
+// the closest eligible Alchemist carries the part home, where the stock guild
+// rest path deposits it in the Laboratory's num_resources field.
+///////////////////////////////////////////////////////////////////////////////
+
+function Alchemist_Monster_Threat_Rank ( agent monster ) is integer
+declare
+	integer experience;
+begin
+	// Literal threat bands from Restore Abandoned Zoo. LevelXP is Majesty's
+	// generic designer-authored combat bounty for stock monsters.
+	experience = $GetAttribute ( monster, #ATTRIB_LevelXP );
+
+	if ( experience <= 230 )
+		return 1;
+	else if ( experience <= 400 )
+		return 2;
+	else if ( experience <= 500 )
+		return 3;
+	else if ( experience <= 900 )
+		return 4;
+	else if ( experience <= 1500 )
+		return 5;
+	else if ( experience <= 2000 )
+		return 6;
+	else if ( experience <= 3500 )
+		return 7;
+
+	return 8;
+end
+
+///////////////////////////////////////////////////////////////////////////////
+function Alchemist_Monster_Part_Chance ( integer rank ) is integer
+declare
+begin
+	if ( rank == 1 )
+		return 10;
+	else if ( rank == 2 )
+		return 20;
+	else if ( rank == 3 )
+		return 30;
+	else if ( rank == 4 )
+		return 45;
+	else if ( rank == 5 )
+		return 60;
+	else if ( rank == 6 )
+		return 75;
+	else if ( rank == 7 )
+		return 90;
+
+	return 100;
+end
+
+///////////////////////////////////////////////////////////////////////////////
+function Alchemist_Award_Monster_Part ( agent monster )
+declare
+	list alchemists, invisible, camouflaged;
+	agent alchemist, home;
+	integer chance;
+begin
+	// Majesty uses this stock flag for named bosses and quest-protected units.
+	// Those units do not become renewable reagent sources.
+	if ( $HasAttribute ( "resist_critical", monster ) )
+		if ( monster's "resist_critical" == TRUE )
+			return;
+
+	chance = $Alchemist_Monster_Part_Chance (
+		$Alchemist_Monster_Threat_Rank ( monster ));
+	if ( ( $RandomNumber ( 100 ) + 1 ) > chance )
+		return;
+
+	// Match stock dropgoldinradius's ordinary, invisible, and camouflaged hero
+	// discovery. One corpse awards one part to the closest valid Alchemist.
+	$ListObjects ( monster, "hero", 300, alchemists,
+		#CheckTitles, "Alchemist" );
+	$ListObjects ( monster, "invisible", 300, invisible );
+	$ListObjects ( monster, "Camouflaged", 300, camouflaged );
+	invisible = $AddLists ( invisible, camouflaged );
+	foreach alchemist in invisible do
+		if ( alchemist's "subtype" == "hero" )
+			if ( alchemist's "title" == "Alchemist" )
+				if ( $AgentInList ( alchemist, alchemists ) == FALSE )
+					alchemists << alchemist;
+
+	if ( $ListSize ( alchemists ) > 0 )
+		begin
+			alchemist = $Pick_Closest ( monster, alchemists );
+			home = alchemist's "Home";
+			if ( $IsValidGamePiece ( home ) )
+				if ( home's "title" == "AlchemistsLaboratory" )
+					alchemist's "num_picked_goodies" += 1;
+		end
+end
+
+///////////////////////////////////////////////////////////////////////////////
+function dropgoldinradius ( agent thisagent, integer amount )
+///////////////////////////////////////////////////////////////////////////////
+// Literal Northern Expansion dropgoldinradius, with the passive Alchemist
+// award inserted before stock gold division. Restore Abandoned Zoo's private
+// monster_gravestone also calls this function, preserving coexistence.
+declare
+	list guysnearby, newguys, rangers, l4, l5;
+	agent guy;
+	integer num_guys, goldper;
+begin
+	$Alchemist_Award_Monster_Part ( thisagent );
+
+	$ListObjects ( thisagent, "hero", #gold_drop_radius, guysnearby );
+
+	// add rangers who are out of normal range!
+	$ListObjects ( thisagent, "hero", #Gold_drop_radius * 2, rangers,
+		#CheckTitles, "Ranger" );
+
+	foreach guy in rangers do
+		begin
+			if ( $DistanceBetweenAgents ( guy, thisagent ) <=
+				$GetAttribute ( guy, #ATTRIB_MaxAttackRange ) )
+				begin
+					if ( $AgentInList ( guy, guysnearby ) == FALSE )
+						guysnearby << guy;
+				end
+		end
+
+	// check for invisible and camouflaged guys
+	$ListObjects ( thisagent, "invisible", #gold_drop_radius, l4 );
+	$ListObjects ( thisagent, "Camouflaged", #gold_drop_radius, l5 );
+
+	l4 = $AddLists ( l4, l5 );
+
+	foreach guy in l4 do
+		if ( guy's "subtype" == "hero" )
+			guysnearby << guy;
+
+	guysnearby = $ListSubtypes ( guysnearby, "Hero" );
+
+	num_guys = $ListSize ( guysnearby );
+	if ( num_guys > 0 )
+		begin
+			goldper = ( amount / num_guys );
+			foreach guy in guysnearby do
+				$Give_Gold ( guy, goldper );
+		end
+end
+
+///////////////////////////////////////////////////////////////////////////////
+function Alchemist_Lived_In ( agent ThisAgent )
+///////////////////////////////////////////////////////////////////////////////
+// Literal stock Lived_In. Only the continuation symbol is privatized so the
+// Laboratory can mirror its stock num_resources balance for the panel meter.
+declare
+	integer Gold_Given;
+	integer Gold_Kept;
+	agent ThisBuilding;
+	integer Hero_Gold, Current_Intent;
+begin
+	ThisBuilding = ThisAgent's "Target";
+	Current_Intent = $GetAttribute ( ThisAgent, #ATTRIB_AIIntentionString );
+	$Enter_Building ( ThisAgent, ThisBuilding );
+	Hero_Gold = $GetAttribute ( ThisAgent, #ATTRIB_Gold );
+
+	if ( Current_Intent == #Intent_Going_Home )
+		$SpecifyIntent ( ThisAgent, #Intent_Resting );
+	else if ( Current_Intent == #Intent_flee_lowHP )
+		$SpecifyIntent ( ThisAgent, #Intent_recuperating );
+	else
+		$SpecifyIntent ( ThisAgent, #Intent_Seeking_Refuge );
+
+	Gold_Given = ( Hero_Gold * $GetAttribute ( ThisBuilding, #ATTRIB_TaxRate ) ) / 100;
+	Gold_Kept = Hero_Gold - Gold_Given;
+	if ( Gold_Given > 0 )
+		$Transfer_Gold ( ThisAgent, ThisBuilding, Gold_Given );
+
+	$AdjustAttribute ( ThisAgent, #ATTRIB_StoredGold, Gold_Kept );
+	$SetAttribute ( ThisAgent, #ATTRIB_Gold, 0 );
+	$SetThreadInterval ( ThisAgent's "ActiveScript", ThisBuilding's "Sleep_For" );
+	ThisAgent's "ActiveScript" = $Alchemist_Rest_at_guild;
+end
+
+///////////////////////////////////////////////////////////////////////////////
+function Alchemist_Rest_at_guild ( agent ThisAgent )
+///////////////////////////////////////////////////////////////////////////////
+// Literal stock Rest_at_guild and drop_off_goodies lifecycle. ReturnAmount is
+// unused by guild buildings and mirrors the deposited balance for native UI.
+declare
+	integer HP;
+	integer MaxHP;
+	agent ThisBuilding;
+begin
+	ThisBuilding = ThisAgent's "Home";
+	$Drop_Off_Goodies ( ThisAgent, ThisBuilding );
+	$SetAttribute ( ThisBuilding, #ATTRIB_ReturnAmount,
+		ThisBuilding's "num_resources" );
+
+	HP = $GetAttribute ( ThisAgent, #ATTRIB_HP );
+	MaxHP = $GetAttribute ( ThisAgent, #ATTRIB_MaxHP );
+	$AdjustAttribute ( ThisAgent, #ATTRIB_HP, ( MaxHP - HP ) );
+
+	$SetThreadInterval ( ThisAgent's "ActiveScript", #Normal_Cycle );
+	ThisAgent's "ActiveScript" = $Done_Resting_Guild;
+end
+
+///////////////////////////////////////////////////////////////////////////////
+function Alchemist_Consume_Reagent_Stock ( agent laboratory, integer amount ) is boolean
+declare
+begin
+	if ( $IsValidGamePiece ( laboratory ) == FALSE )
+		return FALSE;
+	if ( laboratory's "num_resources" < amount )
+		return FALSE;
+
+	laboratory's "num_resources" -= amount;
+	$SetAttribute ( laboratory, #ATTRIB_ReturnAmount,
+		laboratory's "num_resources" );
+	return TRUE;
+end
+
+///////////////////////////////////////////////////////////////////////////////
+function Alchemist_Is_Protected_Transmutation_Target ( agent target ) is boolean
+declare
+begin
+	if ( $IsValidGamePiece ( target ) == FALSE )
+		return TRUE;
+	if ( target's "type" != "monster" )
+		return TRUE;
+	if ( $HasAttribute ( "resist_critical", target ) )
+		if ( target's "resist_critical" == TRUE )
+			return TRUE;
+	return FALSE;
+end
+
+///////////////////////////////////////////////////////////////////////////////
+function Alchemical_Tempest_Hit ( agent thisagent, agent laboratory )
+///////////////////////////////////////////////////////////////////////////////
+// Literal Lightning Storm birth/active lifecycle. The private command route
+// carries the selected Laboratory as target, and the successful birth is the
+// first stock commit point at which reagent stock is spent.
+declare
+begin
+	if ( $IsValidGamePiece ( laboratory ) == FALSE )
+		begin
+			$SetSpellUnitTimeout ( thisagent, 1 );
+			return;
+		end
+	if ( laboratory's "title" != "AlchemistsLaboratory" ||
+		laboratory's "Level" < 3 )
+		begin
+			$SetSpellUnitTimeout ( thisagent, 1 );
+			return;
+		end
+	if ( $Alchemist_Consume_Reagent_Stock ( laboratory, 10 ) == FALSE )
+		begin
+			$SetSpellUnitTimeout ( thisagent, 1 );
+			return;
+		end
+
+	$NewThread ( thisagent's "activeScript", 500, thisagent );
+	$SetSpellUnitTimeout ( thisagent, 2300 );
+	$Alchemical_Tempest_Active ( thisagent );
+end
+
+///////////////////////////////////////////////////////////////////////////////
+function Alchemical_Tempest_Active ( agent thisagent )
+declare
+	list targets;
+	agent target;
+begin
+	targets = $compile_enemies ( thisagent, 150 );
+	foreach target in targets do
+		if ( $Alchemist_Is_Protected_Transmutation_Target ( target ) == FALSE )
+			begin
+				// First mechanics pass retains Lightning Storm's stock hit
+				// presentation and player-spell damage/death ownership.
+				$CreateEffector ( target, "lightening_storm_effector2", 0 );
+				$player_spell_attack ( target, 100000, 100000 );
+			end
+end
+
+///////////////////////////////////////////////////////////////////////////////
+function Philosophers_Stone_Hit ( agent thisagent, agent laboratory )
+///////////////////////////////////////////////////////////////////////////////
+// Uses Lightning Storm's sovereign target-placement construction, narrowed to
+// the closest ordinary monster at the clicked point. Protected quest agents
+// never consume stock. A successful transmutation gives the stock reward to
+// the Laboratory owner and then follows the monster's ordinary death path.
+declare
+	list nearby, eligible;
+	agent target;
+begin
+	if ( $IsValidGamePiece ( laboratory ) == FALSE )
+		begin
+			$SetSpellUnitTimeout ( thisagent, 1 );
+			return;
+		end
+	if ( laboratory's "title" != "AlchemistsLaboratory" ||
+		laboratory's "Level" < 3 )
+		begin
+			$SetSpellUnitTimeout ( thisagent, 1 );
+			return;
+		end
+
+	nearby = $compile_enemies ( thisagent, 45 );
+	foreach target in nearby do
+		if ( $Alchemist_Is_Protected_Transmutation_Target ( target ) == FALSE )
+			eligible << target;
+	if ( $ListSize ( eligible ) == 0 )
+		begin
+			$SetSpellUnitTimeout ( thisagent, 1 );
+			return;
+		end
+	target = $Pick_Closest ( thisagent, eligible );
+	if ( $Alchemist_Consume_Reagent_Stock ( laboratory, 10 ) == FALSE )
+		begin
+			$SetSpellUnitTimeout ( thisagent, 1 );
+			return;
+		end
+
+	$AdjustPlayerData ( laboratory, "gold", 3000 );
+	$CreateEffector ( target, "lightening_storm_effector2", 0 );
+	$player_spell_attack ( target, 100000, 100000 );
+	$SetSpellUnitTimeout ( thisagent, 1 );
+end

@@ -509,7 +509,7 @@ class AlchemistGuildTests(unittest.TestCase):
 
     def test_vigor_enabled_icon_is_colored_and_disabled_mask_is_grey(self) -> None:
         enabled_background, enabled_border, enabled_brightness = (
-            art_package.VIGOR_ICON_STYLES[212]
+            art_package.VIGOR_ICON_STYLES[199]
         )
         _disabled_background, _disabled_border, disabled_brightness = (
             art_package.VIGOR_ICON_STYLES[342]
@@ -1051,6 +1051,10 @@ end
             "$SetAttribute ( alchemyLab, #ATTRIB_ResearchPowerfulItem, 1 )",
             fixture,
         )
+        self.assertIn('alchemyLab\'s "num_resources" = 20;', fixture)
+        self.assertIn(
+            "$SetAttribute ( alchemyLab, #ATTRIB_ReturnAmount, 20 )", fixture
+        )
         for suffix in ("One", "Two", "Three", "Four", "Five", "Six"):
             self.assertIn(
                 f"$SetAttribute ( magicBazaar, #ATTRIB_ResearchBazaar_Item_{suffix}, 1 )",
@@ -1091,7 +1095,8 @@ end
             'source="Alchemist_Weapon_Oil.gpl"\n'
             'source="Alchemist_Combat_Oils.gpl"\n'
             'source="Alchemist_Damage.gpl"\n'
-            'source="Alchemist_Phoenix_Phial.gpl"\n',
+            'source="Alchemist_Phoenix_Phial.gpl"\n'
+            'source="Alchemist_Reagents.gpl"\n',
         )
         self.assertIn(
             'source="Alchemist_Siege_Test.gpl"', builder.build_gpl_project(True)

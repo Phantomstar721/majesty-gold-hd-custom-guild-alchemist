@@ -545,6 +545,18 @@ def generate_interface(repo: Path, out_dir: Path) -> None:
     ).resize((100, 100), Image.Resampling.LANCZOS).save(
         out_dir / "phoenix-phial-item-100.png"
     )
+    for source_name, output_name in (
+        ("alchemical-tempest-icon.png", "alchemical-tempest-icon-25.png"),
+        ("philosophers-stone-icon.png", "philosophers-stone-icon-25.png"),
+    ):
+        recipe_icon = Image.open(
+            repo / "assets/source/interface" / source_name
+        ).convert("RGB")
+        recipe_icon.resize((40, 40), Image.Resampling.LANCZOS).filter(
+            ImageFilter.SHARPEN
+        ).resize((25, 25), Image.Resampling.LANCZOS).save(
+            out_dir / output_name
+        )
 
 
 def main() -> int:

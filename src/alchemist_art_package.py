@@ -108,6 +108,13 @@ BREWING_DIALOG_FRAME_TILE = 594
 RAGE_PROGRESS_TILES = (412, 413)
 CLEAN_PROGRESS_SOURCE_TILES = (414, 415)
 BREWING_PROGRESS_FRAME_SIZE = (162, 20)
+RECIPE_GOLD_PLATE_SOURCE_TILES = (655, 656, 657, 658)
+RECIPE_PRIVATE_PLATE_TILE_GROUPS = (
+    (683, 684, 685, 686),
+    (687, 688, 689, 690),
+    (691, 692, 693, 694),
+)
+RECIPE_PRIVATE_PLATE_SIZE = (162, 20)
 VIGOR_ICON_TILES = (177, 199, 252, 280, 302, 319, 325, 342)
 WEAPON_OIL_ICON_TILE = 162
 PHOENIX_ITEM_TILES = tuple(range(8282, 8291))
@@ -785,6 +792,61 @@ def brewing_progress_frames(stock, tiles) -> dict[int, bytes]:
     return output
 
 
+def recipe_button_plate_frames(stock, tiles) -> dict[int, bytes]:
+    """Fit APa1's complete gold plate into AP69's three 162x20 states.
+
+    APa1's stock plate is 172x23, while AP69's three stacked spell plates are
+    162x20. Pointing an AP69 control directly at APa1 tiles clips and repeats
+    the state frame. Preserve each AP69 image-set and TILE header, but replace
+    its four distinct state images with dimension-matched copies of APa1's
+    corresponding stock states.
+    """
+    target_width, target_height = RECIPE_PRIVATE_PLATE_SIZE
+    output: dict[int, bytes] = {}
+    for target_group in RECIPE_PRIVATE_PLATE_TILE_GROUPS:
+        for target_index, source_index in zip(
+            target_group, RECIPE_GOLD_PLATE_SOURCE_TILES
+        ):
+            source_tile = tiles[source_index].data
+            source = tile_image(stock, source_tile, []).convert("RGB")
+            fitted = source.resize(
+                (target_width, target_height), Image.Resampling.NEAREST
+            )
+            template = bytearray(tiles[target_index].data)
+            if struct.unpack_from("<H", template, 0)[0] != 3:
+                raise ValueError("Stock AP69 recipe TILE is no longer indexed-v3")
+            if (
+                struct.unpack_from("<H", source_tile, 20)[0] != 1
+                or struct.unpack_from("<H", template, 20)[0] != 1
+            ):
+                raise ValueError("Stock recipe plates no longer use embedded palettes")
+            source_palette_offset = struct.unpack_from("<I", source_tile, 22)[0]
+            target_palette_offset = struct.unpack_from("<I", template, 22)[0]
+            if (
+                source_palette_offset >= len(source_tile)
+                or target_palette_offset >= len(template)
+            ):
+                raise ValueError("Stock recipe plate palette offset changed")
+            # Preserve AP69's exact target TILE header and 162x20 geometry,
+            # but use APa1's own embedded palette with APa1's gold frame art.
+            # Quantizing through AP69's gray spell palette erased the border.
+            template = bytearray(
+                bytes(template[:target_palette_offset])
+                + source_tile[source_palette_offset:]
+            )
+            encoded = stock.tile_v3_from_rgb(
+                bytes(template), [], fitted.tobytes()
+            )
+            if struct.unpack_from("<3H", encoded, 2) != (
+                target_height,
+                target_width,
+                target_width,
+            ):
+                raise ValueError("Private AP69 gold-plate TILE geometry changed")
+            output[target_index] = encoded
+    return output
+
+
 def privateize_progress_imag(stock, imag: bytes, append, frames: dict[int, bytes]) -> bytes:
     """Clone the two stock INSr states without assuming button-IMAG layout."""
     replacements: dict[int, int] = {}
@@ -882,10 +944,106 @@ def vigor_icon_overrides(stock, tiles, icon_path: Path, output_dir: Path) -> dic
     return output
 
 
+def interface_imag_set_tiles(imag: bytes, wanted_set: int) -> list[int]:
+    """Return the literal TILE order owned by one stock interface image-set."""
+    set_count = int.from_bytes(imag[20:24], "little")
+    matches: list[int] = []
+    for set_index in range(set_count):
+        table_offset = 24 + set_index * 8
+        set_id = int.from_bytes(imag[table_offset : table_offset + 4], "little")
+        if set_id != wanted_set:
+            continue
+        set_offset = int.from_bytes(
+            imag[table_offset + 4 : table_offset + 8], "little"
+        )
+        direction_count = int.from_bytes(imag[set_offset : set_offset + 4], "little")
+        for direction in range(direction_count):
+            relative_offset = int.from_bytes(
+                imag[
+                    set_offset + 64 + direction * 4 :
+                    set_offset + 68 + direction * 4
+                ],
+                "little",
+                signed=True,
+            )
+            direction_offset = set_offset + relative_offset + 4
+            frame_count = int.from_bytes(
+                imag[direction_offset : direction_offset + 4], "little"
+            ) >> 16
+            for frame in range(frame_count):
+                tile_offset = direction_offset + 24 + frame * 8
+                tile_index = int.from_bytes(
+                    imag[tile_offset : tile_offset + 4], "little"
+                ) & 0xFFFF
+                if tile_index not in matches:
+                    matches.append(tile_index)
+    if not matches:
+        raise ValueError(f"Stock INTN image-set {wanted_set:#x} has no TILEs")
+    return matches
+
+
+def brewing_recipe_icon_overrides(
+    stock,
+    tiles,
+    navigation_imag: bytes,
+    icon_specs: tuple[tuple[int, Path, str], ...],
+    output_dir: Path,
+) -> dict[int, bytes]:
+    """Privatize two literal AP69 icon-state families with approved art."""
+    from PIL import ImageEnhance, ImageOps
+
+    output: dict[int, bytes] = {}
+    # Weapon Oil and Phoenix Phial keep their colored icons while unavailable.
+    # Apply that same proven Brewing presentation to all eight literal AP69
+    # icon states; availability remains communicated by the stock row plate.
+    state_styles = ((1.00, 1.00),) * 8
+    for image_set, icon_path, slug in icon_specs:
+        source = Image.open(icon_path).convert("RGB")
+        set_tiles = interface_imag_set_tiles(navigation_imag, image_set)
+        for state_index, tile_index in enumerate(set_tiles):
+            template = tiles[tile_index].data
+            dimensions = stock.tile_dimensions(template)
+            if dimensions is None:
+                raise ValueError(
+                    f"Stock INTN {image_set:#x} TILE {tile_index} has no dimensions"
+                )
+            height, width = dimensions
+            frame = source.resize((width, height), Image.Resampling.LANCZOS)
+            if len(set_tiles) != len(state_styles):
+                raise ValueError(
+                    f"Stock INTN {image_set:#x} state count changed: "
+                    f"{len(set_tiles)}"
+                )
+            brightness, saturation = state_styles[state_index]
+            if saturation < 1.0:
+                grey = ImageOps.grayscale(frame).convert("RGB")
+                frame = Image.blend(grey, frame, saturation)
+            if brightness != 1.0:
+                frame = ImageEnhance.Brightness(frame).enhance(brightness)
+            path = output_dir / f"{slug}-icon-state-{tile_index}.png"
+            frame.save(path)
+            if struct.unpack_from("<H", template, 0)[0] == 1:
+                output[tile_index] = stock.tile_v1_embedded_from_rgb(
+                    template, frame.tobytes()
+                )
+            else:
+                output[tile_index] = stock.tile_from_rgb(
+                    template, [], frame.tobytes()
+                )
+    return output
+
+
 def brewing_dialog_frame(
     stock, tiles, panel_path: Path, output_path: Path
 ) -> Path:
-    """Put the approved Brewing backing behind AP69's exact stock controls."""
+    """Put the approved Brewing backing behind AP69's exact stock controls.
+
+    AP69's dialog TILE already paints three complete spell-row frames.  CGBR
+    supplies five real compound controls of its own, so retaining those baked
+    rows draws a second border beneath Oil, Phoenix, and Vigor.  Keep only the
+    outer frame and stock navigation area here; the literal indexed title is
+    restored after RGB composition by ``brewing_dialog_tile``.
+    """
     stock_frame = tile_image(stock, tiles[BREWING_DIALOG_FRAME_TILE].data, [])
     panel = Image.open(panel_path).convert("RGBA").resize(
         stock_frame.size, Image.Resampling.LANCZOS
@@ -896,29 +1054,16 @@ def brewing_dialog_frame(
     for y in range(stock_frame.height):
         for x in range(stock_frame.width):
             pixel = source[x, y]
-            # Preserve only AP69's functional row borders, outer frame, and
-            # Back/Next controls.  Its ornamental Fervus title capsule was the
-            # source of the visible curls/artifacts around BREWING.
+            # The five live row controls own their complete button frames.
+            # Preserve only AP69's outer edge and Back/Next area in this RGB
+            # composition pass.
             preserve = (
-                y < 22
-                or 54 <= y < 151
-                or y >= 222
+                y >= 222
                 or x < 6
                 or x >= stock_frame.width - 6
             )
             if preserve and pixel[3]:
                 target[x, y] = pixel
-    # The title string is drawn by the stock dialog controller. Give it a
-    # restrained Alchemist capsule with the stock dimensions, without copying
-    # Fervus's purple ornamental pixels.
-    draw = ImageDraw.Draw(result)
-    draw.rounded_rectangle(
-        (17, 24, stock_frame.width - 18, 50),
-        radius=12,
-        fill=(17, 39, 23, 255),
-        outline=(145, 112, 47, 255),
-        width=2,
-    )
     # AP69 also carries several purple ornamental/control-color arcs below the
     # title and around its old Fervus medallion. They are not functional UI
     # controls; restore our approved backing anywhere one survived the stock
@@ -929,6 +1074,8 @@ def brewing_dialog_frame(
         for x in range(result.width):
             red, green, blue, alpha = result_pixels[x, y]
             if (
+                y >= 54
+                and
                 alpha
                 and red > 70
                 and blue > 65
@@ -937,6 +1084,34 @@ def brewing_dialog_frame(
                 result_pixels[x, y] = panel_pixels[x, y]
     result.save(output_path)
     return output_path
+
+
+def brewing_dialog_tile(stock, template: bytes, dialog_path: Path) -> bytes:
+    """Restore AP69's working title indices over the private Brewing backing.
+
+    The stock title capsule in TILE 594 uses indexed UI/control colors
+    248..254.  Passing those pixels through RGBA and quantizing them back into
+    the TILE collapses their distinct control roles and produces the colored
+    curls seen in game.  Compose the private backing normally, then preserve
+    AP69's first 54 rows as literal indexed pixels and re-encode with the
+    original TILE header/palette.  This is the same stock title mechanism,
+    with no reconstructed ornamental art.
+    """
+    composed = stock.tile_from_png_native_size(template, [], dialog_path)
+    stock_decoded = stock.decode_indexed_v3_tile(template)
+    private_decoded = stock.decode_indexed_v3_tile(composed)
+    if stock_decoded is None or private_decoded is None:
+        raise ValueError("Brewing dialog TILE is no longer indexed-v3")
+    stock_height, stock_width, stock_rows = stock_decoded
+    private_height, private_width, private_rows = private_decoded
+    if (
+        (stock_height, stock_width) != (private_height, private_width)
+        or stock_height < 54
+    ):
+        raise ValueError("Brewing dialog TILE geometry changed")
+    combined_rows = [list(row) for row in private_rows]
+    combined_rows[:54] = [list(row) for row in stock_rows[:54]]
+    return stock.encode_indexed_v3_tile_like_original(template, combined_rows)
 
 
 def write_maindata(
@@ -1829,6 +2004,7 @@ def write_interfacedata(repo: Path, game_data: Path, art_dir: Path, output: Path
         button_overrides[tile_index] = stock.tile_from_png_native_size(
             tiles[tile_index].data, [], path
         )
+    button_overrides.update(recipe_button_plate_frames(stock, tiles))
     frame_imag = privateize_interface_imag_tiles(
         frame_imag, tiles, append, b"ALBB", button_overrides
     )
@@ -1844,22 +2020,43 @@ def write_interfacedata(repo: Path, game_data: Path, art_dir: Path, output: Path
         append,
         b"ALBG",
         {
-            BREWING_DIALOG_FRAME_TILE: stock.tile_from_png_native_size(
-                tiles[BREWING_DIALOG_FRAME_TILE].data, [], dialog_path
+            BREWING_DIALOG_FRAME_TILE: brewing_dialog_tile(
+                stock, tiles[BREWING_DIALOG_FRAME_TILE].data, dialog_path
             )
         },
+    )
+    navigation_overrides = vigor_icon_overrides(
+        stock,
+        tiles,
+        art_dir / "interface/vigor-elixir-icon-24.png",
+        art_dir / "interface",
+    )
+    navigation_overrides.update(
+        brewing_recipe_icon_overrides(
+            stock,
+            tiles,
+            navigation_imag,
+            (
+                (
+                    0x3F6,
+                    art_dir / "interface/alchemical-tempest-icon-25.png",
+                    "alchemical-tempest",
+                ),
+                (
+                    0x3F7,
+                    art_dir / "interface/philosophers-stone-icon-25.png",
+                    "philosophers-stone",
+                ),
+            ),
+            art_dir / "interface",
+        )
     )
     navigation_imag = privateize_interface_imag_tiles(
         navigation_imag,
         tiles,
         append,
         b"ALIN",
-        vigor_icon_overrides(
-            stock,
-            tiles,
-            art_dir / "interface/vigor-elixir-icon-24.png",
-            art_dir / "interface",
-        ),
+        navigation_overrides,
     )
     research_icon_imag = privateize_interface_imag_tiles(
         research_icon_imag,

@@ -87,10 +87,10 @@ AP69_TERMINAL_RECORD_HEADER = struct.pack(
     "<11I4s", 0, 2, 3, 0xDF, 0x19, 0x14, 0x21, 0x0C, 0x0A, 2, 12, b"INTG"
 )
 VIGOR_ROW_OUTER_RECT = (30, 114, 162, 20)
-VIGOR_ROW_PRICE_RECT = (151, 117, 40, 17)
-VIGOR_ROW_ICON_RECT = (3, 113, 25, 25)
-BREWING_PROGRESS_RECT = (31, 117, 160, 14)
-BREWING_PROGRESS_OUTER_RECT = VIGOR_ROW_OUTER_RECT
+VIGOR_ROW_PRICE_RECT = (151, 115, 40, 17)
+VIGOR_ROW_ICON_RECT = (3, 112, 25, 25)
+BREWING_PROGRESS_RECT = (30, 117, 162, 14)
+BREWING_PROGRESS_OUTER_RECT = (30, 114, 162, 20)
 STOCK_FERVUS_FIRST_SPELL_CONTROL_ID = 0x1140
 STOCK_FERVUS_SECOND_SPELL_CONTROL_ID = 0x1132
 STOCK_FERVUS_THIRD_SPELL_CONTROL_ID = 0x1133
@@ -2907,9 +2907,9 @@ def restore_native_fervus_probe_rows(
         if u32(output, offset) != stock_y:
             raise ValueError(f"Stock AP69 {label} position changed")
         struct.pack_into("<I", output, offset, private_y)
-    # AP69's spell buttons use stock font fnt4. Majesty's existing compact
-    # font fnt7 is used by sidebar status/button text and fits these longer
-    # private labels without changing either compound-control layout.
+    # Use Majesty's stock compact centered button font for the two long private
+    # names.  Their full 162-pixel fields below preserve centering; fnt4's
+    # shadow clips between the words and appears as a black center tick.
     for offset, label in (
         (0x03B4, "Fervus second-row action font"),
         (0x055C, "Fervus third-row action font"),
@@ -2917,6 +2917,53 @@ def restore_native_fervus_probe_rows(
         if output[offset : offset + 4] != b"fnt4":
             raise ValueError(f"Stock AP69 {label} changed")
         output[offset : offset + 4] = b"fnt7"
+    return bytes(output)
+
+
+def normalize_brewing_recipe_button_plates(brewing_menu: bytes) -> bytes:
+    """Use private AP69 copies of APa1's stock gold button plate.
+
+    Weapon Oil and Phoenix Phial already use the stock Guardhouse Arrows
+    compound button with INBb image-set 0x3FD. Preserve every AP69 action
+    control, descriptor, image-set identity, and 162x20 geometry. Only route
+    the two restored lower rows to private ALBB, whose three AP69 image sets
+    contain dimension-matched copies of APa1's complete gold plate.
+    """
+    output = bytearray(brewing_menu)
+    if output.count(b"INTN") != 2:
+        raise ValueError("CGBR lower recipe icon count changed")
+    # Preserve AP69's two real icon controls and image-set IDs. Route only
+    # their art owner to the existing private INTN clone, where 0x3F6 and
+    # 0x3F7 carry the approved Tempest and Stone state families.
+    output = bytearray(bytes(output).replace(b"INTN", b"ALIN"))
+    # AP69 reserves 42 pixels of each action label for its price child. The
+    # Parts actions hide that complete child, so widen only the stock label
+    # field from 120 to the full 162-pixel action plate. Its native centering
+    # and fnt4 rendering remain unchanged.
+    for width_offset, label in (
+        (0x0348, "Alchemical Tempest"),
+        (0x04F0, "Philosopher's Stone"),
+    ):
+        if u32(output, width_offset) != 120:
+            raise ValueError(f"CGBR {label} stock text width changed")
+        struct.pack_into("<I", output, width_offset, 162)
+    for art_offset, stock_art, image_set, label in (
+        (0x01C4, b"ALBB", 0x405, "Vigor Elixir"),
+        (0x036C, b"INBb", 0x406, "Alchemical Tempest"),
+        (0x0514, b"INBb", 0x407, "Philosopher's Stone"),
+    ):
+        if output[art_offset : art_offset + 4] != stock_art:
+            raise ValueError(f"CGBR {label} stock button art changed")
+        if u32(output, art_offset + 8) != image_set:
+            raise ValueError(f"CGBR {label} stock button image-set changed")
+        output[art_offset : art_offset + 4] = b"ALBB"
+    for rect_offset, expected, label in (
+        (0x0184, VIGOR_ROW_OUTER_RECT, "Vigor Elixir"),
+        (0x032C, (30, 139, 162, 20), "Alchemical Tempest"),
+        (0x04D4, (30, 164, 162, 20), "Philosopher's Stone"),
+    ):
+        if struct.unpack_from("<4I", output, rect_offset) != expected:
+            raise ValueError(f"CGBR {label} stock button rectangle changed")
     return bytes(output)
 
 
@@ -3080,6 +3127,7 @@ def build_text_cam(
     )
     brewing_menu = privateize_brewing_action_control(brewing_menu)
     brewing_menu = add_native_rage_progress_control(brewing_menu, rage_menu)
+    brewing_menu = normalize_brewing_recipe_button_plates(brewing_menu)
     research_menu = read_cam_entry(
         stock_text_cam, b"SMNU", SOURCE_RESEARCH_DIALOG_ID
     ).data
@@ -3164,10 +3212,10 @@ def build_text_cam(
             # streamed text properties still address the same stock STRT
             # positions; only CGBR's private copies of those strings differ.
             4: "Alchemical Tempest",
-            5: "Cast Alchemical Tempest.",
+            5: "Destroy ordinary enemies in a wide area. Requires 10 Reagents.",
             6: "",
             7: "Philosopher's Stone",
-            8: "Create a Philosopher's Stone.",
+            8: "Transmute one ordinary enemy into 3000 gold. Requires 10 Reagents.",
             # APa1's presenter replaces this fallback with each descriptor's
             # live price (250 for Oil, 750 for Phoenix).
             9: "250",
@@ -3175,7 +3223,7 @@ def build_text_cam(
             28: "Invigorated",
             29: "Researching Weapon Oil",
             30: "Researching Phoenix Phial",
-            33: "PARTS",
+            33: "Reagents: 0/10",
             34: "Phoenix Phial",
             35: "Research Phoenix Phials for sale to heroes.",
             36: "Weapon Oil",
@@ -4147,11 +4195,15 @@ def validate_output(
         raise ValueError("CGAL still references stock interface art")
     if (
         brewing_menu.count(b"INTI") != 2
-        or brewing_menu.count(b"INBb") != 2
-        or brewing_menu.count(b"INTN") != 2
+        or b"INBb" in brewing_menu
+        or b"INTN" in brewing_menu
+        or brewing_menu.count(b"ALBB") != 5
+        or brewing_menu.count(b"ALIN") != 3
         or b"INBg" in brewing_menu
     ):
-        raise ValueError("CGBR does not contain exactly two literal stock Fervus rows")
+        raise ValueError(
+            "CGBR recipe rows do not use five matching stock gold button plates"
+        )
     if b"ALIN" not in brewing_menu:
         raise ValueError("CGBR does not use the private Vigor recipe-icon art")
     if (
@@ -4319,9 +4371,9 @@ def validate_output(
         raise ValueError("CGBR Phoenix Phial label is missing")
     for private_text in (
         b"Alchemical Tempest\x00",
-        b"Cast Alchemical Tempest.\x00",
+        b"Destroy ordinary enemies in a wide area. Requires 10 Reagents.\x00",
         b"Philosopher's Stone\x00",
-        b"Create a Philosopher's Stone.\x00",
+        b"Transmute one ordinary enemy into 3000 gold. Requires 10 Reagents.\x00",
     ):
         if private_text not in brewing_strings:
             raise ValueError(f"CGBR private stock-row text is missing: {private_text!r}")
@@ -4333,9 +4385,9 @@ def validate_output(
     )
     for index, expected_text in (
         (4, b"Alchemical Tempest"),
-        (5, b"Cast Alchemical Tempest."),
+        (5, b"Destroy ordinary enemies in a wide area. Requires 10 Reagents."),
         (7, b"Philosopher's Stone"),
-        (8, b"Create a Philosopher's Stone."),
+        (8, b"Transmute one ordinary enemy into 3000 gold. Requires 10 Reagents."),
     ):
         string_offset = brewing_string_offsets[index]
         string_end = brewing_strings.index(b"\x00", string_offset + 4)
@@ -4359,12 +4411,20 @@ def validate_output(
             raise ValueError(f"CGBR {label} native row is missing or moved")
         if control_offset >= first_progress_art:
             raise ValueError(f"CGBR {label} no longer occupies its native AP69 slot")
-    if brewing_menu[0x036C:0x0370] != b"INBb" or u32(brewing_menu, 0x0374) != 0x406:
-        raise ValueError("CGBR stock Fervus 0x1132 art changed")
-    if brewing_menu[0x0514:0x0518] != b"INBb" or u32(brewing_menu, 0x051C) != 0x407:
-        raise ValueError("CGBR stock Fervus 0x1133 art changed")
+    for art_offset, image_set, label in (
+        (0x01C4, 0x405, "Vigor Elixir"),
+        (0x036C, 0x406, "Alchemical Tempest"),
+        (0x0514, 0x407, "Philosopher's Stone"),
+    ):
+        if (
+            brewing_menu[art_offset : art_offset + 4] != b"ALBB"
+            or u32(brewing_menu, art_offset + 8) != image_set
+        ):
+            raise ValueError(f"CGBR {label} lost its private AP69 button plate")
     if brewing_menu[0x03B4:0x03B8] != b"fnt7" or brewing_menu[0x055C:0x0560] != b"fnt7":
-        raise ValueError("CGBR private stock rows lost Majesty's compact stock font")
+        raise ValueError("CGBR private stock rows lost Majesty's centered spell font")
+    if u32(brewing_menu, 0x0348) != 162 or u32(brewing_menu, 0x04F0) != 162:
+        raise ValueError("CGBR Parts labels do not own their complete action plates")
     for offset, rectangle, label in (
         (0x02D8, (2, 137, 25, 25), "0x1132 icon"),
         (0x032C, (30, 139, 162, 20), "0x1132 action"),

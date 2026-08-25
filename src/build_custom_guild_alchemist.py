@@ -152,13 +152,14 @@ BREWING_ALCHEMICAL_TEMPEST_PRICE_CONTROL_ID = (
 BREWING_PHILOSOPHERS_STONE_PRICE_CONTROL_ID = (
     BREWING_PHILOSOPHERS_STONE_CONTROL_ID - 1000
 )
-AP22_STATIC_LABEL_RECORD_START = 0x00A0
-AP22_STATIC_LABEL_RECORD_END = 0x0110
-AP22_STATIC_LABEL_RECT = (46, 29, 113, 15)
-AP22_STATIC_LABEL_TEXT_INDEX_OFFSET = 0x1C
-AP22_STATIC_LABEL_CONTROL_ID_OFFSET = 0x44
-AP22_STATIC_LABEL_CONTROL_ID = 0x0BB9
-REAGENT_LABEL_RECT = (47, 193, 98, 15)
+AP69_TITLE_RECORD_START = 0x074C
+AP69_TITLE_RECORD_END = 0x07A0
+AP69_TITLE_RECT = (33, 32, 137, 20)
+AP69_TITLE_TEXT_INDEX_OFFSET = 0x1C
+AP69_TITLE_CONTROL_ID_OFFSET = 0x44
+AP69_TITLE_CONTROL_ID = 0x0002
+AP69_TITLE_FONT_OFFSET = 0x4C
+REAGENT_LABEL_RECT = (47, 193, 78, 15)
 AP22_HEALING_COUNT_RECORD_START = 0x05EC
 AP22_HEALING_COUNT_RECORD_END = 0x0688
 AP22_HEALING_COUNT_RECT = (161, 198, 32, 17)
@@ -168,7 +169,7 @@ AP22_HEALING_COUNT_CONTROL_ID_OFFSET = 0x44
 AP22_HEALING_COUNT_CONTROL_ID = 0x03F8
 AP22_HEALING_COUNT_BINDING_ID_OFFSET = 0x74
 AP22_HEALING_COUNT_BINDING_ID = 0x232A
-REAGENT_COUNT_RECT = (151, 193, 40, 15)
+REAGENT_COUNT_RECT = (125, 193, 32, 15)
 BREWING_REAGENT_COUNT_BINDING_ID = 0x2A25
 # Northern Expansion's final stock AITX table contains 309 records. Private
 # intents append after it so expansion statuses are never replaced.
@@ -3159,28 +3160,30 @@ def append_stock_research_action_control(
     return bytes(brewing_menu[:insertion] + source + brewing_menu[insertion:])
 
 
-def add_reagent_label_control(brewing_menu: bytes, items_menu: bytes) -> bytes:
-    """Clone AP22's Current Items text control as the Reagents label."""
+def add_reagent_label_control(
+    brewing_menu: bytes, stock_brewing_menu: bytes
+) -> bytes:
+    """Clone AP69's gold title text control as the Reagents label."""
     source = bytearray(
-        items_menu[AP22_STATIC_LABEL_RECORD_START:AP22_STATIC_LABEL_RECORD_END]
+        stock_brewing_menu[AP69_TITLE_RECORD_START:AP69_TITLE_RECORD_END]
     )
-    if len(source) != 0x70 or source[-4:] != b"\xff" * 4:
-        raise ValueError("Stock AP22 static-label template changed")
+    if len(source) != 0x54 or source[-4:] != b"\xff" * 4:
+        raise ValueError("Stock AP69 title-label template changed")
     if (
         u32(source, 0) != 5
-        or struct.unpack_from("<4I", source, 0x08) != AP22_STATIC_LABEL_RECT
+        or struct.unpack_from("<4I", source, 0x08) != AP69_TITLE_RECT
         or u32(source, 0x18) != 7
-        or u32(source, AP22_STATIC_LABEL_TEXT_INDEX_OFFSET) != 0
-        or u32(source, AP22_STATIC_LABEL_CONTROL_ID_OFFSET)
-        != AP22_STATIC_LABEL_CONTROL_ID
+        or u32(source, AP69_TITLE_TEXT_INDEX_OFFSET) != 13
+        or u32(source, AP69_TITLE_CONTROL_ID_OFFSET) != AP69_TITLE_CONTROL_ID
+        or source[AP69_TITLE_FONT_OFFSET : AP69_TITLE_FONT_OFFSET + 4] != b"fnt4"
     ):
-        raise ValueError("Stock AP22 static-label contract changed")
+        raise ValueError("Stock AP69 title-label contract changed")
     struct.pack_into("<4I", source, 0x08, *REAGENT_LABEL_RECT)
-    struct.pack_into("<I", source, AP22_STATIC_LABEL_TEXT_INDEX_OFFSET, 33)
+    struct.pack_into("<I", source, AP69_TITLE_TEXT_INDEX_OFFSET, 33)
     struct.pack_into(
         "<I",
         source,
-        AP22_STATIC_LABEL_CONTROL_ID_OFFSET,
+        AP69_TITLE_CONTROL_ID_OFFSET,
         BREWING_REAGENT_METER_LABEL_CONTROL_ID,
     )
     if brewing_menu[-8:] != b"\xff" * 8:
@@ -3390,7 +3393,7 @@ def build_text_cam(
     if brewing_menu.count(b"INSr") != 3:
         raise ValueError("CGBR must contain exactly three stock Rage progress-art references")
     brewing_menu = brewing_menu.replace(b"INSr", b"ALSR")
-    brewing_menu = add_reagent_label_control(brewing_menu, items_menu)
+    brewing_menu = add_reagent_label_control(brewing_menu, stock_brewing_menu)
     brewing_menu = add_reagent_count_control(brewing_menu, items_menu)
     brewing_strings = read_cam_entry(
         stock_text_cam, b"STRT", SOURCE_BREWING_DIALOG_ID
@@ -4535,7 +4538,7 @@ def validate_output(
         raise ValueError("CGBR AP22 Reagents label is missing or duplicated")
     reagent_label_record = (
         brewing_menu.index(reagent_label_marker)
-        - AP22_STATIC_LABEL_CONTROL_ID_OFFSET
+        - AP69_TITLE_CONTROL_ID_OFFSET
     )
     if (
         u32(brewing_menu, reagent_label_record) != 5
@@ -4543,11 +4546,16 @@ def validate_output(
         != REAGENT_LABEL_RECT
         or u32(
             brewing_menu,
-            reagent_label_record + AP22_STATIC_LABEL_TEXT_INDEX_OFFSET,
+            reagent_label_record + AP69_TITLE_TEXT_INDEX_OFFSET,
         )
         != 33
+        or brewing_menu[
+            reagent_label_record + AP69_TITLE_FONT_OFFSET :
+            reagent_label_record + AP69_TITLE_FONT_OFFSET + 4
+        ]
+        != b"fnt4"
     ):
-        raise ValueError("CGBR AP22 Reagents label clone changed")
+        raise ValueError("CGBR AP69 Reagents title-label clone changed")
     count_marker = struct.pack("<I", BREWING_REAGENT_COUNT_CONTROL_ID)
     if brewing_menu.count(count_marker) != 1:
         raise ValueError("CGBR AP22 Reagent count control changed")

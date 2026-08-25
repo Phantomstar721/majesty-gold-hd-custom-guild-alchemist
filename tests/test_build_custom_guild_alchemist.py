@@ -2248,16 +2248,23 @@ end
         items = builder.read_cam_entry(
             stock, b"SMNU", builder.SOURCE_ITEMS_DIALOG_ID
         ).data
-        brewing = builder.add_reagent_label_control(brewing, items)
+        brewing = builder.add_reagent_label_control(brewing, brewing)
         output = builder.add_reagent_count_control(brewing, items)
         label_marker = output.index(
             struct.pack("<I", builder.BREWING_REAGENT_METER_LABEL_CONTROL_ID)
         )
-        label_record = label_marker - builder.AP22_STATIC_LABEL_CONTROL_ID_OFFSET
+        label_record = label_marker - builder.AP69_TITLE_CONTROL_ID_OFFSET
         self.assertEqual(struct.unpack_from("<I", output, label_record)[0], 5)
         self.assertEqual(
             struct.unpack_from("<4I", output, label_record + 0x08),
             builder.REAGENT_LABEL_RECT,
+        )
+        self.assertEqual(
+            output[
+                label_record + builder.AP69_TITLE_FONT_OFFSET :
+                label_record + builder.AP69_TITLE_FONT_OFFSET + 4
+            ],
+            b"fnt4",
         )
         marker = output.index(
             struct.pack("<I", builder.BREWING_REAGENT_COUNT_CONTROL_ID)

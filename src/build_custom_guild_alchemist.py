@@ -144,7 +144,6 @@ BREWING_PHOENIX_PHIAL_ICON_CONTROL_ID = BREWING_PHOENIX_PHIAL_CONTROL_ID + 500
 BREWING_PHOENIX_PHIAL_PRICE_CONTROL_ID = BREWING_PHOENIX_PHIAL_CONTROL_ID + 1000
 BREWING_ALCHEMICAL_TEMPEST_CONTROL_ID = 0x2A20
 BREWING_PHILOSOPHERS_STONE_CONTROL_ID = 0x2A21
-BREWING_REAGENT_METER_CONTROL_ID = 0x2A22
 BREWING_REAGENT_METER_LABEL_CONTROL_ID = 0x2A23
 BREWING_REAGENT_COUNT_CONTROL_ID = 0x2A24
 BREWING_ALCHEMICAL_TEMPEST_PRICE_CONTROL_ID = (
@@ -153,8 +152,13 @@ BREWING_ALCHEMICAL_TEMPEST_PRICE_CONTROL_ID = (
 BREWING_PHILOSOPHERS_STONE_PRICE_CONTROL_ID = (
     BREWING_PHILOSOPHERS_STONE_CONTROL_ID - 1000
 )
-REAGENT_METER_OUTER_RECT = (30, 190, 162, 21)
-REAGENT_METER_INNER_RECT = (31, 193, 160, 15)
+AP22_STATIC_LABEL_RECORD_START = 0x00A0
+AP22_STATIC_LABEL_RECORD_END = 0x0110
+AP22_STATIC_LABEL_RECT = (46, 29, 113, 15)
+AP22_STATIC_LABEL_TEXT_INDEX_OFFSET = 0x1C
+AP22_STATIC_LABEL_CONTROL_ID_OFFSET = 0x44
+AP22_STATIC_LABEL_CONTROL_ID = 0x0BB9
+REAGENT_LABEL_RECT = (47, 193, 98, 15)
 AP22_HEALING_COUNT_RECORD_START = 0x05EC
 AP22_HEALING_COUNT_RECORD_END = 0x0688
 AP22_HEALING_COUNT_RECT = (161, 198, 32, 17)
@@ -162,7 +166,10 @@ AP22_HEALING_COUNT_TEXT_INDEX_OFFSET = 0x1C
 AP22_HEALING_COUNT_TOOLTIP_INDEX_OFFSET = 0x24
 AP22_HEALING_COUNT_CONTROL_ID_OFFSET = 0x44
 AP22_HEALING_COUNT_CONTROL_ID = 0x03F8
+AP22_HEALING_COUNT_BINDING_ID_OFFSET = 0x74
+AP22_HEALING_COUNT_BINDING_ID = 0x232A
 REAGENT_COUNT_RECT = (151, 193, 40, 15)
+BREWING_REAGENT_COUNT_BINDING_ID = 0x2A25
 # Northern Expansion's final stock AITX table contains 309 records. Private
 # intents append after it so expansion statuses are never replaced.
 ALCHEMY_OIL_INTENT_INDEX = 309
@@ -623,7 +630,8 @@ def build_siege_test_fixture(stock_quests: Path) -> str:
         raise ValueError("The Siege agent declarations no longer match the SDK fixture")
     function = function.replace(
         declare_anchor,
-        "\tagent palace, enemypalace, alchemyLab, testAlchemist, testWarrior;",
+        "\tagent palace, enemypalace, alchemyLab, testAlchemistOne, "
+        "testAlchemistTwo, testWarriorOne, testWarriorTwo;",
         1,
     )
     anchor = '\tpalace = $GetPlayerOnePalace ();'
@@ -635,13 +643,23 @@ def build_siege_test_fixture(stock_quests: Path) -> str:
         '$RandomCoord ( palace, 400, 525 ), "MaxHP" );'
         + '\n\talchemyLab\'s "num_resources" = 20;'
         + '\n\t$SetAttribute ( alchemyLab, #ATTRIB_ReturnAmount, 20 );'
-        + '\n\ttestWarrior = $SpawnUnit ( palace, "Warrior", '
+        + '\n\t$AdjustPlayerData ( palace, "gold", 100000 );'
+        + '\n\ttestWarriorOne = $SpawnUnit ( palace, "Warrior", '
         '$RandomCoord ( alchemyLab, 150, 200 ) );'
-        + '\n\ttestAlchemist = $SpawnUnit ( alchemyLab, "Alchemist", '
+        + '\n\ttestWarriorTwo = $SpawnUnit ( palace, "Warrior", '
+        '$RandomCoord ( alchemyLab, 175, 225 ) );'
+        + '\n\ttestAlchemistOne = $SpawnUnit ( alchemyLab, "Alchemist", '
         '$RandomCoord ( alchemyLab, 200, 250 ) );'
+        + '\n\ttestAlchemistTwo = $SpawnUnit ( alchemyLab, "Alchemist", '
+        '$RandomCoord ( alchemyLab, 225, 275 ) );'
     )
     setup = ""
-    for buyer in ("testWarrior", "testAlchemist"):
+    for buyer in (
+        "testWarriorOne",
+        "testWarriorTwo",
+        "testAlchemistOne",
+        "testAlchemistTwo",
+    ):
         setup += (
             f'\n\t$Advance_To_Level ( {buyer}, 10 );'
             f'\n\t$SetAttribute ( {buyer}, #ATTRIB_Experience, 0 );'
@@ -1109,7 +1127,6 @@ def build_alchemist_shapeshift(stock_spells: Path) -> str:
 def build_gpl_project(include_siege_test_fixture: bool) -> str:
     sources = [
         'source="Alchemist_Rogue.gpl"',
-        'source="Alchemist_Cast.gpl"',
         'source="Alchemist_Embassy.gpl"',
         'source="Alchemist_Magic_Bazaar.gpl"',
         'source="Alchemist_Inventory.gpl"',
@@ -2022,7 +2039,9 @@ def build_stun_serum_xml(stock_actions_xml: Path, stock_overlays_xml: Path) -> b
     action.set("ID", STUN_SERUM_ACTION_ID)
     action.set("Name", STUN_SERUM_ACTION_NAME)
     action.set("Description", "Stun Serum")
-    action.find("./Engine/Sound").set("value", ALCHEMIST_BOTTLE_BREAK_SOUND)
+    # The stock action Begin phase owns cast-timing audio. Use it for the voice;
+    # the private GPL impact callback plays the bottle break on the target.
+    action.find("./Engine/Sound").set("value", ALCHEMIST_CAST_VOICE_SOUND)
     action.find("./Engine/Script").set("GPLFunction", "Alchemist_Stun_Serum_Begin")
     action.find("./Game/EffectorDuration").set("value", STUN_SERUM_DURATION_MS)
     action.find("./Game/TimeoutDuration").set("value", STUN_SERUM_COOLDOWN_MS)
@@ -2133,7 +2152,7 @@ def build_miasma_mist_xml(
     action.set("Name", MIASMA_MIST_ACTION_NAME)
     action.set("Description", "Miasma Mist")
     action_engine = action.find("./Engine")
-    ET.SubElement(action_engine, "Sound", {"value": ALCHEMIST_BOTTLE_BREAK_SOUND})
+    ET.SubElement(action_engine, "Sound", {"value": ALCHEMIST_CAST_VOICE_SOUND})
     ET.SubElement(action_engine, "SoundPhase", {"begin": "Begin"})
     action.find("./Engine/Script").set(
         "GPLFunction", "Alchemist_Miasma_Mist_Hit"
@@ -3140,33 +3159,33 @@ def append_stock_research_action_control(
     return bytes(brewing_menu[:insertion] + source + brewing_menu[insertion:])
 
 
-def add_reagent_meter_control(brewing_menu: bytes, rage_menu: bytes) -> bytes:
-    """Clone AP24's native progress display at the bottom of CGBR."""
-    source = bytearray(rage_menu[RAGE_PROGRESS_RECORD_OFFSET:])
-    if len(source) != 0xEC or source[-8:] != b"\xff" * 8:
-        raise ValueError("Stock AP24 reagent-meter template changed")
-    struct.pack_into("<4I", source, 0x08, *REAGENT_METER_OUTER_RECT)
-    struct.pack_into(
-        "<4I", source, RAGE_PROGRESS_RECT_OFFSET, *REAGENT_METER_INNER_RECT
+def add_reagent_label_control(brewing_menu: bytes, items_menu: bytes) -> bytes:
+    """Clone AP22's Current Items text control as the Reagents label."""
+    source = bytearray(
+        items_menu[AP22_STATIC_LABEL_RECORD_START:AP22_STATIC_LABEL_RECORD_END]
     )
-    struct.pack_into("<I", source, 0x6C, BREWING_REAGENT_METER_CONTROL_ID)
+    if len(source) != 0x70 or source[-4:] != b"\xff" * 4:
+        raise ValueError("Stock AP22 static-label template changed")
+    if (
+        u32(source, 0) != 5
+        or struct.unpack_from("<4I", source, 0x08) != AP22_STATIC_LABEL_RECT
+        or u32(source, 0x18) != 7
+        or u32(source, AP22_STATIC_LABEL_TEXT_INDEX_OFFSET) != 0
+        or u32(source, AP22_STATIC_LABEL_CONTROL_ID_OFFSET)
+        != AP22_STATIC_LABEL_CONTROL_ID
+    ):
+        raise ValueError("Stock AP22 static-label contract changed")
+    struct.pack_into("<4I", source, 0x08, *REAGENT_LABEL_RECT)
+    struct.pack_into("<I", source, AP22_STATIC_LABEL_TEXT_INDEX_OFFSET, 33)
     struct.pack_into(
         "<I",
         source,
-        RAGE_ACTIVE_DISPLAY_ID_OFFSET,
+        AP22_STATIC_LABEL_CONTROL_ID_OFFSET,
         BREWING_REAGENT_METER_LABEL_CONTROL_ID,
     )
-    struct.pack_into("<I", source, RAGE_ACTIVE_DISPLAY_LABEL_INDEX_OFFSET, 33)
-    source = source.replace(b"INSr", b"ALSR")
     if brewing_menu[-8:] != b"\xff" * 8:
-        raise ValueError("CGBR terminal marker changed before reagent-meter insertion")
-    # Stock SMNU streams end the final control with FFFFFFFF and then carry a
-    # second FFFFFFFF as the stream terminator. Preserve CGBR's final-control
-    # terminator, replace only its stream terminator, and let the literal AP24
-    # clone retain its own final-control and stream terminators. Removing both
-    # CGBR words would concatenate AP24's opcode onto the preceding control;
-    # retaining both would leave an invalid third terminator in the stream.
-    return bytes(brewing_menu[:-4] + source)
+        raise ValueError("CGBR terminal marker changed before reagent-label insertion")
+    return bytes(brewing_menu[:-4] + source + b"\xff" * 4)
 
 
 def add_reagent_count_control(brewing_menu: bytes, items_menu: bytes) -> bytes:
@@ -3191,6 +3210,8 @@ def add_reagent_count_control(brewing_menu: bytes, items_menu: bytes) -> bytes:
         or u32(source, AP22_HEALING_COUNT_TOOLTIP_INDEX_OFFSET) != 16
         or u32(source, AP22_HEALING_COUNT_CONTROL_ID_OFFSET)
         != AP22_HEALING_COUNT_CONTROL_ID
+        or u32(source, AP22_HEALING_COUNT_BINDING_ID_OFFSET)
+        != AP22_HEALING_COUNT_BINDING_ID
     ):
         raise ValueError("Stock AP22 Healing Potion count bindings changed")
     struct.pack_into("<4I", source, 0x08, *REAGENT_COUNT_RECT)
@@ -3205,6 +3226,12 @@ def add_reagent_count_control(brewing_menu: bytes, items_menu: bytes) -> bytes:
         source,
         AP22_HEALING_COUNT_CONTROL_ID_OFFSET,
         BREWING_REAGENT_COUNT_CONTROL_ID,
+    )
+    struct.pack_into(
+        "<I",
+        source,
+        AP22_HEALING_COUNT_BINDING_ID_OFFSET,
+        BREWING_REAGENT_COUNT_BINDING_ID,
     )
     if source.count(b"INTI") != 1:
         raise ValueError("Stock AP22 Healing Potion count art changed")
@@ -3363,7 +3390,7 @@ def build_text_cam(
     if brewing_menu.count(b"INSr") != 3:
         raise ValueError("CGBR must contain exactly three stock Rage progress-art references")
     brewing_menu = brewing_menu.replace(b"INSr", b"ALSR")
-    brewing_menu = add_reagent_meter_control(brewing_menu, rage_menu)
+    brewing_menu = add_reagent_label_control(brewing_menu, items_menu)
     brewing_menu = add_reagent_count_control(brewing_menu, items_menu)
     brewing_strings = read_cam_entry(
         stock_text_cam, b"STRT", SOURCE_BREWING_DIALOG_ID
@@ -3418,7 +3445,7 @@ def build_text_cam(
             35: "Research Phoenix Phials for sale to heroes.",
             36: "Weapon Oil",
             37: "Research weapon oil for the Laboratory's stock enchanting service.",
-            39: "0/10",
+            39: "0",
             40: "This Laboratory's current number of stored Reagents.",
         },
     )
@@ -3683,7 +3710,6 @@ def build_manifest(include_siege_test_fixture: bool = False) -> str:
 \t\t\t\t\t\t<Source>GPL\\Alchemist_Phoenix_Phial.dat</Source>
 \t\t\t\t\t\t<Source>GPL\\Alchemist_Reagent.dat</Source>
 \t\t\t\t\t\t<Source>GPL\\Alchemist_Rogue.gpl</Source>
-\t\t\t\t\t\t<Source>GPL\\Alchemist_Cast.gpl</Source>
 \t\t\t\t\t\t<Source>GPL\\Alchemist_Embassy.gpl</Source>
 \t\t\t\t\t\t<Source>GPL\\Alchemist_Magic_Bazaar.gpl</Source>
 \t\t\t\t\t\t<Source>GPL\\Alchemist_Inventory.gpl</Source>
@@ -3740,7 +3766,6 @@ def validate_output(
         output_root / "GPL" / "Alchemist_Phoenix_Phial.dat",
         output_root / "GPL" / "Alchemist_Reagent.dat",
         output_root / "GPL" / "Alchemist_Rogue.gpl",
-        output_root / "GPL" / "Alchemist_Cast.gpl",
         output_root / "GPL" / "Alchemist_Embassy.gpl",
         output_root / "GPL" / "Alchemist_Magic_Bazaar.gpl",
         output_root / "GPL" / "Alchemist_Inventory.gpl",
@@ -3984,7 +4009,7 @@ def validate_output(
         or stun_action.find("./Game/ValidationScript").get("value")
         != "Alchemist_Stun_Serum_Check"
         or stun_action.find("./Engine/Sound").get("value")
-        != ALCHEMIST_BOTTLE_BREAK_SOUND
+        != ALCHEMIST_CAST_VOICE_SOUND
     ):
         raise ValueError("Stun Serum lost Paralytic Gaze's stock action contract")
     if stun_impact.find("./Engine/ImageIDBase").get("value") != "ASS1":
@@ -4037,7 +4062,7 @@ def validate_output(
         or miasma_action.find("./Game/ValidationScript").get("value")
         != "Alchemist_Miasma_Mist_Check"
         or miasma_action.find("./Engine/Sound").get("value")
-        != ALCHEMIST_BOTTLE_BREAK_SOUND
+        != ALCHEMIST_CAST_VOICE_SOUND
     ):
         raise ValueError("Miasma Mist lost its stock Meteor Storm action contract")
     if (
@@ -4503,30 +4528,29 @@ def validate_output(
     brewing_menu = read_cam_entry(text_cam, b"SMNU", BREWING_DIALOG_ID).data
     if brewing_menu == b"":
         raise ValueError("CGBR menu is empty")
-    if struct.pack("<I", BREWING_REAGENT_METER_CONTROL_ID) in menu:
-        raise ValueError("CGAL still contains the Reagent Stock meter")
-    reagent_meter_record = (
-        brewing_menu.index(struct.pack("<I", BREWING_REAGENT_METER_CONTROL_ID))
-        - 0x6C
+    reagent_label_marker = struct.pack(
+        "<I", BREWING_REAGENT_METER_LABEL_CONTROL_ID
     )
-    if u32(brewing_menu, reagent_meter_record) != 9:
-        raise ValueError("CGBR Reagent Stock meter is not AP24's stock display record")
-    if struct.unpack_from(
-        "<4I", brewing_menu, reagent_meter_record + 0x08
-    ) != REAGENT_METER_OUTER_RECT:
-        raise ValueError("CGBR Reagent Stock meter outer rectangle changed")
-    if struct.unpack_from(
-        "<4I", brewing_menu, reagent_meter_record + RAGE_PROGRESS_RECT_OFFSET
-    ) != REAGENT_METER_INNER_RECT:
-        raise ValueError("CGBR Reagent Stock meter inner rectangle changed")
+    if brewing_menu.count(reagent_label_marker) != 1:
+        raise ValueError("CGBR AP22 Reagents label is missing or duplicated")
+    reagent_label_record = (
+        brewing_menu.index(reagent_label_marker)
+        - AP22_STATIC_LABEL_CONTROL_ID_OFFSET
+    )
     if (
-        u32(brewing_menu, reagent_meter_record + RAGE_ACTIVE_DISPLAY_ID_OFFSET)
-        != BREWING_REAGENT_METER_LABEL_CONTROL_ID
+        u32(brewing_menu, reagent_label_record) != 5
+        or struct.unpack_from("<4I", brewing_menu, reagent_label_record + 0x08)
+        != REAGENT_LABEL_RECT
+        or u32(
+            brewing_menu,
+            reagent_label_record + AP22_STATIC_LABEL_TEXT_INDEX_OFFSET,
+        )
+        != 33
     ):
-        raise ValueError("CGBR Reagent Stock label control changed")
+        raise ValueError("CGBR AP22 Reagents label clone changed")
     count_marker = struct.pack("<I", BREWING_REAGENT_COUNT_CONTROL_ID)
     if brewing_menu.count(count_marker) != 1:
-        raise ValueError("CGBR AP22 Reagent count control is missing or duplicated")
+        raise ValueError("CGBR AP22 Reagent count control changed")
     reagent_count_record = brewing_menu.index(count_marker) - (
         AP22_HEALING_COUNT_CONTROL_ID_OFFSET
     )
@@ -4544,6 +4568,11 @@ def validate_output(
             reagent_count_record + AP22_HEALING_COUNT_TOOLTIP_INDEX_OFFSET,
         )
         != 40
+        or u32(
+            brewing_menu,
+            reagent_count_record + AP22_HEALING_COUNT_BINDING_ID_OFFSET,
+        )
+        != BREWING_REAGENT_COUNT_BINDING_ID
     ):
         raise ValueError("CGBR AP22 Reagent count clone changed")
     if brewing_menu[-8:] != b"\xff" * 8 or brewing_menu[-12:] == b"\xff" * 12:
@@ -4949,7 +4978,7 @@ def validate_output(
         raise ValueError("CGBR active progress label is missing")
     if b"Phoenix Phial\x00" not in brewing_strings:
         raise ValueError("CGBR Phoenix Phial label is missing")
-    if b"Reagents\x00" not in brewing_strings or b"0/10\x00" not in brewing_strings:
+    if b"Reagents\x00" not in brewing_strings or b"0\x00" not in brewing_strings:
         raise ValueError("CGBR AP22-shaped Reagent label/count strings are missing")
     for private_text in (
         b"Alchemical Tempest\x00",
@@ -4971,7 +5000,7 @@ def validate_output(
         (7, b"Philosopher's Stone"),
         (8, b"Transmute one ordinary enemy into 3000 gold. Requires 10 Reagents."),
         (33, b"Reagents"),
-        (39, b"0/10"),
+        (39, b"0"),
         (40, b"This Laboratory's current number of stored Reagents."),
     ):
         string_offset = brewing_string_offsets[index]
@@ -4984,7 +5013,7 @@ def validate_output(
     active_label_end = brewing_strings.index(b"\x00", active_label_offset + 4)
     if brewing_strings[active_label_offset + 4 : active_label_end] != b"Invigorated":
         raise ValueError("CGBR STRT index 28 is not the Invigorated label")
-    if brewing_menu.count(b"ALSR") != 4 or b"INSr" in brewing_menu:
+    if brewing_menu.count(b"ALSR") != 3 or b"INSr" in brewing_menu:
         raise ValueError("CGBR private progress art displays are missing")
     first_progress_art = brewing_menu.index(b"ALSR")
     for control_id, control_offset, label in (
@@ -5200,27 +5229,12 @@ def validate_output(
     reagent_source = (
         output_root / "GPL" / "Alchemist_Reagents.gpl"
     ).read_text(encoding="utf-8")
-    cast_source = (
-        output_root / "GPL" / "Alchemist_Cast.gpl"
-    ).read_text(encoding="utf-8")
-    cast_voice_call = '$PlaySound (ThisAgent, "Alchy_Cast", "Begin")'
+    cast_voice_call = '"Alchy_Cast"'
+    impact_sound_call = '$PlaySound (Target, "Alchy_Bottle", "Begin");'
     if cast_voice_call in flash_source:
         raise ValueError("Flash Flask must retain only its stock potion sound")
-    if cast_voice_call in stun_source or cast_voice_call in miasma_source:
-        raise ValueError("Thrown-bottle voice must not remain in an impact callback")
-    for cast_contract in (
-        "Function Cast",
-        'SpellName == "stun_serum"',
-        'SpellName == "miasma_mist"',
-        cast_voice_call,
-        '$PlaySound (ThisAgent, "VFX_CAST_SPELL1")',
-        "$castspell(thisagent,spellname,target,optionalArg);",
-    ):
-        if cast_contract not in cast_source:
-            raise ValueError(
-                f"Stock Cast clone lost its thrown-bottle sound contract: "
-                f"{cast_contract}"
-            )
+    if impact_sound_call not in stun_source or impact_sound_call not in miasma_source:
+        raise ValueError("Thrown-bottle spells lost their stock impact-phase bottle sound")
     tempest_cloud_call = (
         '$CreateEffector ( thisagent, "alchemical_tempest_cloud_effector", 2300 );'
     )
@@ -5539,7 +5553,6 @@ def build(
     shutil.copy2(GPL_SOURCE_ROOT / "Alchemist_Phoenix_Phial.dat", gpl_dir)
     shutil.copy2(GPL_SOURCE_ROOT / "Alchemist_Reagent.dat", gpl_dir)
     shutil.copy2(GPL_SOURCE_ROOT / "Alchemist_Rogue.gpl", gpl_dir)
-    shutil.copy2(GPL_SOURCE_ROOT / "Alchemist_Cast.gpl", gpl_dir)
     embassy_source = build_alchemist_embassy(
         sdk_data.parent / "GPLMx" / "TaskModules" / "Buildings" / "Embassy.gpl",
         include_phantoms,

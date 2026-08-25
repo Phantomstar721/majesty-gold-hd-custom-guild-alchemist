@@ -1134,17 +1134,23 @@ end
         self.assertIn(
             "$SetAttribute ( alchemyLab, #ATTRIB_ReturnAmount, 20 )", fixture
         )
-        self.assertIn('testWarrior = $SpawnUnit ( palace, "Warrior"', fixture)
-        self.assertIn('testAlchemist = $SpawnUnit ( alchemyLab, "Alchemist"', fixture)
-        self.assertEqual(fixture.count("$Advance_To_Level"), 2)
-        self.assertEqual(fixture.count("#ATTRIB_Gold, 5000"), 2)
+        self.assertEqual(
+            fixture.count('$SpawnUnit ( palace, "Warrior"'),
+            2,
+        )
+        self.assertEqual(
+            fixture.count('$SpawnUnit ( alchemyLab, "Alchemist"'),
+            2,
+        )
+        self.assertEqual(fixture.count("$Advance_To_Level"), 4)
+        self.assertEqual(fixture.count("#ATTRIB_Gold, 5000"), 4)
         for attribute in (
             "#ATTRIB_Weapon_Struct_Bonus, 3",
             "#ATTRIB_Armor_Struct_Bonus, 3",
             "#ATTRIB_Weapon_Magic_Bonus, 3",
             "#ATTRIB_Armor_Magic_Bonus, 3",
         ):
-            self.assertEqual(fixture.count(attribute), 2)
+            self.assertEqual(fixture.count(attribute), 4)
         for removed in (
             '"Temple_Fervus1"',
             '"Temple_Krolm"',
@@ -1152,7 +1158,6 @@ end
             '"MagicBazaar3"',
             '"Rogues_Guild1"',
             '"Warriors_Guild"',
-            '$AdjustPlayerData ( palace, "gold", 100000 )',
             "#ATTRIB_ResearchArrows",
             "#ATTRIB_ResearchPowerfulItem",
             "#ATTRIB_ResearchBazaar_Item_",
@@ -1171,7 +1176,6 @@ end
             'data="Alchemist_Phoenix_Phial.dat"\n'
             'data="Alchemist_Reagent.dat"\n'
             'source="Alchemist_Rogue.gpl"\n'
-            'source="Alchemist_Cast.gpl"\n'
             'source="Alchemist_Embassy.gpl"\n'
             'source="Alchemist_Magic_Bazaar.gpl"\n'
             'source="Alchemist_Inventory.gpl"\n'
@@ -1657,7 +1661,7 @@ end
         self.assertEqual(action.find("./Game/SpellRank").get("value"), "5")
         self.assertEqual(
             action.find("./Engine/Sound").get("value"),
-            builder.ALCHEMIST_BOTTLE_BREAK_SOUND,
+            builder.ALCHEMIST_CAST_VOICE_SOUND,
         )
         self.assertEqual(
             action.find("./Game/ValidationScript").get("value"),
@@ -1730,7 +1734,7 @@ end
         self.assertEqual(action.find("./Game/SpellRank").get("value"), "4")
         self.assertEqual(
             action.find("./Engine/Sound").get("value"),
-            builder.ALCHEMIST_BOTTLE_BREAK_SOUND,
+            builder.ALCHEMIST_CAST_VOICE_SOUND,
         )
         self.assertEqual(
             action.find("./Game/ValidationScript").get("value"),
@@ -1846,7 +1850,8 @@ end
             1,
         )
         self.assertNotIn("phoenix_phial_visual_effector", source)
-        self.assertIn("$Flee (ThisAgent, #intent_flee_lowHP)", source)
+        self.assertIn("$Flee_Absolute (ThisAgent, #intent_flee_lowHP)", source)
+        self.assertNotIn("$Flee (ThisAgent, #intent_flee_lowHP)", source)
         self.assertIn("function gravestone(agent thisagent)", source)
         self.assertNotIn("$RunThread", source)
 
@@ -2243,8 +2248,17 @@ end
         items = builder.read_cam_entry(
             stock, b"SMNU", builder.SOURCE_ITEMS_DIALOG_ID
         ).data
-        brewing = builder.add_reagent_meter_control(brewing, rage)
+        brewing = builder.add_reagent_label_control(brewing, items)
         output = builder.add_reagent_count_control(brewing, items)
+        label_marker = output.index(
+            struct.pack("<I", builder.BREWING_REAGENT_METER_LABEL_CONTROL_ID)
+        )
+        label_record = label_marker - builder.AP22_STATIC_LABEL_CONTROL_ID_OFFSET
+        self.assertEqual(struct.unpack_from("<I", output, label_record)[0], 5)
+        self.assertEqual(
+            struct.unpack_from("<4I", output, label_record + 0x08),
+            builder.REAGENT_LABEL_RECT,
+        )
         marker = output.index(
             struct.pack("<I", builder.BREWING_REAGENT_COUNT_CONTROL_ID)
         )
@@ -2269,6 +2283,14 @@ end
                 record + builder.AP22_HEALING_COUNT_TOOLTIP_INDEX_OFFSET,
             )[0],
             40,
+        )
+        self.assertEqual(
+            struct.unpack_from(
+                "<I",
+                output,
+                record + builder.AP22_HEALING_COUNT_BINDING_ID_OFFSET,
+            )[0],
+            builder.BREWING_REAGENT_COUNT_BINDING_ID,
         )
         self.assertEqual(output[record + 0x3C : record + 0x40], b"ALTI")
         self.assertEqual(output[-8:], b"\xff" * 8)

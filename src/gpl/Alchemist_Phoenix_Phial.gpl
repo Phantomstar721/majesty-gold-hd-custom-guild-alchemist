@@ -83,8 +83,11 @@ Begin
 	If (RevivedHP < 1)
 		RevivedHP = 1;
 	$SetAttribute (ThisAgent, #ATTRIB_HP, RevivedHP);
-	// Stock flee potions validate only for scared or low-HP flee intents.
-	$Flee (ThisAgent, #intent_flee_lowHP);
+	// A hero revived at home must still commit to shelter. Stock Flee can
+	// deliberately substitute Berserking when hostiles are near home; the
+	// stock absolute route skips only that substitution and retains the same
+	// home/inn use-building lifecycle.
+	$Flee_Absolute (ThisAgent, #intent_flee_lowHP);
 End
 
 ///////////////////////////////////////////////////////////////////////////////

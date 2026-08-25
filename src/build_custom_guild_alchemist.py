@@ -1830,14 +1830,14 @@ def build_brewing_overlays_xml(
     resurrection_script.set("GPLFunction", "Phoenix_Phial_Resurrection_End")
     output.append(resurrection)
 
-    # Haunt's Gravechill uses the complete stock XR30 Frost Field one-shot
-    # overlay. Clone that exact target-attached contract for the Stone and
-    # replace only its private identity, art, and silent sound reference.
-    stone_source = stock_mx_root.find(
-        './/Description[@Name="Frost_Field_Hit_Effector"]'
-    )
+    # The Stone's selected monster dies in the same callback, so its one-shot
+    # visual must be owned by Lightning Storm's surviving spell unit. Clone
+    # Got_Gold's literal position-owned overlay presenter and replace only its
+    # private identity, art, and silent sound reference. The private IMAG still
+    # retains Gravechill's approved six-frame XR30 animation topology.
+    stone_source = stock_root.find('.//Description[@Name="Got_Gold"]')
     if stone_source is None:
-        raise ValueError("Stock Frost Field hit overlay is missing")
+        raise ValueError("Stock Got_Gold position overlay is missing")
     stone = ET.fromstring(ET.tostring(stone_source, encoding="utf-8"))
     stone.set("ID", "AST1")
     stone.set("Name", "philosophers_stone_hit_effector")
@@ -4077,14 +4077,12 @@ def validate_output(
         game_path
         / "SDK"
         / "OriginalQuests"
-        / "DataMX"
-        / "MX_Overlays.xml"
+        / "Data"
+        / "M_Overlays.xml"
     ).getroot()
-    stock_stone_overlay = stock_stone_root.find(
-        './/Description[@Name="Frost_Field_Hit_Effector"]'
-    )
+    stock_stone_overlay = stock_stone_root.find('.//Description[@Name="Got_Gold"]')
     if stock_stone_overlay is None:
-        raise ValueError("Stock Frost Field hit overlay is missing during validation")
+        raise ValueError("Stock Got_Gold position overlay is missing during validation")
     expected_stone_overlay = ET.fromstring(
         ET.tostring(stock_stone_overlay, encoding="utf-8")
     )
@@ -4105,7 +4103,7 @@ def validate_output(
         expected_stone_overlay
     ):
         raise ValueError(
-            "Philosopher's Stone impact diverged from stock Frost Field hit"
+            "Philosopher's Stone impact diverged from stock Got_Gold presenter"
         )
     oil_statuses = (
         (
@@ -4997,14 +4995,18 @@ def validate_output(
     stone_effect_call = (
         '$CreateEffector ( thisagent, "philosophers_stone_hit_effector", 0 );'
     )
+    stone_gold_call = '$CreateEffector ( thisagent, "Got_Gold", 0, 3000 );'
     stone_effect_offset = reagent_source.find(stone_effect_call)
+    stone_gold_offset = reagent_source.find(stone_gold_call)
     stone_attack_offset = reagent_source.find(
         "$player_spell_attack ( target, 100000, 100000 );",
         stone_effect_offset,
     )
     if (
         reagent_source.count(stone_effect_call) != 1
+        or reagent_source.count(stone_gold_call) != 1
         or stone_effect_offset < 0
+        or stone_gold_offset < 0
         or stone_attack_offset <= stone_effect_offset
         or reagent_source.find(
             "$SetSpellUnitTimeout ( thisagent, 2300 );",
@@ -5012,7 +5014,7 @@ def validate_output(
         ) <= stone_attack_offset
     ):
         raise ValueError(
-            "Philosopher's Stone lost its position-owned stock impact lifecycle"
+            "Philosopher's Stone lost its stock position-owned impact and gold lifecycle"
         )
     if building_data.count("(title AlchemistsLaboratory)") != 3:
         raise ValueError("Every GPL Laboratory level must use its production title")

@@ -317,10 +317,12 @@ begin
 		end
 
 	$AdjustPlayerData ( laboratory, "gold", 3000 );
-	// The stock Lightning spell unit survives its impact animation. Anchor the
-	// private XR30 transmutation effect to that position-owning unit as well, so
-	// the ordinary monster can complete its native death path without deleting
-	// the visual's owner in the same script tick.
+	// Stock revenue callbacks grant gold, then create their numeric Got_Gold
+	// effector with the amount as argument 4. The selected monster dies in this
+	// callback, so Lightning Storm's surviving spell unit owns both that stock
+	// presentation and the private six-frame transmutation impact at the target
+	// location.
+	$CreateEffector ( thisagent, "Got_Gold", 0, 3000 );
 	$CreateEffector ( thisagent, "philosophers_stone_hit_effector", 0 );
 	$player_spell_attack ( target, 100000, 100000 );
 	$SetSpellUnitTimeout ( thisagent, 2300 );

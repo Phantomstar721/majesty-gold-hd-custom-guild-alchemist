@@ -22,6 +22,7 @@ from alchemist_art_package import (
     FLASH_FLASK_BUFF_CUSTOM,
     PHOENIX_EFFECT_HEADER,
     PHOENIX_EFFECT_PALETTE,
+    PHOENIX_EFFECT_TEMPLATE_ANIMATION_SET,
     PHOENIX_EFFECT_TEMPLATE_SOURCE,
     PHOENIX_LIFECYCLE_ANIMATION_SET,
     PHOENIX_LIFECYCLE_CUSTOM,
@@ -29,11 +30,16 @@ from alchemist_art_package import (
     PHOENIX_VISIBLE_FRAMES,
     PARALYTIC_OIL_RESTRAINT_CUSTOM,
     PHILOSOPHERS_STONE_HIT_CUSTOM,
+    PHILOSOPHERS_STONE_DELAY_MS,
     PHILOSOPHERS_STONE_CURSOR_SET_ID,
     RECIPE_PRIVATE_PLATE_TILE_GROUPS,
     STUN_SERUM_DEBUFF_CUSTOM,
     STUN_SERUM_IMPACT_CUSTOM,
     STUN_SERUM_RESTRAINT_CUSTOM,
+    TEMPEST_IMPACT_CUSTOM,
+    TEMPEST_MISSILE_CUSTOM,
+    TEMPEST_PARTICLE_CUSTOM,
+    TEMPEST_STORM_CUSTOM,
     TACTICAL_CURSOR_CUSTOM,
     TACTICAL_CURSOR_SOURCE,
     TACTICAL_CURSOR_TEMPLATE_SET_ID,
@@ -248,6 +254,10 @@ MIASMA_MIST_MISSILE_ID = "AMM2"
 MIASMA_MIST_CLOUD_OVERLAY_ID = "AMM3"
 MIASMA_MIST_PARTICLE_ID = "AMM4"
 MIASMA_MIST_DEBUFF_ID = "AMM5"
+ALCHEMICAL_TEMPEST_MISSILE_ID = "ATM2"
+ALCHEMICAL_TEMPEST_CLOUD_OVERLAY_ID = "ATM3"
+ALCHEMICAL_TEMPEST_PARTICLE_ID = "ATM4"
+ALCHEMICAL_TEMPEST_IMPACT_ID = "ATM7"
 MIASMA_MIST_DURATION_MS = "21000"
 MIASMA_MIST_COOLDOWN_MS = "60000"
 MIASMA_MIST_DEBUFF_DURATION_MS = "10000"
@@ -2164,8 +2174,54 @@ def build_miasma_mist_xml(
     particle.set("Description", "Miasma Mist")
     particle.find("./Engine/ImageIDBase").set("value", "AMm4")
 
+    tempest_missile = ET.fromstring(ET.tostring(stock_missile, encoding="utf-8"))
+    tempest_missile.set("ID", ALCHEMICAL_TEMPEST_MISSILE_ID)
+    tempest_missile.set("Name", "alchemical_tempest_missile")
+    tempest_missile.set("Description", "Alchemical Tempest")
+    tempest_missile.find("./Engine/ImageIDBase").set("value", "ATm2")
+    tempest_missile.find("./Engine/Script").set(
+        "GPLFunction", "Alchemical_Tempest_Missile_Hit"
+    )
+
+    tempest_cloud = ET.fromstring(ET.tostring(stock_cloud, encoding="utf-8"))
+    tempest_cloud.set("ID", ALCHEMICAL_TEMPEST_CLOUD_OVERLAY_ID)
+    tempest_cloud.set("Name", "alchemical_tempest_cloud_effector")
+    tempest_cloud.set("Description", "Alchemical Tempest")
+    tempest_cloud.find("./Engine/ImageIDBase").set("value", "ATm1")
+    tempest_cloud_attachment = tempest_cloud.find("./Engine/AttachmentPointID")
+    if tempest_cloud_attachment is None:
+        tempest_cloud_attachment = ET.SubElement(
+            tempest_cloud.find("./Engine"), "AttachmentPointID"
+        )
+    tempest_cloud_attachment.set("value", "2")
+
+    tempest_impact = ET.fromstring(ET.tostring(stock_cloud, encoding="utf-8"))
+    tempest_impact.set("ID", ALCHEMICAL_TEMPEST_IMPACT_ID)
+    tempest_impact.set("Name", "alchemical_tempest_impact")
+    tempest_impact.set("Description", "Alchemical Tempest Impact")
+    tempest_impact.find("./Engine/ImageIDBase").set("value", "ATm7")
+
+    tempest_particle = ET.fromstring(ET.tostring(stock_particle, encoding="utf-8"))
+    tempest_particle.set("ID", ALCHEMICAL_TEMPEST_PARTICLE_ID)
+    tempest_particle.set("Name", "alchemical_tempest_cloud_attachment")
+    tempest_particle.set("Description", "Alchemical Tempest")
+    tempest_particle.find("./Engine/ImageIDBase").set("value", "ATm4")
+
     output = ET.Element("Majesty")
-    output.extend((action, unit, missile, cloud, icon, particle))
+    output.extend(
+        (
+            action,
+            unit,
+            missile,
+            cloud,
+            icon,
+            particle,
+            tempest_missile,
+            tempest_cloud,
+            tempest_impact,
+            tempest_particle,
+        )
+    )
     ET.indent(output, space="\t")
     return ET.tostring(output, encoding="utf-8", xml_declaration=False) + b"\n"
 
@@ -2186,7 +2242,8 @@ def build_brewing_sounds_xml(stock_sounds_xml: Path) -> bytes:
 
     # Lightning Storm's spell unit dispatches only the stock Effector Begin
     # phase. Preserve that exact one-phase/group topology, changing only the
-    # private identity and its WAVE target to stock Meteor Storm audio SL44.
+    # private identity and its WAVE target to stock Lunord Wind Storm audio
+    # SL27, as requested for the alchemical whirlwind presentation.
     tempest_source = stock_root.find('.//Description[@Name="Lightning_Storm"]')
     if tempest_source is None:
         raise ValueError("Stock Lightning_Storm sound is missing")
@@ -2198,7 +2255,7 @@ def build_brewing_sounds_xml(stock_sounds_xml: Path) -> bytes:
     tempest_phase = tempest_sound.find('./Engine/Phase[@ID="Effector Begin"]')
     if tempest_phase is None or tempest_phase.find("./Wave") is None:
         raise ValueError("Stock Lightning_Storm Effector Begin contract changed")
-    tempest_phase.find("./Wave").set("value", "SL44")
+    tempest_phase.find("./Wave").set("value", "SL27")
     output.append(tempest_sound)
 
     # One private spell sound, cloned from Shield of Light's Begin/Spell_Group
@@ -2423,7 +2480,7 @@ def write_alchemist_sounddesc_cam(source_path: Path, output_path: Path) -> None:
             b"Lightning_Storm",
             ALCHEMIST_TEMPEST_SOUND_ID,
             ALCHEMIST_TEMPEST_SOUND.encode("ascii"),
-            (b"SL06", b"SL44"),
+            (b"SL06", b"SL27"),
         ),
     )
     entries: list[CamEntry] = []
@@ -3917,12 +3974,45 @@ def validate_output(
         or miasma_particle.find("./Engine/ImageIDBase").get("value") != "AMm4"
     ):
         raise ValueError("Miasma Mist lost its private cloud/debuff presentation")
+    tempest_missile = miasma_root.find(
+        './Description[@Name="alchemical_tempest_missile"]'
+    )
+    tempest_cloud = miasma_root.find(
+        './Description[@Name="alchemical_tempest_cloud_effector"]'
+    )
+    tempest_impact = miasma_root.find(
+        './Description[@Name="alchemical_tempest_impact"]'
+    )
+    tempest_particle = miasma_root.find(
+        './Description[@Name="alchemical_tempest_cloud_attachment"]'
+    )
+    if any(
+        item is None
+        for item in (
+            tempest_missile,
+            tempest_cloud,
+            tempest_impact,
+            tempest_particle,
+        )
+    ):
+        raise ValueError("Alchemical Tempest stock-clone presentation is incomplete")
+    if (
+        tempest_missile.find("./Engine/ImageIDBase").get("value") != "ATm2"
+        or tempest_missile.find("./Engine/Script").get("GPLFunction")
+        != "Alchemical_Tempest_Missile_Hit"
+        or tempest_cloud.find("./Engine/ImageIDBase").get("value") != "ATm1"
+        or tempest_cloud.find("./Engine/AttachmentPointID").get("value") != "2"
+        or tempest_impact.find("./Engine/ImageIDBase").get("value") != "ATm7"
+        or tempest_impact.find("./Engine/AttachmentPointID").get("value") != "3"
+        or tempest_particle.find("./Engine/ImageIDBase").get("value") != "ATm4"
+    ):
+        raise ValueError("Alchemical Tempest diverged from Meteor Storm presentation")
     sounds_root = ET.parse(
         output_root / "Data" / "alchemist_brewing_sounds.xml"
     ).getroot()
     expected_sounds = {
         ALCHEMIST_VIGOR_SOUND: {"Effector Begin": "DP01"},
-        ALCHEMIST_TEMPEST_SOUND: {"Effector Begin": "SL44"},
+        ALCHEMIST_TEMPEST_SOUND: {"Effector Begin": "SL27"},
         ALCHEMIST_BOTTLE_BREAK_SOUND: {
             "Begin": ALCHEMIST_BOTTLE_BREAK_WAVE_ID.decode("ascii")
         },
@@ -3984,7 +4074,7 @@ def validate_output(
             b"DP01",
         ),
         ALCHEMIST_TEMPEST_SOUND_ID
-        + ALCHEMIST_TEMPEST_SOUND.encode("ascii"): (b"SL44",),
+        + ALCHEMIST_TEMPEST_SOUND.encode("ascii"): (b"SL27",),
         ALCHEMIST_BOTTLE_BREAK_SOUND_ID
         + ALCHEMIST_BOTTLE_BREAK_SOUND.encode("ascii"): (
             ALCHEMIST_BOTTLE_BREAK_WAVE_ID,
@@ -4041,11 +4131,11 @@ def validate_output(
         ALCHEMIST_TEMPEST_SOUND.encode("ascii"),
     )
     expected_tempest_dsnd = replace_single_dsnd_wave(
-        expected_tempest_dsnd, b"SL06", b"SL44"
+        expected_tempest_dsnd, b"SL06", b"SL27"
     )
     if tempest_dsnd != expected_tempest_dsnd:
         raise ValueError(
-            "Alchemical Tempest sound is not an exact Lightning dispatch clone with Meteor audio"
+            "Alchemical Tempest sound is not an exact Lightning dispatch clone with Wind Storm audio"
         )
     overlays = ET.parse(
         output_root / "Data" / "alchemist_brewing_overlays.xml"
@@ -4384,6 +4474,10 @@ def validate_output(
         STUN_SERUM_RESTRAINT_CUSTOM,
         STUN_SERUM_DEBUFF_CUSTOM,
         PHILOSOPHERS_STONE_HIT_CUSTOM,
+        TEMPEST_STORM_CUSTOM,
+        TEMPEST_MISSILE_CUSTOM,
+        TEMPEST_PARTICLE_CUSTOM,
+        TEMPEST_IMPACT_CUSTOM,
     ):
         if not read_cam_entry(main_art, b"IMAG", name).data:
             raise ValueError(f"Private main art record is empty: {name!r}")
@@ -4493,8 +4587,20 @@ def validate_output(
         private_stone_image,
         dict(zip(private_stone_indices, stock_stone_indices)),
     )
+    restored_stone_image = set_single_overlay_animation_delay(
+        restored_stone_image,
+        PHOENIX_EFFECT_TEMPLATE_ANIMATION_SET,
+        (PHILOSOPHERS_STONE_DELAY_MS,),
+        FLASH_FLASK_ACTIVATION_SOURCE_DELAY_MS,
+    )
     if restored_stone_image != stock_stone_image:
-        raise ValueError("Philosopher's Stone changed XR30 timing or frame topology")
+        raise ValueError("Philosopher's Stone changed XR30 beyond its native delay")
+    stone_set_offset = struct.unpack_from("<I", private_stone_image, 28)[0]
+    if (
+        struct.unpack_from("<I", private_stone_image, stone_set_offset + 28)[0]
+        != PHILOSOPHERS_STONE_DELAY_MS
+    ):
+        raise ValueError("Philosopher's Stone lost its private XR30 cadence")
     for frame, private_index in enumerate(private_stone_indices):
         stock_template_index = stock_stone_indices[max(2, frame)]
         expected_header = list(
@@ -4532,6 +4638,8 @@ def validate_output(
         b"AFF1",
         b"AFF2",
         b"AST1",
+        b"AMm",
+        b"ATm",
     )
     first_private_main = next(
         (
@@ -4978,10 +5086,18 @@ def validate_output(
     if miasma_source.count(cast_voice_call) != 1:
         raise ValueError("Miasma Mist lost its explicit thrown-bottle cast voice")
     tempest_cloud_call = (
-        '$CreateEffector ( thisagent, "miasma_mist_cloud_effector", 2300 );'
+        '$CreateEffector ( thisagent, "alchemical_tempest_cloud_effector", 2300 );'
+    )
+    tempest_missile_call = (
+        '$CreateMissile ( "alchemical_tempest_missile", thisagent, target );'
+    )
+    tempest_impact_call = (
+        '$CreateEffector ( target, "alchemical_tempest_impact", 0 );'
     )
     if (
         reagent_source.count(tempest_cloud_call) != 1
+        or reagent_source.count(tempest_missile_call) != 1
+        or reagent_source.count(tempest_impact_call) != 1
         or reagent_source.count(
             '$NewThread ( thisagent\'s "activeScript", 500, thisagent );'
         )
@@ -4990,7 +5106,7 @@ def validate_output(
         or "lightening_storm_effector2" in reagent_source
     ):
         raise ValueError(
-            "Alchemical Tempest lost its stock Lightning lifecycle with private Miasma art"
+            "Alchemical Tempest lost its stock Lightning owner or Meteor impact lifecycle"
         )
     stone_effect_call = (
         '$CreateEffector ( thisagent, "philosophers_stone_hit_effector", 0 );'

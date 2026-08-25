@@ -278,6 +278,7 @@ class AlchemistGuildTests(unittest.TestCase):
                     art_package.FLASH_FLASK_BUFF_CUSTOM,
                     art_package.FLASH_FLASK_ACTIVATION_CUSTOM,
                     art_package.MIASMA_DEBUFF_CUSTOM,
+                    art_package.PHILOSOPHERS_STONE_HIT_CUSTOM,
                 )
             }
             stock_imag = stock.read_cam_entry(
@@ -367,6 +368,14 @@ class AlchemistGuildTests(unittest.TestCase):
         self.assertEqual(
             struct.unpack_from("<I", flash_activation, flash_set_offset + 28)[0],
             art_package.FLASH_FLASK_ACTIVATION_DELAY_MS,
+        )
+        stone_impact = packaged_effects[
+            art_package.PHILOSOPHERS_STONE_HIT_CUSTOM
+        ]
+        stone_set_offset = struct.unpack_from("<I", stone_impact, 28)[0]
+        self.assertEqual(
+            struct.unpack_from("<I", stone_impact, stone_set_offset + 28)[0],
+            art_package.PHILOSOPHERS_STONE_DELAY_MS,
         )
         lifecycle_sets = stock.single_direction_imag_animation_sets(
             phoenix_lifecycle_imag
@@ -1724,6 +1733,13 @@ end
             "miasma_mist_cloud_effector": ("AMm1", None),
             "miasma_mist_debuff_icon": ("AMm5", None),
             "miasma_mist_cloud_attachment": ("AMm4", None),
+            "alchemical_tempest_missile": (
+                "ATm2",
+                "Alchemical_Tempest_Missile_Hit",
+            ),
+            "alchemical_tempest_cloud_effector": ("ATm1", None),
+            "alchemical_tempest_impact": ("ATm7", None),
+            "alchemical_tempest_cloud_attachment": ("ATm4", None),
         }
         for name, (image, callback) in expected.items():
             description = output.find(f'./Description[@Name="{name}"]')
@@ -1770,6 +1786,20 @@ end
             "$TeleportToUnit",
         ):
             self.assertNotIn(forbidden_tracking, source)
+
+        reagent_source = (
+            builder.GPL_SOURCE_ROOT / "Alchemist_Reagents.gpl"
+        ).read_text(encoding="utf-8")
+        for stock_tempest_contract in (
+            '$CreateEffector ( thisagent, "alchemical_tempest_cloud_effector", 2300 )',
+            '$CreateMissile ( "alchemical_tempest_missile", thisagent, target )',
+            '$CreateEffector ( target, "alchemical_tempest_impact", 0 )',
+        ):
+            self.assertIn(stock_tempest_contract, reagent_source)
+        self.assertNotIn(
+            '$CreateEffector ( thisagent, "miasma_mist_cloud_effector", 2300 )',
+            reagent_source,
+        )
 
     def test_phoenix_phial_composes_stock_purchase_rebirth_and_flee(self) -> None:
         source = (builder.GPL_SOURCE_ROOT / "Alchemist_Phoenix_Phial.gpl").read_text(
@@ -1822,7 +1852,7 @@ end
         )
         self.assertEqual(
             tempest.find('./Engine/Phase[@ID="Effector Begin"]/Wave').get("value"),
-            "SL44",
+            "SL27",
         )
         self.assertEqual(
             tempest.find('./Engine/Phase[@ID="Effector Begin"]/Group').get("value"),
@@ -1955,7 +1985,7 @@ end
         self.assertNotIn(b"AHC2", hero)
         self.assertEqual(cast.count(b"AHC2"), 1)
         self.assertEqual(hired.count(b"AHS1"), 1)
-        self.assertEqual(tempest.count(b"SL44"), 1)
+        self.assertEqual(tempest.count(b"SL27"), 1)
         self.assertNotIn(b"SL06", tempest)
         self.assertIn(b"SG21", cast)
         self.assertIn(b"SG14", hired)

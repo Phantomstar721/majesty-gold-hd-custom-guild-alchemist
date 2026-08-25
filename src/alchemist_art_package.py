@@ -90,6 +90,7 @@ STUN_SERUM_RESTRAINT_CUSTOM = b"ASS2Stun Serum Bind"
 STUN_SERUM_DEBUFF_CUSTOM = b"ASS3Stun Serum Icon"
 PARALYTIC_OIL_RESTRAINT_CUSTOM = b"ASO3Oil Restraint"
 PHILOSOPHERS_STONE_HIT_CUSTOM = b"AST1Stone Hit"
+PHILOSOPHERS_STONE_DELAY_MS = 200
 MIASMA_STORM_SOURCE = b"WRg1meteor_swarm_E1"
 MIASMA_MISSILE_SOURCE = b"WPg3meteor_missile"
 MIASMA_PARTICLE_SOURCE = b"XL20MeteorStrmEffct"
@@ -99,6 +100,13 @@ MIASMA_PARTICLE_CUSTOM = b"AMm4Miasma Vapor"
 MIASMA_DEBUFF_CUSTOM = b"AMm5Miasma Icon"
 MIASMA_ANCHOR_CUSTOM = b"AMm6Miasma Anchor"
 MIASMA_PALETTE = 505
+TEMPEST_STORM_CUSTOM = b"ATm1Tempest Cloud"
+TEMPEST_MISSILE_CUSTOM = b"ATm2Tempest Missile"
+TEMPEST_PARTICLE_CUSTOM = b"ATm4Tempest Vapor"
+TEMPEST_IMPACT_SOURCE = b"WRg2meteor_blast"
+TEMPEST_IMPACT_CUSTOM = b"ATm7Tempest Impact"
+TEMPEST_RADIUS = 150
+METEOR_STORM_RADIUS = 175
 BUFF_ICON_PALETTE = 560
 OVERHEAD_EFFECT_FIT_RATIO = 0.80
 FLASH_FLASK_ACTIVATION_PALETTE = 505
@@ -223,15 +231,17 @@ def black_key_grid_frames(
     return frames
 
 
-def generated_miasma_vortex_tile(
+def generated_area_effect_tile(
     stock,
     template_tile: bytes,
     palettes,
     source_png: Path,
     frame_index: int,
     frame_count: int,
+    fit_ratio: float,
+    brightness: float,
 ) -> bytes:
-    """Clone Endless Winter's fixed ground-plane rotation with orange vapor."""
+    """Render a stable-footprint stock Meteor field with moving interior art."""
     from PIL import ImageEnhance
 
     height = struct.unpack_from("<H", template_tile, 2)[0]
@@ -240,8 +250,8 @@ def generated_miasma_vortex_tile(
     normalized_frames: list[Image.Image] = []
     for source in source_frames:
         fit = min(
-            width * 0.88 / max(1, source.width),
-            height * 0.88 / max(1, source.height),
+            width * fit_ratio / max(1, source.width),
+            height * fit_ratio / max(1, source.height),
         )
         source = source.resize(
             (
@@ -267,17 +277,9 @@ def generated_miasma_vortex_tile(
         normalized_frames[next_index],
         blend,
     )
-    deprojected = moving.resize((width, width), Image.Resampling.BICUBIC)
-    deprojected = deprojected.rotate(
-        -360.0 * phase,
-        resample=Image.Resampling.BICUBIC,
-        expand=False,
-        center=(width / 2.0, width / 2.0),
-    )
-    rotated = deprojected.resize((width, height), Image.Resampling.BICUBIC)
-
-    # Keep the cloud footprint still while the interior curls advance, exactly
-    # as the Haunt keeps Endless Winter from rotating its whole ground plane.
+    # Keep the field footprint still while its source phases undulate. This is
+    # the visual motion of Troll spawn fog inside Meteor Storm's fixed owner,
+    # not Endless Winter's rotating ground plane.
     mask = Image.new("L", (width, height), 0)
     pixels = mask.load()
     center_x = (width - 1) / 2.0
@@ -299,8 +301,8 @@ def generated_miasma_vortex_tile(
                 smooth = transition * transition * (3.0 - 2.0 * transition)
                 alpha = round(255 * (1.0 - smooth))
             pixels[x, y] = alpha
-    canvas = Image.composite(rotated, normalized_frames[0], mask)
-    canvas = ImageEnhance.Brightness(canvas).enhance(0.72)
+    canvas = Image.composite(moving, normalized_frames[0], mask)
+    canvas = ImageEnhance.Brightness(canvas).enhance(brightness)
     header = list(struct.unpack_from("<8H", template_tile, 0))
     header[4] = 32
     return stock.rgba_to_indexed_tile(
@@ -1407,6 +1409,28 @@ def write_maindata(
         source, b"IMAG", MIASMA_PARTICLE_SOURCE
     ).data
     miasma_debuff_imag = buff_icon_template_imag
+    tempest_storm_source_imag = stock.read_cam_entry(
+        source, b"IMAG", MIASMA_STORM_SOURCE
+    ).data
+    tempest_storm_imag = stock.replace_embedded_attachment_id(
+        tempest_storm_source_imag,
+        b"XL20",
+        b"ATm4",
+    )
+    tempest_missile_imag = stock.read_cam_entry(
+        source, b"IMAG", MIASMA_MISSILE_SOURCE
+    ).data
+    tempest_missile_imag = stock.replace_embedded_attachment_id(
+        tempest_missile_imag,
+        b"XL21",
+        b"\x00\x00\x00\x00",
+    )
+    tempest_particle_imag = stock.read_cam_entry(
+        source, b"IMAG", MIASMA_PARTICLE_SOURCE
+    ).data
+    tempest_impact_imag = stock.read_cam_entry(
+        source, b"IMAG", TEMPEST_IMPACT_SOURCE
+    ).data
 
     approved_bundle = (
         load_approved_sprite_bundle(
@@ -1675,7 +1699,13 @@ def write_maindata(
         repo / "assets/source/effects/paralytic-oil/approved-restraint-master.png"
     )
     miasma_cloud_source_png = (
-        repo / "assets/source/spells/miasma-mist/cloud-vortex-sheet.png"
+        repo / "assets/source/spells/miasma-mist/cloud-mist-sheet.png"
+    )
+    tempest_area_source_png = (
+        repo / "assets/source/spells/alchemical-tempest/tempest-area-sheet.png"
+    )
+    tempest_impact_source_png = (
+        repo / "assets/source/spells/alchemical-tempest/acid-impact-strip.png"
     )
     miasma_debuff_source_png = (
         repo / "assets/source/spells/miasma-mist/debuff-strip.png"
@@ -1693,6 +1723,8 @@ def write_maindata(
         stun_debuff_source_png,
         paralytic_oil_restraint_source_png,
         miasma_cloud_source_png,
+        tempest_area_source_png,
+        tempest_impact_source_png,
         miasma_debuff_source_png,
         philosophers_stone_hit_source_png,
     ):
@@ -1830,6 +1862,12 @@ def write_maindata(
         philosophers_stone_hit_imag,
         philosophers_stone_hit_replacements,
     )
+    philosophers_stone_hit_imag = set_single_overlay_animation_delay(
+        philosophers_stone_hit_imag,
+        PHOENIX_EFFECT_TEMPLATE_ANIMATION_SET,
+        (FLASH_FLASK_ACTIVATION_SOURCE_DELAY_MS,),
+        PHILOSOPHERS_STONE_DELAY_MS,
+    )
 
     # CRB1 is Vines' literal 30-TILE restraint presentation. Preserve its
     # table/ordering and privatize only those named Vines TILEs.
@@ -1926,13 +1964,15 @@ def write_maindata(
     for frame, source_index in enumerate(miasma_storm_indices):
         miasma_storm_replacements[source_index] = append(
             f"AMm1Cloud{frame:02d}".encode("ascii"),
-            generated_miasma_vortex_tile(
+            generated_area_effect_tile(
                 stock,
                 miasma_storm_template,
                 palettes,
                 miasma_cloud_source_png,
                 frame,
                 len(miasma_storm_indices),
+                0.96,
+                0.68,
             ),
         )
     miasma_storm_imag = stock.remap_imag_tile_indices(
@@ -1991,6 +2031,105 @@ def write_maindata(
     miasma_particle_imag = stock.remap_imag_animation_tiles(
         miasma_particle_imag,
         miasma_particle_replacements,
+    )
+
+    # Alchemical Tempest keeps Meteor Storm's complete field, attachment,
+    # missile, and impact topology under separate private identities. Its
+    # 150-unit field occupies exactly 150/175 of Meteor Storm's stock radius.
+    tempest_storm_indices = sorted(
+        index
+        for index in stock.referenced_tile_indices(
+            tempest_storm_source_imag, len(tiles)
+        )
+        if index >= 8000
+    )
+    if tempest_storm_indices != miasma_storm_indices:
+        raise ValueError("Tempest lost Meteor Storm's field TILE topology")
+    tempest_storm_replacements: dict[int, int] = {}
+    for frame, source_index in enumerate(tempest_storm_indices):
+        tempest_storm_replacements[source_index] = append(
+            f"ATm1Cloud{frame:02d}".encode("ascii"),
+            generated_area_effect_tile(
+                stock,
+                miasma_storm_template,
+                palettes,
+                tempest_area_source_png,
+                frame,
+                len(tempest_storm_indices),
+                0.96 * TEMPEST_RADIUS / METEOR_STORM_RADIUS,
+                0.78,
+            ),
+        )
+    tempest_storm_imag = stock.remap_imag_tile_indices(
+        tempest_storm_imag,
+        tempest_storm_replacements,
+    )
+
+    tempest_missile_indices = stock.animation_tile_indices(
+        tempest_missile_imag, len(tiles)
+    )
+    if tempest_missile_indices != miasma_missile_indices:
+        raise ValueError("Tempest lost Meteor Storm's missile TILE topology")
+    tempest_missile_blank = append(
+        b"ATm2Missile00",
+        stock.blank_indexed_v3_tile(miasma_missile_template),
+    )
+    tempest_missile_imag = stock.remap_imag_tile_indices(
+        tempest_missile_imag,
+        {index: tempest_missile_blank for index in tempest_missile_indices},
+    )
+
+    tempest_particle_indices = stock.animation_tile_indices(
+        tempest_particle_imag, len(tiles)
+    )
+    if tempest_particle_indices != miasma_particle_indices:
+        raise ValueError("Tempest lost Meteor Storm's particle TILE topology")
+    tempest_particle_replacements: dict[int, int] = {}
+    for frame, source_index in enumerate(tempest_particle_indices):
+        tempest_particle_replacements[source_index] = append(
+            f"ATm4Vapor{frame:02d}".encode("ascii"),
+            generated_miasma_particle_tile(
+                stock,
+                tiles[source_index].data,
+                palettes,
+                tempest_area_source_png,
+                frame,
+                len(tempest_particle_indices),
+            ),
+        )
+    tempest_particle_imag = stock.remap_imag_animation_tiles(
+        tempest_particle_imag,
+        tempest_particle_replacements,
+    )
+
+    tempest_impact_indices = sorted(
+        index
+        for index in stock.referenced_tile_indices(
+            tempest_impact_imag, len(tiles)
+        )
+        if index >= 8000
+    )
+    if len(tempest_impact_indices) != 8:
+        raise ValueError("Stock Meteor Storm impact is not an eight-TILE lifecycle")
+    tempest_impact_replacements: dict[int, int] = {}
+    tempest_impact_phase_indices = (0, 0, 1, 2, 3, 4, 5, 6)
+    for frame, source_index in enumerate(tempest_impact_indices):
+        template_tile = tiles[source_index].data
+        tempest_impact_replacements[source_index] = append(
+            f"ATm7Impact{frame:02d}".encode("ascii"),
+            generated_discrete_strip_tile(
+                stock,
+                palettes,
+                tempest_impact_source_png,
+                7,
+                tempest_impact_phase_indices[frame],
+                MIASMA_PALETTE,
+                struct.unpack_from("<8H", template_tile, 0),
+            ),
+        )
+    tempest_impact_imag = stock.remap_imag_tile_indices(
+        tempest_impact_imag,
+        tempest_impact_replacements,
     )
 
     miasma_debuff_replacements: dict[int, int] = {}
@@ -2219,6 +2358,10 @@ def write_maindata(
         stock.CamEntry(stock.pad_name(MIASMA_PARTICLE_CUSTOM), miasma_particle_imag),
         stock.CamEntry(stock.pad_name(MIASMA_DEBUFF_CUSTOM), miasma_debuff_imag),
         stock.CamEntry(stock.pad_name(MIASMA_ANCHOR_CUSTOM), miasma_anchor_imag),
+        stock.CamEntry(stock.pad_name(TEMPEST_STORM_CUSTOM), tempest_storm_imag),
+        stock.CamEntry(stock.pad_name(TEMPEST_MISSILE_CUSTOM), tempest_missile_imag),
+        stock.CamEntry(stock.pad_name(TEMPEST_PARTICLE_CUSTOM), tempest_particle_imag),
+        stock.CamEntry(stock.pad_name(TEMPEST_IMPACT_CUSTOM), tempest_impact_imag),
     )
     stock.write_cam(
         (

@@ -257,7 +257,7 @@ begin
 			return;
 		end
 
-	$CreateEffector ( thisagent, "miasma_mist_cloud_effector", 2300 );
+	$CreateEffector ( thisagent, "alchemical_tempest_cloud_effector", 2300 );
 	$NewThread ( thisagent's "activeScript", 500, thisagent );
 	$SetSpellUnitTimeout ( thisagent, 2300 );
 	$Alchemical_Tempest_Active ( thisagent );
@@ -273,8 +273,18 @@ begin
 	foreach target in targets do
 		if ( $Alchemist_Is_Protected_Transmutation_Target ( target ) == FALSE )
 			begin
-				$player_spell_attack ( target, 100000, 100000 );
+				$CreateMissile ( "alchemical_tempest_missile", thisagent, target );
 			end
+end
+
+///////////////////////////////////////////////////////////////////////////////
+function Alchemical_Tempest_Missile_Hit ( agent thisagent, agent target )
+///////////////////////////////////////////////////////////////////////////////
+// Literal Meteor_Missile_Hit order: target impact first, spell attack second.
+declare
+begin
+	$CreateEffector ( target, "alchemical_tempest_impact", 0 );
+	$player_spell_attack ( target, 100000, 100000 );
 end
 
 ///////////////////////////////////////////////////////////////////////////////

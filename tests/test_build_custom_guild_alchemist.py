@@ -326,6 +326,29 @@ class AlchemistGuildTests(unittest.TestCase):
             [struct.unpack_from("<I", imag, 20)[0] for imag in packaged_building_imags],
             list(building_bundle.SOURCE_IMAG_SET_COUNTS),
         )
+        building_states = building_provenance["states"]
+        for level, geometry_source in (
+            building_bundle.STABLE_STATE_GEOMETRY_SOURCE_BY_LEVEL.items()
+        ):
+            stable_states = [
+                record
+                for record in building_states
+                if record["level"] == level
+                and record["role"] in ("inactive", "active")
+            ]
+            self.assertTrue(stable_states)
+            self.assertEqual(
+                {record["geometry_source_tile_index"] for record in stable_states},
+                {geometry_source},
+            )
+            self.assertEqual(
+                len({tuple(record["packaged_canvas"]) for record in stable_states}),
+                1,
+            )
+            self.assertEqual(
+                len({tuple(record["packaged_hotspot"]) for record in stable_states}),
+                1,
+            )
         for record in building_provenance["states"]:
             tile = output_tiles[record["private_tile_index"]].data
             self.assertEqual(stock.tile_palette_index(tile), 68)
@@ -335,7 +358,7 @@ class AlchemistGuildTests(unittest.TestCase):
             )
             decoded = stock.decode_indexed_v3_tile(tile)
             self.assertIsNotNone(decoded)
-            self.assertEqual([decoded[1], decoded[0]], record["object_canvas"])
+            self.assertEqual([decoded[1], decoded[0]], record["packaged_canvas"])
             sprite_bundle.validate_split_control_segments(tile)
         flash_activation = packaged_effects[
             art_package.FLASH_FLASK_ACTIVATION_CUSTOM

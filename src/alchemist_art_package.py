@@ -23,6 +23,7 @@ from approved_building_bundle import (
     load_approved_building_bundle,
     package_approved_building_tile,
     patch_approved_building_imag,
+    stable_state_geometry,
     validate_packaged_approved_building_cam,
 )
 
@@ -2036,10 +2037,13 @@ def write_maindata(
         states = approved_building_bundle.states_by_level[level - 1]
         private_indices: dict[int, int] = {}
         for state in states:
+            geometry_state = stable_state_geometry(states, state)
             payload = package_approved_building_tile(
                 stock,
                 tiles[state.source_tile_index].data,
                 state,
+                tiles[geometry_state.source_tile_index].data,
+                geometry_state,
             )
             private_index = append(
                 f"ALB{level}State{state.source_tile_index:04d}".encode("ascii"),
@@ -2065,6 +2069,9 @@ def write_maindata(
                     "source_hotspot": list(source_hotspot),
                     "packaged_hotspot": list(packaged_hotspot),
                     "source_art_sha256": state.indexed_object_sha256,
+                    "geometry_source_tile_index": geometry_state.source_tile_index,
+                    "packaged_canvas": list(geometry_state.object_canvas),
+                    "packaged_body_bbox": list(geometry_state.body_bbox_in_object),
                     "packaged_tile_sha256": sha256_bytes(payload),
                     "occurrence_count": len(state.occurrences),
                 }

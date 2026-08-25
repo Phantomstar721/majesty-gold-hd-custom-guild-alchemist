@@ -36,6 +36,11 @@ SOURCE_INTERFACE_OCCURRENCES = (
     (0, 1000, 0, 0, 990),
     (2, 1002, 0, 0, 991),
 )
+STABLE_STATE_GEOMETRY_SOURCE_BY_LEVEL = {
+    1: 996,
+    2: 1010,
+    3: 1027,
+}
 
 
 def sha256_bytes(data: bytes) -> str:
@@ -294,6 +299,8 @@ def package_approved_building_tile(
     stock: Any,
     template: bytes,
     state: ApprovedBuildingState,
+    geometry_template: bytes | None = None,
+    geometry_state: ApprovedBuildingState | None = None,
 ) -> bytes:
     with Image.open(state.indexed_object_path) as image:
         if image.mode != "P":
@@ -301,6 +308,12 @@ def package_approved_building_tile(
         width, height = image.size
         flat = list(image.getdata())
     rows = [flat[y * width : (y + 1) * width] for y in range(height)]
+    if geometry_state is None:
+        geometry_state = state
+    if geometry_template is None:
+        geometry_template = template
+    if geometry_state is not state:
+        rows = _resize_state_rows_to_geometry(rows, state, geometry_state)
     encoded = bytearray(
         stock.encode_indexed_v3_tile_like_original(
             template,
@@ -308,8 +321,10 @@ def package_approved_building_tile(
             split_shadow_controls=True,
         )
     )
-    source_hotspot_x, source_hotspot_y = struct.unpack_from("<hh", template, 10)
-    offset_x, offset_y = state.body_source_offset_in_object
+    source_hotspot_x, source_hotspot_y = struct.unpack_from(
+        "<hh", geometry_template, 10
+    )
+    offset_x, offset_y = geometry_state.body_source_offset_in_object
     hotspot_x = source_hotspot_x + offset_x
     hotspot_y = source_hotspot_y + offset_y
     if not (-0x8000 <= hotspot_x <= 0x7FFF and -0x8000 <= hotspot_y <= 0x7FFF):
@@ -323,6 +338,106 @@ def package_approved_building_tile(
     if stock.tile_palette_index(bytes(encoded)) != SOURCE_PALETTE_INDEX:
         raise AssertionError(f"Approved building TILE lost Marketplace palette: {state.concept_key}")
     return bytes(encoded)
+
+
+def stable_state_geometry(
+    states: Sequence[ApprovedBuildingState],
+    state: ApprovedBuildingState,
+) -> ApprovedBuildingState:
+    """Return the level's canonical idle/active geometry.
+
+    Stock building state art keeps one registered architecture across the
+    inactive/active boundary.  Preserve each accepted Lab image as its own
+    visual state, but mechanically fit those states to the first active frame's
+    canvas, body bounds, and signed anchor.  Construction, damage, collapse,
+    and destroyed states retain their original geometry.
+    """
+
+    if state.role not in ("inactive", "active"):
+        return state
+    source_tile = STABLE_STATE_GEOMETRY_SOURCE_BY_LEVEL.get(state.level)
+    matches = [
+        candidate
+        for candidate in states
+        if candidate.role == "active" and candidate.source_tile_index == source_tile
+    ]
+    if len(matches) != 1:
+        raise ValueError(
+            f"Approved building level {state.level} lost its canonical active geometry"
+        )
+    return matches[0]
+
+
+def _resize_state_rows_to_geometry(
+    rows: Sequence[Sequence[int]],
+    state: ApprovedBuildingState,
+    geometry_state: ApprovedBuildingState,
+) -> list[list[int]]:
+    """Nearest-neighbour indexed resize registered by visible-body bounds."""
+
+    source_height = len(rows)
+    source_width = len(rows[0]) if rows else 0
+    if (source_width, source_height) != state.object_canvas:
+        raise ValueError(f"Approved building source canvas changed: {state.concept_key}")
+    target_width, target_height = geometry_state.object_canvas
+    source_left, source_top, source_right, source_bottom = state.body_bbox_in_object
+    target_left, target_top, target_right, target_bottom = (
+        geometry_state.body_bbox_in_object
+    )
+    source_body_width = source_right - source_left
+    source_body_height = source_bottom - source_top
+    target_body_width = target_right - target_left
+    target_body_height = target_bottom - target_top
+    if min(
+        source_body_width,
+        source_body_height,
+        target_body_width,
+        target_body_height,
+    ) <= 0:
+        raise ValueError("Approved building body geometry is empty")
+
+    resized = [[0] * target_width for _ in range(target_height)]
+    for target_y in range(target_height):
+        source_y_float = source_top + (
+            (target_y - target_top + 0.5)
+            * source_body_height
+            / target_body_height
+        ) - 0.5
+        source_y = int(source_y_float + 0.5)
+        if not 0 <= source_y < source_height:
+            continue
+        for target_x in range(target_width):
+            source_x_float = source_left + (
+                (target_x - target_left + 0.5)
+                * source_body_width
+                / target_body_width
+            ) - 0.5
+            source_x = int(source_x_float + 0.5)
+            if 0 <= source_x < source_width:
+                resized[target_y][target_x] = rows[source_y][source_x]
+
+    flat = [value for row in resized for value in row]
+    if any(value > 250 for value in flat):
+        raise ValueError("Resized building state contains forbidden palette indices")
+    body_points = [
+        (x, y)
+        for y, row in enumerate(resized)
+        for x, value in enumerate(row)
+        if 1 <= value <= 246
+    ]
+    if not body_points:
+        raise ValueError("Resized building state lost its visible body")
+    body_bbox = (
+        min(x for x, _y in body_points),
+        min(y for _x, y in body_points),
+        max(x for x, _y in body_points) + 1,
+        max(y for _x, y in body_points) + 1,
+    )
+    if body_bbox != geometry_state.body_bbox_in_object:
+        raise ValueError(
+            f"Resized building body did not reach canonical bounds: {state.concept_key}"
+        )
+    return resized
 
 
 def _frame_reference_offset(
@@ -453,7 +568,10 @@ def validate_packaged_approved_building_cam(
 
     from approved_sprite_bundle import validate_split_control_segments
 
-    if len(private_indices_by_level) != 3 or len(output_imag_names) != 3:
+    if (
+        len(private_indices_by_level) != 3
+        or len(output_imag_names) != 3
+    ):
         raise ValueError("Approved building package must contain three levels")
     output_tiles = stock.read_cam_entries(output_cam, b"TILE")
     output_palettes = stock.read_cam_entries(output_cam, b"SPLT")
@@ -474,6 +592,7 @@ def validate_packaged_approved_building_cam(
         if set(private_indices) != {state.source_tile_index for state in states}:
             raise ValueError("Approved building private TILE map is incomplete")
         for state in states:
+            geometry_state = stable_state_geometry(states, state)
             private_index = private_indices[state.source_tile_index]
             if private_index in seen_private or private_index >= len(output_tiles):
                 raise ValueError("Approved building private TILE index is invalid")
@@ -487,20 +606,24 @@ def validate_packaged_approved_building_cam(
                 raise ValueError(f"Approved building TILE changed: {state.concept_key}")
             if stock.tile_palette_index(entry.data) != SOURCE_PALETTE_INDEX:
                 raise ValueError("Approved building private TILE lost palette 68")
+            expected_payload = package_approved_building_tile(
+                stock,
+                stock_tiles[state.source_tile_index].data,
+                state,
+                stock_tiles[geometry_state.source_tile_index].data,
+                geometry_state,
+            )
+            if entry.data != expected_payload:
+                raise ValueError("Approved building deterministic resize changed")
             decoded = stock.decode_indexed_v3_tile(entry.data)
-            if decoded is None or (decoded[1], decoded[0]) != state.object_canvas:
+            if decoded is None or (decoded[1], decoded[0]) != geometry_state.object_canvas:
                 raise ValueError("Approved building private TILE canvas changed")
-            with Image.open(state.indexed_object_path) as loaded:
-                expected_flat = list(loaded.getdata())
-            actual_flat = [value for row in decoded[2] for value in row]
-            if actual_flat != expected_flat:
-                raise ValueError("Approved building private indexed object changed")
             source_hotspot = struct.unpack_from(
-                "<hh", stock_tiles[state.source_tile_index].data, 10
+                "<hh", stock_tiles[geometry_state.source_tile_index].data, 10
             )
             expected_hotspot = (
-                source_hotspot[0] + state.body_source_offset_in_object[0],
-                source_hotspot[1] + state.body_source_offset_in_object[1],
+                source_hotspot[0] + geometry_state.body_source_offset_in_object[0],
+                source_hotspot[1] + geometry_state.body_source_offset_in_object[1],
             )
             if struct.unpack_from("<hh", entry.data, 10) != expected_hotspot:
                 raise ValueError("Approved building private TILE anchor changed")

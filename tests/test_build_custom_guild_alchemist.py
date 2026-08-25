@@ -11,6 +11,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 import build_custom_guild_alchemist as builder
 import alchemist_art_package as art_package
+import approved_building_bundle as building_bundle
 import approved_sprite_bundle as sprite_bundle
 
 
@@ -282,6 +283,10 @@ class AlchemistGuildTests(unittest.TestCase):
             stock_imag = stock.read_cam_entry(
                 game_data / "maindata.cam", b"IMAG", art_package.HERO_SOURCE
             ).data
+            packaged_building_imags = tuple(
+                stock.read_cam_entry(output, b"IMAG", name).data
+                for name in art_package.BUILDING_CUSTOM
+            )
 
         interface_records = provenance["interface_frames"]
         self.assertEqual(
@@ -307,6 +312,31 @@ class AlchemistGuildTests(unittest.TestCase):
                 record["packaged_tile_sha256"],
             )
         self.assertGreater(len(output_tiles), len(stock_tiles))
+        building_provenance = provenance["building_art"]
+        self.assertEqual(
+            building_provenance["payload_aggregate_sha256"],
+            building_bundle.PAYLOAD_AGGREGATE_SHA256,
+        )
+        self.assertEqual(len(building_provenance["states"]), 25)
+        self.assertEqual(
+            [row["imag"] for row in building_provenance["source_topology"]],
+            [name.decode("ascii") for name in building_bundle.SOURCE_IMAG_NAMES],
+        )
+        self.assertEqual(
+            [struct.unpack_from("<I", imag, 20)[0] for imag in packaged_building_imags],
+            list(building_bundle.SOURCE_IMAG_SET_COUNTS),
+        )
+        for record in building_provenance["states"]:
+            tile = output_tiles[record["private_tile_index"]].data
+            self.assertEqual(stock.tile_palette_index(tile), 68)
+            self.assertEqual(
+                list(struct.unpack_from("<hh", tile, 10)),
+                record["packaged_hotspot"],
+            )
+            decoded = stock.decode_indexed_v3_tile(tile)
+            self.assertIsNotNone(decoded)
+            self.assertEqual([decoded[1], decoded[0]], record["object_canvas"])
+            sprite_bundle.validate_split_control_segments(tile)
         flash_activation = packaged_effects[
             art_package.FLASH_FLASK_ACTIVATION_CUSTOM
         ]

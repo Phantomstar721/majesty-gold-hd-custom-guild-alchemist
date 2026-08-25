@@ -17,14 +17,20 @@ from approved_sprite_bundle import (
     sha256_file,
     validate_packaged_approved_sprite_cam,
 )
+from approved_building_bundle import (
+    PAYLOAD_AGGREGATE_SHA256 as APPROVED_BUILDING_PAYLOAD_SHA256,
+    SOURCE_IMAG_NAMES as APPROVED_BUILDING_SOURCE_IMAGS,
+    load_approved_building_bundle,
+    package_approved_building_tile,
+    patch_approved_building_imag,
+    validate_packaged_approved_building_cam,
+)
 
 
 HERO_SOURCE = b"AVL1Warrior"
 HERO_CUSTOM = b"ALC1Alchemist"
 BUILDING_SOURCES = (
-    b"ABQ1Temple, Fervus1",
-    b"ABQ2Temple, Fervus2",
-    b"ABQ3Temple, Fervus3",
+    *APPROVED_BUILDING_SOURCE_IMAGS,
 )
 BUILDING_CUSTOM = (
     b"ALB1Alchemy Lab 1",
@@ -111,6 +117,7 @@ BUILDING_PALETTE = 560
 # forest green and copper into blue-black. Fervus building palette 560 retains
 # both materials and already owns the stock 247-250 sprite controls.
 HERO_ART_PALETTE = 560
+APPROVED_BUILDING_ROOT = Path("assets/source/approved-alchemist-building-set-v1")
 APPROVED_INTERFACE_ART_SHA256 = {
     HERO_PORTRAIT_TILE: "f78a44a14bff09a378e4392a2bbaa7c25d4ed7405a48b0cddd7428843113c944",
     HERO_ICON_TILE: "3131dd204cc42d6c8ac2a5cb865e65ae1a5eeb942c7c8fb160feda61c9fc81a0",
@@ -1332,7 +1339,14 @@ def write_maindata(
     tiles = stock.read_cam_entries(source, b"TILE")
     palettes = stock.read_cam_entries(source, b"SPLT")
     hero_imag = stock.read_cam_entry(source, b"IMAG", HERO_SOURCE).data
-    building_imags = [stock.read_cam_entry(source, b"IMAG", name).data for name in BUILDING_SOURCES]
+    approved_building_bundle = load_approved_building_bundle(
+        repo / APPROVED_BUILDING_ROOT,
+        stock,
+        source,
+        tiles,
+        palettes,
+    )
+    building_imags = list(approved_building_bundle.source_imags)
     phoenix_item_imag = stock.read_cam_entry(
         source, b"IMAG", INVENTORY_ITEM_SOURCE
     ).data
@@ -2016,38 +2030,53 @@ def write_maindata(
         ),
     )
 
+    approved_building_records: list[dict] = []
+    approved_building_private_indices: list[dict[int, int]] = []
     for level in (1, 2, 3):
-        imag = stock.remap_imag_low16_tile_indices(
+        states = approved_building_bundle.states_by_level[level - 1]
+        private_indices: dict[int, int] = {}
+        for state in states:
+            payload = package_approved_building_tile(
+                stock,
+                tiles[state.source_tile_index].data,
+                state,
+            )
+            private_index = append(
+                f"ALB{level}State{state.source_tile_index:04d}".encode("ascii"),
+                payload,
+            )
+            private_indices[state.source_tile_index] = private_index
+            source_hotspot = struct.unpack_from(
+                "<hh", tiles[state.source_tile_index].data, 10
+            )
+            packaged_hotspot = struct.unpack_from("<hh", payload, 10)
+            approved_building_records.append(
+                {
+                    "concept_key": state.concept_key,
+                    "level": level,
+                    "role": state.role,
+                    "source_tile_index": state.source_tile_index,
+                    "private_tile_index": private_index,
+                    "source_canvas": list(state.source_canvas),
+                    "object_canvas": list(state.object_canvas),
+                    "body_source_offset_in_object": list(
+                        state.body_source_offset_in_object
+                    ),
+                    "source_hotspot": list(source_hotspot),
+                    "packaged_hotspot": list(packaged_hotspot),
+                    "source_art_sha256": state.indexed_object_sha256,
+                    "packaged_tile_sha256": sha256_bytes(payload),
+                    "occurrence_count": len(state.occurrences),
+                }
+            )
+        building_imags[level - 1] = patch_approved_building_imag(
             building_imags[level - 1],
-            {BUILDING_PROFILE_TILE: profile_index, BUILDING_ICON_TILE: icon_index},
+            states,
+            private_indices,
+            profile_index,
+            icon_index,
         )
-        paths = stock.building_sprite_replacement_paths(art_dir / f"buildings/level-{level}")
-        replacements: dict[int, int] = {}
-        for source_index, path in sorted(paths.items()):
-            replacements[source_index] = append(
-                f"ALB{level}State{source_index:04d}".encode("ascii"),
-                stock.tile_from_png_native_size(
-                    stock.remap_tile_palette_index(tiles[source_index].data, BUILDING_PALETTE),
-                    palettes,
-                    path,
-                ),
-            )
-        imag = stock.remap_imag_low16_tile_indices(imag, replacements)
-        active_paths = stock.building_active_replacement_paths(art_dir / f"buildings/level-{level}")
-        template_index = (1506, 1562, 1566)[level - 1]
-        active_indices = [
-            append(
-                f"ALB{level}Active{frame:02d}".encode("ascii"),
-                stock.tile_from_png_native_size(
-                    stock.remap_tile_palette_index(tiles[template_index].data, BUILDING_PALETTE),
-                    palettes,
-                    path,
-                ),
-            )
-            for frame, path in enumerate(active_paths)
-        ]
-        imag = stock.replace_building_state_animation_tiles(imag, 192, active_indices)
-        building_imags[level - 1] = imag
+        approved_building_private_indices.append(private_indices)
 
     if approved_bundle is not None:
         # ALC1's cloned Interface-00/01/02 records still point at retail TILE
@@ -2192,6 +2221,18 @@ def write_maindata(
         ),
         output,
     )
+    validate_packaged_approved_building_cam(
+        stock,
+        output,
+        tiles,
+        palettes,
+        approved_building_bundle,
+        approved_building_private_indices,
+        profile_index,
+        icon_index,
+        BUILDING_CUSTOM,
+        approved_building_records,
+    )
     if approved_bundle is not None:
         validate_packaged_approved_sprite_cam(
             stock,
@@ -2204,13 +2245,30 @@ def write_maindata(
             approved_interface_tile_indices,
             approved_interface_records,
         )
-        return package_provenance(
+        provenance = package_provenance(
             approved_bundle,
             approved_private_tile_indices,
             approved_interface_tile_indices,
             approved_interface_records,
             output,
         )
+        provenance["building_art"] = {
+            "authority": "accepted-as-is-r9",
+            "payload_aggregate_sha256": APPROVED_BUILDING_PAYLOAD_SHA256,
+            "source_topology": [
+                {
+                    "level": level,
+                    "imag": name.decode("ascii"),
+                    "imag_sha256": sha256_bytes(imag),
+                }
+                for level, (name, imag) in enumerate(
+                    zip(APPROVED_BUILDING_SOURCE_IMAGS, approved_building_bundle.source_imags),
+                    start=1,
+                )
+            ],
+            "states": approved_building_records,
+        }
+        return provenance
     return None
 
 

@@ -1,0 +1,29 @@
+/////////////////////////////////////////////////////////////////////////////////////////////////
+// Literal clone of stock OriginalQuests TaskModules/Subtasks/Cast.gpl.
+// Only the sound selected immediately before the unchanged $castspell call is
+// privatized for the Alchemist's two thrown-bottle spells.
+/////////////////////////////////////////////////////////////////////////////////////////////////
+
+Function Cast (agent ThisAgent, string SpellName, agent Target, string optionalArg)
+Declare
+
+	integer exp_amount;
+
+Begin
+	exp_amount = #spell_exp * $getspellattribute(spellname, "character_level" );
+
+	if (thisagent's "title" == "healer")
+		exp_amount *= #Healer_spell_exp_bonus;
+
+	$give_exp(thisagent,exp_amount);
+
+	if (
+		ThisAgent's "Title" == "Alchemist" &&
+		(SpellName == "stun_serum" || SpellName == "miasma_mist")
+	)
+		$PlaySound (ThisAgent, "Alchy_Cast", "Begin");
+	else
+		$PlaySound (ThisAgent, "VFX_CAST_SPELL1");
+
+	$castspell(thisagent,spellname,target,optionalArg);
+End

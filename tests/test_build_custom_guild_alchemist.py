@@ -1128,43 +1128,39 @@ end
             path = Path(directory) / "Quests_3.gpl"
             path.write_text(source, encoding="cp1252")
             fixture = builder.build_siege_test_fixture(path)
-        self.assertIn('"Temple_Fervus1"', fixture)
-        self.assertIn('"Temple_Krolm"', fixture)
-        self.assertIn('"Wizards_Guild3"', fixture)
         self.assertIn('"AlchemistsLaboratory3"', fixture)
-        self.assertIn('magicBazaar = $SpawnUnit ( palace, "MagicBazaar3"', fixture)
-        self.assertIn('rogueGuild = $SpawnUnit ( palace, "Rogues_Guild1"', fixture)
-        self.assertIn('warriorGuild = $SpawnUnit ( palace, "Warriors_Guild"', fixture)
-        self.assertEqual(fixture.count('"MaxHP"'), 7)
-        self.assertIn('$AdjustPlayerData ( palace, "gold", 100000 )', fixture)
-        self.assertIn(
-            "$SetAttribute ( alchemyLab, #ATTRIB_ResearchArrows, 1 )", fixture
-        )
-        self.assertIn(
-            "$SetAttribute ( alchemyLab, #ATTRIB_ResearchPowerfulItem, 1 )",
-            fixture,
-        )
+        self.assertEqual(fixture.count('"MaxHP"'), 1)
         self.assertIn('alchemyLab\'s "num_resources" = 20;', fixture)
         self.assertIn(
             "$SetAttribute ( alchemyLab, #ATTRIB_ReturnAmount, 20 )", fixture
         )
-        for suffix in ("One", "Two", "Three", "Four", "Five", "Six"):
-            self.assertIn(
-                f"$SetAttribute ( magicBazaar, #ATTRIB_ResearchBazaar_Item_{suffix}, 1 )",
-                fixture,
-            )
-        self.assertIn('oilRogue = $SpawnUnit ( rogueGuild, "Rogue"', fixture)
-        self.assertIn('oilWarrior = $SpawnUnit ( warriorGuild, "Warrior"', fixture)
-        self.assertIn('oilAlchemist = $SpawnUnit ( alchemyLab, "Alchemist"', fixture)
-        self.assertNotIn('$SpawnUnit ( palace, "Rogue"', fixture)
-        self.assertNotIn('$SpawnUnit ( palace, "Warrior"', fixture)
-        self.assertNotIn('$SpawnUnit ( palace, "Alchemist"', fixture)
-        self.assertEqual(fixture.count("$Advance_To_Level"), 3)
-        self.assertEqual(fixture.count("#ATTRIB_Gold, 5000"), 3)
-        self.assertEqual(fixture.count("#ATTRIB_Intelligence, 100"), 3)
-        self.assertEqual(fixture.count("$Alchemist_Oil_Test_Buyer"), 3)
-        self.assertIn("Function Alchemist_Oil_Test_Buyer", fixture)
-        self.assertIn("$Purchase_Equipment (ThisAgent)", fixture)
+        self.assertIn('testWarrior = $SpawnUnit ( palace, "Warrior"', fixture)
+        self.assertIn('testAlchemist = $SpawnUnit ( alchemyLab, "Alchemist"', fixture)
+        self.assertEqual(fixture.count("$Advance_To_Level"), 2)
+        self.assertEqual(fixture.count("#ATTRIB_Gold, 5000"), 2)
+        for attribute in (
+            "#ATTRIB_Weapon_Struct_Bonus, 3",
+            "#ATTRIB_Armor_Struct_Bonus, 3",
+            "#ATTRIB_Weapon_Magic_Bonus, 3",
+            "#ATTRIB_Armor_Magic_Bonus, 3",
+        ):
+            self.assertEqual(fixture.count(attribute), 2)
+        for removed in (
+            '"Temple_Fervus1"',
+            '"Temple_Krolm"',
+            '"Wizards_Guild3"',
+            '"MagicBazaar3"',
+            '"Rogues_Guild1"',
+            '"Warriors_Guild"',
+            '$AdjustPlayerData ( palace, "gold", 100000 )',
+            "#ATTRIB_ResearchArrows",
+            "#ATTRIB_ResearchPowerfulItem",
+            "#ATTRIB_ResearchBazaar_Item_",
+            "#ATTRIB_Intelligence, 100",
+            "Alchemist_Oil_Test_Buyer",
+            '"ActiveScript"',
+        ):
+            self.assertNotIn(removed, fixture)
         self.assertNotIn("function NEXT", fixture)
 
     def test_siege_fixture_is_an_explicit_project_source(self) -> None:
@@ -1175,6 +1171,7 @@ end
             'data="Alchemist_Phoenix_Phial.dat"\n'
             'data="Alchemist_Reagent.dat"\n'
             'source="Alchemist_Rogue.gpl"\n'
+            'source="Alchemist_Cast.gpl"\n'
             'source="Alchemist_Embassy.gpl"\n'
             'source="Alchemist_Magic_Bazaar.gpl"\n'
             'source="Alchemist_Inventory.gpl"\n'
@@ -1216,13 +1213,17 @@ end
         )
 
     def test_siege_fixture_compiled_symbols_are_fail_closed(self) -> None:
-        compiled = b"SIEGE\x00Alchemist_Oil_Test_Buyer\x00"
+        compiled = b"SIEGE\x00"
         builder.validate_siege_test_symbols(compiled, True)
         builder.validate_siege_test_symbols(b"ordinary package", False)
         with self.assertRaisesRegex(ValueError, "lost symbols"):
-            builder.validate_siege_test_symbols(b"SIEGE", True)
+            builder.validate_siege_test_symbols(b"ordinary package", True)
         with self.assertRaisesRegex(ValueError, "unexpectedly exports"):
             builder.validate_siege_test_symbols(compiled, False)
+        with self.assertRaisesRegex(ValueError, "retains removed symbols"):
+            builder.validate_siege_test_symbols(
+                b"SIEGE\x00Alchemist_Oil_Test_Buyer\x00", True
+            )
 
     def test_economy_keeps_labs_out_of_stock_wizard_candidates(self) -> None:
         stock = (
@@ -1340,18 +1341,27 @@ end
         self.assertIn('Attacker\'s "AlchemyWeaponOilType" == 2', generated)
         self.assertIn("$Alchemy_Transmutation_Oil_Hit (Attacker, Defender)", generated)
 
-    def test_paralytic_oil_declares_its_private_target_stage(self) -> None:
+    def test_paralytic_oil_uses_fixed_restraint_and_private_target_immunity(self) -> None:
         source = (
             builder.GPL_SOURCE_ROOT / "Alchemist_Combat_Oils.gpl"
         ).read_text(encoding="utf-8")
-        declaration = (
-            '$AddAttribute (Target, "Alchemy_Paralytic_Stage", "integer", Stage + 1)'
+        immunity_check = (
+            '$CheckEffector (Target, "alchemist_paralytic_oil_immunity")'
         )
-        self.assertIn(declaration, source)
+        immunity_create = '"alchemist_paralytic_oil_immunity",'
+        self.assertIn("expression #Alchemy_Paralytic_Duration 2000", source)
+        self.assertIn(
+            "expression #Alchemy_Paralytic_Immunity_Duration 10000", source
+        )
+        self.assertIn(immunity_check, source)
+        self.assertEqual(source.count(immunity_create), 1)
         self.assertLess(
-            source.index(declaration),
+            source.index(immunity_check),
             source.index('"alchemist_paralytic_oil_restraint"'),
         )
+        self.assertNotIn("Alchemy_Paralytic_Stage", source)
+        self.assertNotIn("Duration = 3000", source)
+        self.assertNotIn("Duration = 1000", source)
         self.assertNotIn('"alchemist_stun_serum_impact"', source)
         self.assertNotIn('"alchemist_stun_serum_restraint"', source)
         self.assertNotIn('"alchemist_paralytic_oil_icon"', source)
@@ -1694,9 +1704,7 @@ end
         self.assertIn('ThisAgent\'s "castingrange"', source)
         self.assertIn('"alchemist_stun_serum_restraint",', source)
         self.assertIn('"after"', source)
-        self.assertEqual(
-            source.count('$PlaySound(ThisAgent, "Alchy_Cast", "Begin")'), 1
-        )
+        self.assertNotIn("Alchy_Cast", source)
         self.assertNotIn('"alchemist_stun_serum_icon"', source)
         for forbidden in ("$RunThread", "$Sleep", "$CheckEffector"):
             self.assertNotIn(forbidden, source)
@@ -1782,9 +1790,7 @@ end
         self.assertNotIn("foreach Target in Targets do", check_source)
         self.assertEqual(source.count("#Alchemist_Miasma_Mist_Debuff_Duration;"), 1)
         self.assertIn("$SetSpellUnitTimeout(ThisAgent, Duration)", source)
-        self.assertEqual(
-            source.count('$PlaySound(ThisAgent, "Alchy_Cast", "Begin")'), 1
-        )
+        self.assertNotIn("Alchy_Cast", source)
         for forbidden_tracking in (
             "MiasmaMistTracking",
             "MiasmaMistCleanup",

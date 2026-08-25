@@ -39,7 +39,6 @@ Begin
 
 	If ((Target's "Type" != "Building") && (Target's "Type" != "Lair"))
 		begin
-			$PlaySound(ThisAgent, "Alchy_Cast", "Begin");
 			$CreateEffector (Target, "alchemist_stun_serum_impact", 0);
 			$CreateEffector (
 				Target,

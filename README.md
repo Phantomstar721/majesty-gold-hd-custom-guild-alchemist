@@ -78,9 +78,9 @@ Weapon Oil research costs 250 gold. A weapon-using hero can buy one oil for
 100 gold while still retaining separate stock Poison and Wizard enchanting
 channels.
 
-- Paralytic Oil freezes a struck enemy for 3 seconds on the first application,
-  2 seconds on the second, and 1 second on the third. The target then receives
-  10 seconds of temporary immunity.
+- Paralytic Oil freezes a struck enemy for 2 seconds. A target can trigger
+  Paralytic Oil only once every 10 seconds, regardless of how many oiled heroes
+  attack it. This private oil cooldown does not block other control spells.
 - Transmutation Oil grants 5 gold to its owner on a successful weapon hit.
   Greed determines which oil a visiting hero selects.
 

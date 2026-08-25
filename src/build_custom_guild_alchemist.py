@@ -623,8 +623,7 @@ def build_siege_test_fixture(stock_quests: Path) -> str:
         raise ValueError("The Siege agent declarations no longer match the SDK fixture")
     function = function.replace(
         declare_anchor,
-        "\tagent palace, enemypalace, alchemyLab, magicBazaar, rogueGuild, warriorGuild, "
-        "oilRogue, oilWarrior, oilAlchemist;",
+        "\tagent palace, enemypalace, alchemyLab, testAlchemist, testWarrior;",
         1,
     )
     anchor = '\tpalace = $GetPlayerOnePalace ();'
@@ -632,62 +631,27 @@ def build_siege_test_fixture(stock_quests: Path) -> str:
         raise ValueError("The Siege Palace initialization no longer matches the SDK fixture")
     spawns = (
         anchor
-        + '\n\t$AdjustPlayerData ( palace, "gold", 100000 );'
-        + '\n\t$SpawnUnit ( palace, "Wizards_Guild3", '
-        '$RandomCoord ( palace, 400, 525 ), "MaxHP" );'
-        + '\n\t$SpawnUnit ( palace, "Temple_Fervus1", '
-        '$RandomCoord ( palace, 550, 750 ), "MaxHP" );'
-        + '\n\t$SpawnUnit ( palace, "Temple_Krolm", '
-        '$RandomCoord ( palace, 700, 900 ), "MaxHP" );'
         + '\n\talchemyLab = $SpawnUnit ( palace, "AlchemistsLaboratory3", '
-        '$RandomCoord ( palace, 850, 1050 ), "MaxHP" );'
-        + '\n\t$SetAttribute ( alchemyLab, #ATTRIB_ResearchArrows, 1 );'
-        + '\n\t$SetAttribute ( alchemyLab, #ATTRIB_ResearchPowerfulItem, 1 );'
+        '$RandomCoord ( palace, 400, 525 ), "MaxHP" );'
         + '\n\talchemyLab\'s "num_resources" = 20;'
         + '\n\t$SetAttribute ( alchemyLab, #ATTRIB_ReturnAmount, 20 );'
-        + '\n\tmagicBazaar = $SpawnUnit ( palace, "MagicBazaar3", '
-        '$RandomCoord ( palace, 925, 1125 ), "MaxHP" );'
-        + '\n\t$SetAttribute ( magicBazaar, #ATTRIB_ResearchBazaar_Item_One, 1 );'
-        + '\n\t$SetAttribute ( magicBazaar, #ATTRIB_ResearchBazaar_Item_Two, 1 );'
-        + '\n\t$SetAttribute ( magicBazaar, #ATTRIB_ResearchBazaar_Item_Three, 1 );'
-        + '\n\t$SetAttribute ( magicBazaar, #ATTRIB_ResearchBazaar_Item_Four, 1 );'
-        + '\n\t$SetAttribute ( magicBazaar, #ATTRIB_ResearchBazaar_Item_Five, 1 );'
-        + '\n\t$SetAttribute ( magicBazaar, #ATTRIB_ResearchBazaar_Item_Six, 1 );'
-        + '\n\trogueGuild = $SpawnUnit ( palace, "Rogues_Guild1", '
-        '$RandomCoord ( palace, 1000, 1200 ), "MaxHP" );'
-        + '\n\twarriorGuild = $SpawnUnit ( palace, "Warriors_Guild", '
-        '$RandomCoord ( palace, 1150, 1350 ), "MaxHP" );'
-        + '\n\toilRogue = $SpawnUnit ( rogueGuild, "Rogue", '
-        '$RandomCoord ( alchemyLab, 100, 150 ) );'
-        + '\n\toilWarrior = $SpawnUnit ( warriorGuild, "Warrior", '
+        + '\n\ttestWarrior = $SpawnUnit ( palace, "Warrior", '
         '$RandomCoord ( alchemyLab, 150, 200 ) );'
-        + '\n\toilAlchemist = $SpawnUnit ( alchemyLab, "Alchemist", '
+        + '\n\ttestAlchemist = $SpawnUnit ( alchemyLab, "Alchemist", '
         '$RandomCoord ( alchemyLab, 200, 250 ) );'
     )
     setup = ""
-    for buyer in ("oilRogue", "oilWarrior", "oilAlchemist"):
+    for buyer in ("testWarrior", "testAlchemist"):
         setup += (
             f'\n\t$Advance_To_Level ( {buyer}, 10 );'
             f'\n\t$SetAttribute ( {buyer}, #ATTRIB_Experience, 0 );'
             f'\n\t$SetAttribute ( {buyer}, #ATTRIB_Gold, 5000 );'
-            f'\n\t$SetAttribute ( {buyer}, #ATTRIB_Intelligence, 100 );'
             f'\n\t$SetAttribute ( {buyer}, #ATTRIB_Weapon_Struct_Bonus, 3 );'
             f'\n\t$SetAttribute ( {buyer}, #ATTRIB_Armor_Struct_Bonus, 3 );'
             f'\n\t$SetAttribute ( {buyer}, #ATTRIB_Weapon_Magic_Bonus, 3 );'
             f'\n\t$SetAttribute ( {buyer}, #ATTRIB_Armor_Magic_Bonus, 3 );'
-            f'\n\t$SetThreadInterval ( {buyer}\'s "ActiveScript", 1000 );'
-            f'\n\t{buyer}\'s "ActiveScript" = $Alchemist_Oil_Test_Buyer;'
         )
-    fixture = function.replace(anchor, spawns + setup, 1)
-    return (
-        fixture
-        + "\n\n"
-        + "Function Alchemist_Oil_Test_Buyer (agent ThisAgent)\n"
-        + "Declare\n\n"
-        + "Begin\n"
-        + "\t$Purchase_Equipment (ThisAgent);\n"
-        + "End\n"
-    )
+    return function.replace(anchor, spawns + setup, 1)
 
 
 def build_alchemist_economy(stock_purchase_equipment: Path) -> str:
@@ -1145,6 +1109,7 @@ def build_alchemist_shapeshift(stock_spells: Path) -> str:
 def build_gpl_project(include_siege_test_fixture: bool) -> str:
     sources = [
         'source="Alchemist_Rogue.gpl"',
+        'source="Alchemist_Cast.gpl"',
         'source="Alchemist_Embassy.gpl"',
         'source="Alchemist_Magic_Bazaar.gpl"',
         'source="Alchemist_Inventory.gpl"',
@@ -2361,7 +2326,7 @@ def build_brewing_sounds_xml(stock_sounds_xml: Path) -> bytes:
     # Majesty has no per-class recruitment phase, and the common Cast helper
     # always asks the unit's default sound for VFX_CAST_SPELL1. Follow Haunt's
     # proven single-phase Rage clone instead: recruitment is called once from
-    # birth, while only the two thrown-bottle GPL callbacks call Alchy_Cast.
+    # birth, while the stock Cast clone voices only the two thrown-bottle spells.
     begin_source = stock_root.find('.//Description[@Name="Rage_of_Krolm"]')
     if begin_source is None:
         raise ValueError("Stock Rage_of_Krolm sound is missing")
@@ -3656,7 +3621,8 @@ def validate_siege_test_symbols(
     compiled_symbols: bytes,
     include_siege_test_fixture: bool,
 ) -> None:
-    required = (b"SIEGE", b"Alchemist_Oil_Test_Buyer")
+    required = (b"SIEGE",)
+    forbidden = (b"Alchemist_Oil_Test_Buyer",)
     present = tuple(symbol for symbol in required if symbol in compiled_symbols)
     if include_siege_test_fixture and len(present) != len(required):
         missing = [symbol for symbol in required if symbol not in compiled_symbols]
@@ -3665,6 +3631,9 @@ def validate_siege_test_symbols(
         raise ValueError(
             f"Compiled non-Siege package unexpectedly exports QA symbols: {present}"
         )
+    leaked = tuple(symbol for symbol in forbidden if symbol in compiled_symbols)
+    if leaked:
+        raise ValueError(f"Compiled Siege QA fixture retains removed symbols: {leaked}")
 
 
 def build_misc_cam(stock_misc_cam: Path, output_path: Path, include_phantoms: bool) -> None:
@@ -3714,6 +3683,7 @@ def build_manifest(include_siege_test_fixture: bool = False) -> str:
 \t\t\t\t\t\t<Source>GPL\\Alchemist_Phoenix_Phial.dat</Source>
 \t\t\t\t\t\t<Source>GPL\\Alchemist_Reagent.dat</Source>
 \t\t\t\t\t\t<Source>GPL\\Alchemist_Rogue.gpl</Source>
+\t\t\t\t\t\t<Source>GPL\\Alchemist_Cast.gpl</Source>
 \t\t\t\t\t\t<Source>GPL\\Alchemist_Embassy.gpl</Source>
 \t\t\t\t\t\t<Source>GPL\\Alchemist_Magic_Bazaar.gpl</Source>
 \t\t\t\t\t\t<Source>GPL\\Alchemist_Inventory.gpl</Source>
@@ -3770,6 +3740,7 @@ def validate_output(
         output_root / "GPL" / "Alchemist_Phoenix_Phial.dat",
         output_root / "GPL" / "Alchemist_Reagent.dat",
         output_root / "GPL" / "Alchemist_Rogue.gpl",
+        output_root / "GPL" / "Alchemist_Cast.gpl",
         output_root / "GPL" / "Alchemist_Embassy.gpl",
         output_root / "GPL" / "Alchemist_Magic_Bazaar.gpl",
         output_root / "GPL" / "Alchemist_Inventory.gpl",
@@ -5229,13 +5200,27 @@ def validate_output(
     reagent_source = (
         output_root / "GPL" / "Alchemist_Reagents.gpl"
     ).read_text(encoding="utf-8")
-    cast_voice_call = '$PlaySound(ThisAgent, "Alchy_Cast", "Begin")'
+    cast_source = (
+        output_root / "GPL" / "Alchemist_Cast.gpl"
+    ).read_text(encoding="utf-8")
+    cast_voice_call = '$PlaySound (ThisAgent, "Alchy_Cast", "Begin")'
     if cast_voice_call in flash_source:
         raise ValueError("Flash Flask must retain only its stock potion sound")
-    if stun_source.count(cast_voice_call) != 1:
-        raise ValueError("Stun Serum lost its explicit thrown-bottle cast voice")
-    if miasma_source.count(cast_voice_call) != 1:
-        raise ValueError("Miasma Mist lost its explicit thrown-bottle cast voice")
+    if cast_voice_call in stun_source or cast_voice_call in miasma_source:
+        raise ValueError("Thrown-bottle voice must not remain in an impact callback")
+    for cast_contract in (
+        "Function Cast",
+        'SpellName == "stun_serum"',
+        'SpellName == "miasma_mist"',
+        cast_voice_call,
+        '$PlaySound (ThisAgent, "VFX_CAST_SPELL1")',
+        "$castspell(thisagent,spellname,target,optionalArg);",
+    ):
+        if cast_contract not in cast_source:
+            raise ValueError(
+                f"Stock Cast clone lost its thrown-bottle sound contract: "
+                f"{cast_contract}"
+            )
     tempest_cloud_call = (
         '$CreateEffector ( thisagent, "alchemical_tempest_cloud_effector", 2300 );'
     )
@@ -5554,6 +5539,7 @@ def build(
     shutil.copy2(GPL_SOURCE_ROOT / "Alchemist_Phoenix_Phial.dat", gpl_dir)
     shutil.copy2(GPL_SOURCE_ROOT / "Alchemist_Reagent.dat", gpl_dir)
     shutil.copy2(GPL_SOURCE_ROOT / "Alchemist_Rogue.gpl", gpl_dir)
+    shutil.copy2(GPL_SOURCE_ROOT / "Alchemist_Cast.gpl", gpl_dir)
     embassy_source = build_alchemist_embassy(
         sdk_data.parent / "GPLMx" / "TaskModules" / "Buildings" / "Embassy.gpl",
         include_phantoms,

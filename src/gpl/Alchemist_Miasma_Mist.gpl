@@ -49,7 +49,6 @@ begin
 	If ($Alchemist_Miasma_Mist_Check(ThisAgent) == 0)
 		return;
 
-	$PlaySound(ThisAgent, "Alchy_Cast", "Begin");
 	$CreateSpellUnit(ThisAgent, "miasma_mist_cloud", Target);
 end
 

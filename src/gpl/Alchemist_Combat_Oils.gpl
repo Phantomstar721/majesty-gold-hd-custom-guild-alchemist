@@ -3,13 +3,12 @@
 // confirmed hit, beside its untouched native WeaponPoisoned == 1 branch.
 ///////////////////////////////////////////////////////////////////////////////
 
+expression #Alchemy_Paralytic_Duration 2000
 expression #Alchemy_Paralytic_Immunity_Duration 10000
 expression #Alchemy_Transmutation_Gold_Per_Hit 5
 
 Function Alchemy_Paralytic_Oil_Begin (agent ThisAgent, agent Target)
 Declare
-	integer Stage;
-	integer Duration;
 
 Begin
 	If ($IsDead (Target))
@@ -25,27 +24,21 @@ Begin
 	If ($GetAttribute (Target, #ATTRIB_HasEffectParalyticGaze) != 0)
 		Return;
 
-	If ($HasAttribute ("Alchemy_Paralytic_Stage", Target))
-		Stage = Target's "Alchemy_Paralytic_Stage";
-
-	If (Stage >= 3)
+	// This private target-owned effector is shared by every hero carrying
+	// Paralytic Oil. It gates only oil hits and is deliberately not consulted
+	// by Stun Serum, Vines, Frost Armor, or any other control spell.
+	If ($CheckEffector (Target, "alchemist_paralytic_oil_immunity"))
 		Return;
 
-	If (Stage == 0)
-		Duration = 3000;
-	Else If (Stage == 1)
-		Duration = 2000;
-	Else
-		Duration = 1000;
-
-	If ($HasAttribute ("Alchemy_Paralytic_Stage", Target) == False)
-		$AddAttribute (Target, "Alchemy_Paralytic_Stage", "integer", Stage + 1);
-	Else
-		Target's "Alchemy_Paralytic_Stage" = Stage + 1;
+	$CreateEffector (
+		Target,
+		"alchemist_paralytic_oil_immunity",
+		#Alchemy_Paralytic_Immunity_Duration
+	);
 	$CreateEffector (
 		Target,
 		"alchemist_paralytic_oil_restraint",
-		Duration,
+		#Alchemy_Paralytic_Duration,
 		"after"
 	);
 	$SetAttribute (Target, #ATTRIB_HasEffectParalyticGaze, 1);
@@ -60,12 +53,6 @@ Declare
 Begin
 	$SetAttribute (ThisAgent, #ATTRIB_HasEffectParalyticGaze, 0);
 	$UnFreeze_Unit (ThisAgent);
-	If (ThisAgent's "Alchemy_Paralytic_Stage" >= 3)
-		$CreateEffector (
-			ThisAgent,
-			"alchemist_paralytic_oil_immunity",
-			#Alchemy_Paralytic_Immunity_Duration
-		);
 End
 
 
@@ -73,7 +60,6 @@ Function Alchemy_Paralytic_Oil_Immunity_End (agent ThisAgent)
 Declare
 
 Begin
-	ThisAgent's "Alchemy_Paralytic_Stage" = 0;
 End
 
 

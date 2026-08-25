@@ -257,6 +257,7 @@ begin
 			return;
 		end
 
+	$CreateEffector ( thisagent, "miasma_mist_cloud_effector", 2300 );
 	$NewThread ( thisagent's "activeScript", 500, thisagent );
 	$SetSpellUnitTimeout ( thisagent, 2300 );
 	$Alchemical_Tempest_Active ( thisagent );
@@ -272,9 +273,6 @@ begin
 	foreach target in targets do
 		if ( $Alchemist_Is_Protected_Transmutation_Target ( target ) == FALSE )
 			begin
-				// First mechanics pass retains Lightning Storm's stock hit
-				// presentation and player-spell damage/death ownership.
-				$CreateEffector ( target, "lightening_storm_effector2", 0 );
 				$player_spell_attack ( target, 100000, 100000 );
 			end
 end
@@ -319,7 +317,11 @@ begin
 		end
 
 	$AdjustPlayerData ( laboratory, "gold", 3000 );
-	$CreateEffector ( target, "lightening_storm_effector2", 0 );
+	// The stock Lightning spell unit survives its impact animation. Anchor the
+	// private XR30 transmutation effect to that position-owning unit as well, so
+	// the ordinary monster can complete its native death path without deleting
+	// the visual's owner in the same script tick.
+	$CreateEffector ( thisagent, "philosophers_stone_hit_effector", 0 );
 	$player_spell_attack ( target, 100000, 100000 );
-	$SetSpellUnitTimeout ( thisagent, 1 );
+	$SetSpellUnitTimeout ( thisagent, 2300 );
 end

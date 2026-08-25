@@ -39,6 +39,18 @@ BUILDING_DIALOG_SOURCE = b"INBgbuilding dialog"
 BUILDING_DIALOG_CUSTOM = b"ALBGbuilding dialog"
 NAVIGATION_SOURCE = b"INTN"
 NAVIGATION_CUSTOM = b"ALINrecipe icons"
+TACTICAL_CURSOR_SOURCE = b"CUR1Tactical Cursor"
+TACTICAL_CURSOR_CUSTOM = TACTICAL_CURSOR_SOURCE
+TACTICAL_CURSOR_TEMPLATE_SET_ID = 1014
+ALCHEMICAL_TEMPEST_CURSOR_SET_ID = 1038
+PHILOSOPHERS_STONE_CURSOR_SET_ID = 1039
+TACTICAL_CURSOR_TEMPLATE_TILE = 38
+TACTICAL_CURSOR_SOURCE_SHA256 = (
+    "093fe7e069f74be730685e6ed123f83396316de866196daeccfdc97d430ff212"
+)
+TACTICAL_CURSOR_TEMPLATE_TILE_SHA256 = (
+    "51612f68948df25bb2760c443f2b2c9e8c5f3c36850cfb6a0702178b584b750f"
+)
 RESEARCH_ICON_SOURCE = b"INCrresearch icon"
 RESEARCH_ICON_CUSTOM = b"ALWIweapon oil icon"
 PHOENIX_RESEARCH_ICON_CUSTOM = b"ALPIphial icon"
@@ -70,6 +82,7 @@ STUN_SERUM_IMPACT_CUSTOM = b"ASS1Stun Serum Hit"
 STUN_SERUM_RESTRAINT_CUSTOM = b"ASS2Stun Serum Bind"
 STUN_SERUM_DEBUFF_CUSTOM = b"ASS3Stun Serum Icon"
 PARALYTIC_OIL_RESTRAINT_CUSTOM = b"ASO3Oil Restraint"
+PHILOSOPHERS_STONE_HIT_CUSTOM = b"AST1Stone Hit"
 MIASMA_STORM_SOURCE = b"WRg1meteor_swarm_E1"
 MIASMA_MISSILE_SOURCE = b"WPg3meteor_missile"
 MIASMA_PARTICLE_SOURCE = b"XL20MeteorStrmEffct"
@@ -803,12 +816,59 @@ def recipe_button_plate_frames(stock, tiles) -> dict[int, bytes]:
     """
     target_width, target_height = RECIPE_PRIVATE_PLATE_SIZE
     output: dict[int, bytes] = {}
+    stock_plate_images = {
+        source_index: tile_image(stock, tiles[source_index].data, [])
+        for source_index in RECIPE_GOLD_PLATE_SOURCE_TILES
+    }
+    common_transparent_pixels = {
+        (x, y)
+        for y in range(stock_plate_images[RECIPE_GOLD_PLATE_SOURCE_TILES[0]].height)
+        for x in range(stock_plate_images[RECIPE_GOLD_PLATE_SOURCE_TILES[0]].width)
+        if all(
+            stock_plate_images[source_index].getpixel((x, y))[3] == 0
+            for source_index in RECIPE_GOLD_PLATE_SOURCE_TILES
+        )
+    }
+    expected_common_transparency = {(0, 0), (0, 22), (171, 22)}
+    disabled_transparency = {
+        (x, y)
+        for y in range(stock_plate_images[RECIPE_GOLD_PLATE_SOURCE_TILES[2]].height)
+        for x in range(stock_plate_images[RECIPE_GOLD_PLATE_SOURCE_TILES[2]].width)
+        if stock_plate_images[RECIPE_GOLD_PLATE_SOURCE_TILES[2]].getpixel((x, y))[3]
+        == 0
+    }
+    if common_transparent_pixels != expected_common_transparency:
+        raise ValueError("Stock recipe plate common transparency changed")
+    if len(disabled_transparency - common_transparent_pixels) != 15:
+        raise ValueError("Stock disabled recipe plate cutout count changed")
     for target_group in RECIPE_PRIVATE_PLATE_TILE_GROUPS:
         for target_index, source_index in zip(
             target_group, RECIPE_GOLD_PLATE_SOURCE_TILES
         ):
             source_tile = tiles[source_index].data
-            source = tile_image(stock, source_tile, []).convert("RGB")
+            source = stock_plate_images[source_index].copy()
+            if source_index == RECIPE_GOLD_PLATE_SOURCE_TILES[2]:
+                # APa1's disabled plate deliberately punches fifteen holes
+                # through to a backing plate owned by that dialog. CGBR has no
+                # such backing at these rows, so clone the stock composite as
+                # well as the foreground state. Keep only the three pixels
+                # that are transparent in every stock state. Embedded palette
+                # index 1 is APa1's own neutral disabled fill and matches the
+                # pixels surrounding each stock-only opening.
+                source_colors = stock.tile_palette_colors(source_tile, [])
+                if source_colors is None or len(source_colors) < 2:
+                    raise ValueError("Stock disabled recipe plate palette changed")
+                if source_colors[1] != (114, 114, 114):
+                    raise ValueError("Stock disabled recipe plate fill color changed")
+                disabled_fill = (*source_colors[1], 255)
+                for y in range(source.height):
+                    for x in range(source.width):
+                        if (
+                            source.getpixel((x, y))[3] == 0
+                            and (x, y) not in common_transparent_pixels
+                        ):
+                            source.putpixel((x, y), disabled_fill)
+            source = source.convert("RGB")
             fitted = source.resize(
                 (target_width, target_height), Image.Resampling.NEAREST
             )
@@ -843,6 +903,17 @@ def recipe_button_plate_frames(stock, tiles) -> dict[int, bytes]:
                 target_width,
             ):
                 raise ValueError("Private AP69 gold-plate TILE geometry changed")
+            if source_index == RECIPE_GOLD_PLATE_SOURCE_TILES[2]:
+                decoded = stock.decode_indexed_v3_tile(encoded)
+                if decoded is None:
+                    raise ValueError("Private disabled recipe plate is not valid V3")
+                _height, _width, rows = decoded
+                if any(
+                    rows[y][x] == 0
+                    for y in range(1, len(rows) - 1)
+                    for x in range(1, len(rows[y]) - 1)
+                ):
+                    raise ValueError("Private disabled recipe plate retained stock holes")
             output[target_index] = encoded
     return output
 
@@ -865,6 +936,135 @@ def privateize_progress_imag(stock, imag: bytes, append, frames: dict[int, bytes
             frames[source_index],
         )
     return stock.remap_imag_low16_tile_indices(imag, replacements)
+
+
+def private_tactical_cursor_tile(
+    stock,
+    template_tile: bytes,
+    icon_path: Path,
+) -> bytes:
+    """Center one approved 25x25 recipe icon on stock CUR1's 40x40 canvas."""
+    header = struct.unpack_from("<8H", template_tile, 0)
+    if header[0] != 3 or (header[2], header[1]) != (40, 40):
+        raise ValueError("Expansion tactical cursor TILE 38 geometry changed")
+    if sha256_bytes(template_tile) != TACTICAL_CURSOR_TEMPLATE_TILE_SHA256:
+        raise ValueError("Expansion tactical cursor TILE 38 changed")
+    with Image.open(icon_path) as loaded:
+        icon = loaded.convert("RGBA")
+    if icon.size != (25, 25):
+        raise ValueError(f"Approved cursor icon is not 25x25: {icon_path}")
+    left = (40 - 25) // 2
+    top = (40 - 25) // 2
+
+    # DataMX TILE 38 owns an embedded V3 cursor palette. A straight RGB remap
+    # into Lightning Storm's embedded palette forces the approved copper and
+    # green recipe colors into Lightning's limited blue/control entries. Keep
+    # CUR1's exact V3/RLE/palette topology, but give the private cursor a
+    # private embedded visible palette derived from its already-approved icon.
+    # Indices 247..255 remain completely unused so Majesty never interprets an
+    # ordinary icon pixel as a dynamic cursor/control color.
+    quantized = icon.convert("RGB").quantize(
+        colors=192,
+        method=Image.Quantize.MEDIANCUT,
+        dither=Image.Dither.NONE,
+    )
+    quantized_palette = quantized.getpalette()
+    if quantized_palette is None:
+        raise ValueError("Approved tactical cursor icon has no quantized palette")
+    rows = [[0 for _x in range(40)] for _y in range(40)]
+    for y in range(25):
+        for x in range(25):
+            rows[top + y][left + x] = int(quantized.getpixel((x, y))) + 1
+
+    encoded = bytearray(
+        stock.encode_indexed_v3_tile_like_original(template_tile, rows)
+    )
+    if struct.unpack_from("<H", encoded, 20)[0] != 1:
+        raise ValueError("Private tactical cursor lost its embedded V3 palette")
+    palette_offset = struct.unpack_from("<I", encoded, 22)[0]
+    if encoded[palette_offset : palette_offset + 8] == b"\x00\x00\x00\x01\x00\x00\x00\x00":
+        palette_offset += 8
+    if palette_offset + 256 * 4 > len(encoded):
+        raise ValueError("Private tactical cursor embedded palette is truncated")
+    for palette_index in range(1, 193):
+        source_offset = (palette_index - 1) * 3
+        target_offset = palette_offset + palette_index * 4
+        encoded[target_offset : target_offset + 3] = bytes(
+            quantized_palette[source_offset : source_offset + 3]
+        )
+    return bytes(encoded)
+
+
+def append_private_tactical_cursor_sets(
+    imag: bytes,
+    tempest_cursor_tile: int,
+    stone_cursor_tile: int,
+) -> bytes:
+    """Append two private cursor presenters to the complete expansion CUR1."""
+    if sha256_bytes(imag) != TACTICAL_CURSOR_SOURCE_SHA256:
+        raise ValueError("Expansion CUR1 tactical cursor record changed")
+    if tempest_cursor_tile > 0xFFFF or stone_cursor_tile > 0xFFFF:
+        raise ValueError("Private cursor TILE exceeds CUR1's low16 reference field")
+    original_count = struct.unpack_from("<I", imag, 20)[0]
+    original_table_start = 24
+    original_table_end = original_table_start + original_count * 8
+    if original_count != 34 or original_table_end != 0x128 or len(imag) != 8024:
+        raise ValueError("Expansion CUR1 animation-set table changed")
+    original_entries = [
+        struct.unpack_from("<II", imag, original_table_start + index * 8)
+        for index in range(original_count)
+    ]
+    source_offset = next(
+        offset
+        for set_id, offset in original_entries
+        if set_id == TACTICAL_CURSOR_TEMPLATE_SET_ID
+    )
+    next_offset = min(
+        offset for _set_id, offset in original_entries if offset > source_offset
+    )
+    source_body = imag[source_offset:next_offset]
+    if source_offset != 0x5C0 or len(source_body) != 280:
+        raise ValueError("Expansion CUR1 Lightning cursor body changed")
+    # CUR1 set 1014 is a multi-stream presenter. The visible Lightning glyph
+    # is repeated in all four directional/state streams while TILEs 41, 42,
+    # and 47 remain separate cursor-state controls. Privatize every visible
+    # glyph occurrence and nothing else.
+    lightning_glyph_offsets = (0x7C, 0xAC, 0xE4, 0x10C)
+    if any(
+        (struct.unpack_from("<I", source_body, offset)[0] & 0xFFFF) != 38
+        for offset in lightning_glyph_offsets
+    ):
+        raise ValueError("Expansion CUR1 Lightning cursor TILE references changed")
+
+    table_growth = 16
+    first_private_offset = len(imag) + table_growth
+    second_private_offset = first_private_offset + len(source_body)
+    output = bytearray(imag[:20])
+    output += struct.pack("<I", original_count + 2)
+    for set_id, offset in original_entries:
+        output += struct.pack("<II", set_id, offset + table_growth)
+    output += struct.pack(
+        "<II",
+        ALCHEMICAL_TEMPEST_CURSOR_SET_ID,
+        first_private_offset,
+    )
+    output += struct.pack(
+        "<II",
+        PHILOSOPHERS_STONE_CURSOR_SET_ID,
+        second_private_offset,
+    )
+    output += imag[original_table_end:]
+    for cursor_tile in (tempest_cursor_tile, stone_cursor_tile):
+        clone = bytearray(source_body)
+        for offset in lightning_glyph_offsets:
+            original_ref = struct.unpack_from("<I", clone, offset)[0]
+            struct.pack_into(
+                "<I", clone, offset, (original_ref & 0xFFFF0000) | cursor_tile
+            )
+        output += clone
+    if len(output) != 8600:
+        raise ValueError("Private CUR1 output length changed")
+    return bytes(output)
 
 
 def brewing_button_frames(stock, tiles, palettes, icon_path: Path, output_dir: Path) -> list[Path]:
@@ -1087,15 +1287,18 @@ def brewing_dialog_frame(
 
 
 def brewing_dialog_tile(stock, template: bytes, dialog_path: Path) -> bytes:
-    """Restore AP69's working title indices over the private Brewing backing.
+    """Restore AP69's visible title ornament over the private Brewing backing.
 
     The stock title capsule in TILE 594 uses indexed UI/control colors
     248..254.  Passing those pixels through RGBA and quantizing them back into
-    the TILE collapses their distinct control roles and produces the colored
-    curls seen in game.  Compose the private backing normally, then preserve
-    AP69's first 54 rows as literal indexed pixels and re-encode with the
-    original TILE header/palette.  This is the same stock title mechanism,
-    with no reconstructed ornamental art.
+    the TILE collapses their distinct control roles. Copying them into CGBR
+    literally exposes their magenta key colors, while converting them to
+    ordinary colors paints an opaque brown capsule. Compose the private
+    backing normally, then copy AP69's ordinary visible pixels through its
+    complete 57-row header literally and
+    let its reserved control pixels fall through to the approved private
+    backing. This retains the exact stock gold ornament without importing
+    AP69's palette-control background.
     """
     composed = stock.tile_from_png_native_size(template, [], dialog_path)
     stock_decoded = stock.decode_indexed_v3_tile(template)
@@ -1106,11 +1309,14 @@ def brewing_dialog_tile(stock, template: bytes, dialog_path: Path) -> bytes:
     private_height, private_width, private_rows = private_decoded
     if (
         (stock_height, stock_width) != (private_height, private_width)
-        or stock_height < 54
+        or stock_height < 57
     ):
         raise ValueError("Brewing dialog TILE geometry changed")
     combined_rows = [list(row) for row in private_rows]
-    combined_rows[:54] = [list(row) for row in stock_rows[:54]]
+    for y in range(57):
+        for x, stock_index in enumerate(stock_rows[y]):
+            if stock_index < 247:
+                combined_rows[y][x] = stock_index
     return stock.encode_indexed_v3_tile_like_original(template, combined_rows)
 
 
@@ -1151,6 +1357,7 @@ def write_maindata(
     flash_flask_buff_imag = buff_icon_template_imag
     flash_flask_activation_imag = phoenix_effect_template_imag
     stun_serum_impact_imag = phoenix_effect_template_imag
+    philosophers_stone_hit_imag = phoenix_effect_template_imag
     stun_serum_restraint_imag = stock.read_cam_entry(
         source, b"IMAG", b"CRB1vines_e"
     ).data
@@ -1458,6 +1665,10 @@ def write_maindata(
     miasma_debuff_source_png = (
         repo / "assets/source/spells/miasma-mist/debuff-strip.png"
     )
+    philosophers_stone_hit_source_png = (
+        repo
+        / "assets/source/spells/philosophers-stone/transmutation-impact-sheet.png"
+    )
     for source_png in (
         vigor_source_png,
         flash_buff_source_png,
@@ -1468,6 +1679,7 @@ def write_maindata(
         paralytic_oil_restraint_source_png,
         miasma_cloud_source_png,
         miasma_debuff_source_png,
+        philosophers_stone_hit_source_png,
     ):
         if not source_png.is_file():
             raise FileNotFoundError(source_png)
@@ -1568,6 +1780,40 @@ def write_maindata(
         )
     stun_serum_impact_imag = stock.remap_imag_animation_tiles(
         stun_serum_impact_imag, stun_impact_replacements
+    )
+
+    # Philosopher's Stone uses Haunt Gravechill's exact XR30 one-shot impact
+    # topology. Preserve all six stock frames and hotspots, floor the first two
+    # tiny Frost Field canvases at the readable third-frame size, and replace
+    # only their art with the approved transmutation phases.
+    philosophers_stone_hit_indices = stock.animation_tile_indices(
+        philosophers_stone_hit_imag, len(mx_tiles)
+    )
+    if len(philosophers_stone_hit_indices) != 6:
+        raise ValueError("Stock XR30 Philosopher's Stone scaffold changed")
+    philosophers_stone_hit_replacements: dict[int, int] = {}
+    for frame, source_index in enumerate(philosophers_stone_hit_indices):
+        template_tile = mx_tiles[
+            philosophers_stone_hit_indices[max(2, frame)]
+        ].data
+        philosophers_stone_hit_replacements[source_index] = append(
+            f"AST1StoneHit{frame:02d}".encode("ascii"),
+            generated_approved_strip_tile(
+                stock,
+                template_tile,
+                palettes,
+                philosophers_stone_hit_source_png,
+                6,
+                frame,
+                len(philosophers_stone_hit_indices),
+                PHOENIX_EFFECT_PALETTE,
+                fixed_header=struct.unpack_from("<8H", template_tile, 0),
+                fit_ratio=0.92,
+            ),
+        )
+    philosophers_stone_hit_imag = stock.remap_imag_animation_tiles(
+        philosophers_stone_hit_imag,
+        philosophers_stone_hit_replacements,
     )
 
     # CRB1 is Vines' literal 30-TILE restraint presentation. Preserve its
@@ -1928,6 +2174,10 @@ def write_maindata(
             stock.pad_name(PARALYTIC_OIL_RESTRAINT_CUSTOM),
             paralytic_oil_restraint_imag,
         ),
+        stock.CamEntry(
+            stock.pad_name(PHILOSOPHERS_STONE_HIT_CUSTOM),
+            philosophers_stone_hit_imag,
+        ),
         stock.CamEntry(stock.pad_name(MIASMA_STORM_CUSTOM), miasma_storm_imag),
         stock.CamEntry(stock.pad_name(MIASMA_MISSILE_CUSTOM), miasma_missile_imag),
         stock.CamEntry(stock.pad_name(MIASMA_PARTICLE_CUSTOM), miasma_particle_imag),
@@ -1974,6 +2224,11 @@ def write_interfacedata(repo: Path, game_data: Path, art_dir: Path, output: Path
     navigation_imag = stock.read_cam_entry(source, b"IMAG", NAVIGATION_SOURCE).data
     research_icon_imag = stock.read_cam_entry(source, b"IMAG", RESEARCH_ICON_SOURCE).data
     progress_imag = stock.read_cam_entry(source, b"IMAG", PROGRESS_SOURCE).data
+    expansion_source = game_data.parent / "DataMX" / "mx_interfacedata.cam"
+    expansion_tiles = stock.read_cam_entries(expansion_source, b"TILE")
+    tactical_cursor_imag = stock.read_cam_entry(
+        expansion_source, b"IMAG", TACTICAL_CURSOR_SOURCE
+    ).data
     base_max = len(tiles) - 1
     extra: list = []
 
@@ -2090,8 +2345,40 @@ def write_interfacedata(repo: Path, game_data: Path, art_dir: Path, output: Path
         append,
         brewing_progress_frames(stock, tiles),
     )
+    tempest_cursor_tile = append(
+        b"ALCTTempestCursor",
+        private_tactical_cursor_tile(
+            stock,
+            expansion_tiles[TACTICAL_CURSOR_TEMPLATE_TILE].data,
+            art_dir / "interface/alchemical-tempest-icon-25.png",
+        ),
+    )
+    stone_cursor_tile = append(
+        b"ALCSStoneCursor",
+        private_tactical_cursor_tile(
+            stock,
+            expansion_tiles[TACTICAL_CURSOR_TEMPLATE_TILE].data,
+            art_dir / "interface/philosophers-stone-icon-25.png",
+        ),
+    )
+    tactical_cursor_imag = append_private_tactical_cursor_sets(
+        tactical_cursor_imag,
+        tempest_cursor_tile,
+        stone_cursor_tile,
+    )
 
     tile_entries = [stock.CamEntry(name=tile.name, data=b"") for tile in tiles]
+    # The complete expansion CUR1 record reads its stock cursor payloads from
+    # the continuous DataMX TILE range 17..53. Carry those records literally
+    # at their native indices so this private CUR1 override is self-contained;
+    # every other stock TILE slot remains an empty fall-through entry.
+    if len(tile_entries) <= 53 or len(expansion_tiles) <= 53:
+        raise ValueError("Expansion tactical cursor TILE range changed")
+    for tile_index in range(17, 54):
+        tile_entries[tile_index] = stock.CamEntry(
+            expansion_tiles[tile_index].name,
+            expansion_tiles[tile_index].data,
+        )
     tile_entries.extend(extra)
     stock.write_cam(
         (
@@ -2109,6 +2396,10 @@ def write_interfacedata(repo: Path, game_data: Path, art_dir: Path, output: Path
                         phoenix_research_icon_imag,
                     ),
                     stock.CamEntry(stock.pad_name(PROGRESS_CUSTOM), progress_imag),
+                    stock.CamEntry(
+                        stock.pad_name(TACTICAL_CURSOR_CUSTOM),
+                        tactical_cursor_imag,
+                    ),
                 ),
             ),
             stock.CamSection(b"TILE", b"\x01\x00\x00\x00", tuple(tile_entries)),

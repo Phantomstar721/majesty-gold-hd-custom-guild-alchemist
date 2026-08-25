@@ -15,6 +15,37 @@ import approved_sprite_bundle as sprite_bundle
 
 
 class AlchemistGuildTests(unittest.TestCase):
+    def test_brewing_header_keeps_stock_ornament_and_private_backing(self) -> None:
+        class StockTileFixture:
+            @staticmethod
+            def tile_from_png_native_size(template, palettes, dialog_path):
+                self.assertEqual(template, b"stock")
+                self.assertEqual(palettes, [])
+                self.assertEqual(dialog_path, Path("private.png"))
+                return b"private"
+
+            @staticmethod
+            def decode_indexed_v3_tile(tile):
+                if tile == b"stock":
+                    row = [12, 247, 249, 254]
+                elif tile == b"private":
+                    row = [81, 82, 83, 84]
+                else:
+                    raise AssertionError(f"Unexpected TILE fixture: {tile!r}")
+                return 60, 4, [list(row) for _ in range(60)]
+
+            @staticmethod
+            def encode_indexed_v3_tile_like_original(template, rows):
+                self.assertEqual(template, b"stock")
+                return rows
+
+        rows = art_package.brewing_dialog_tile(
+            StockTileFixture(), b"stock", Path("private.png")
+        )
+        self.assertEqual(rows[0], [12, 82, 83, 84])
+        self.assertEqual(rows[56], [12, 82, 83, 84])
+        self.assertEqual(rows[57], [81, 82, 83, 84])
+
     def test_approved_sprite_bundle_is_hash_pinned_and_covers_complete_action_set(self) -> None:
         repo = Path(__file__).resolve().parents[1]
         stock = art_package.load_stock_pipeline(repo)
@@ -1394,7 +1425,7 @@ end
 
     def test_brewing_overlay_has_a_private_callback(self) -> None:
         stock = """<Majesty><Description type="Unit" subType="Overlay" ID="QRa1" Name="Rage_icon" Description="Rage of Krolm"><Engine><Info value="Directionless"/><Info value="DontBlock"/><ImageIDBase value="QRa1"/><Script type="0" cProc="0" GPLFunction="rage_end"/></Engine><Game><StackPriority value="1"/></Game></Description><Description type="Unit" subType="Overlay" ID="QRd0" Name="ring_icon" Description="This hero has the Magic Ring."><Engine><Info value="Static"/><Info value="Directionless"/><Info value="DontBlock"/><Menu value="11"/><ImageIDBase value="QRd0"/><DefaultSound value="0"/></Engine><Game><DialogID value="0"/><StackPriority value="0"/></Game></Description><Description type="Unit" subType="Overlay" ID="HRC1" Name="resurrection_effector" Description="Resurrection"><Engine><Info value="Directionless"/><Info value="DontBlock"/><Menu value="11"/><ImageIDBase value="HRC1"/><DefaultSound value="Resurrection"/><Script type="0" cProc="0" GPLFunction="Resurrection_End"/></Engine><Game><StackPriority value="0"/><Flags value="TransparentToMouse"/></Game></Description><Description type="Unit" subType="Overlay" ID="XR30" Name="Frost_Field_Hit_Effector" Description="Frost Field"><Engine><Info value="Directionless"/><Info value="DontBlock"/><Menu value="11"/><ImageIDBase value="XR30"/><AttachmentPointID value="2"/><DefaultSound value="Frost_Field_hit"/></Engine><Game><DialogID value="0"/><StackPriority value="0"/><Flags value="TransparentToMouse"/></Game></Description></Majesty>"""
-        mx_stock = '<Majesty><Description type="Unit" subType="Overlay" ID="XR01" Name="Speed_Tonic_Icon" Description="Speed Tonic"><Engine><Info value="Directionless"/><Info value="DontBlock"/><Menu value="11"/><ImageIDBase value="XR01"/><Script type="0" cProc="0" GPLFunction="Speed_Tonic_End"/><DefaultSound value="0"/></Engine><Game><DialogID value="0"/><StackPriority value="1"/></Game></Description></Majesty>'
+        mx_stock = '<Majesty><Description type="Unit" subType="Overlay" ID="XR01" Name="Speed_Tonic_Icon" Description="Speed Tonic"><Engine><Info value="Directionless"/><Info value="DontBlock"/><Menu value="11"/><ImageIDBase value="XR01"/><Script type="0" cProc="0" GPLFunction="Speed_Tonic_End"/><DefaultSound value="0"/></Engine><Game><DialogID value="0"/><StackPriority value="1"/></Game></Description><Description type="Unit" subType="Overlay" ID="XR30" Name="Frost_Field_Hit_Effector" Description="Frost Field"><Engine><Info value="Directionless"/><Info value="DontBlock"/><Menu value="11"/><ImageIDBase value="XR30"/><AttachmentPointID value="2"/><DefaultSound value="Frost_Field_hit"/></Engine><Game><DialogID value="0"/><StackPriority value="0"/><Flags value="TransparentToMouse"/></Game></Description></Majesty>'
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "M_Overlays.xml"
             mx_path = Path(directory) / "MX_Overlays.xml"
@@ -1423,7 +1454,13 @@ end
         self.assertEqual(
             resurrection.find("./Engine/AttachmentPointID").get("value"), "2"
         )
-        statuses = output.findall("Description")[2:]
+        stone = output.findall("Description")[2]
+        self.assertEqual(stone.get("ID"), "AST1")
+        self.assertEqual(stone.get("Name"), "philosophers_stone_hit_effector")
+        self.assertEqual(stone.find("./Engine/ImageIDBase").get("value"), "AST1")
+        self.assertEqual(stone.find("./Engine/DefaultSound").get("value"), "0")
+        self.assertEqual(stone.find("./Engine/AttachmentPointID").get("value"), "2")
+        statuses = output.findall("Description")[3:]
         self.assertEqual(len(statuses), 3)
         self.assertEqual(
             [
@@ -1461,7 +1498,7 @@ end
             self.assertEqual(
                 status.find("./Game/StackPriority").get("value"), "0"
             )
-        self.assertEqual(len(output.findall("Description")), 5)
+        self.assertEqual(len(output.findall("Description")), 6)
         self.assertIsNone(
             output.find('./Description[@Name="phoenix_phial_visual_effector"]')
         )
@@ -1707,6 +1744,7 @@ end
 <Description type="Sound" subType="Standard" ID="DP01" Name="Drink_Potion"><Engine><Category value="0"/><Phase ID="Effector Begin"><Wave value="DP01"/></Phase></Engine></Description>
 <Description type="Sound" subType="Standard" ID="SL35" Name="Shield_of_Light"><Engine><Category value="0"/><Phase ID="Begin"><Wave value="SL35"/><Group value="Spell_Group"/></Phase></Engine></Description>
 <Description type="Sound" subType="Standard" ID="BT01" Name="FervisTemple"><Engine><Category value="0"/><Phase ID="Select"><Wave value="BT01"/><DistanceModifier value="10000.0"/></Phase><Phase ID="GetHit"><Wave value="HG36"/></Phase></Engine></Description>
+<Description type="Sound" subType="Standard" ID="SL06" Name="Lightning_Storm"><Engine><Category value="0"/><Phase ID="Effector Begin"><Wave value="SL06"/><Group value="Guild_Spell_Group"/></Phase></Engine></Description>
 <Description type="Sound" subType="Standard" ID="CT01" Name="Cultist"><Engine><Category value="0"/><Phase ID="VFX_GO_COMBAT"><Wave value="CTGT"/></Phase><Phase ID="VFX_FLEE_COMBAT"><Wave value="CTFT"/></Phase><Phase ID="VFX_DECIDING"><Wave value="CTDO"/></Phase><Phase ID="VFX_GO_REWARD"><Wave value="CTDG"/></Phase><Phase ID="VFX_FIND_COOL"><Wave value="CTFL"/></Phase><Phase ID="VFX_SPECIAL1"><Wave value="CTSS"/></Phase><Phase ID="Death"><Wave value="CTDH"/></Phase><Phase ID="VFX_GAIN_LEVEL"><Wave value="CTGL"/></Phase><Phase ID="VFX_SEE_HOSTILE"><Wave value="CTSE"/></Phase><Phase ID="Easter_Egg"><Wave value="CTE1"/></Phase><Phase ID="VFX_LEVEL_10"><Wave value="CTTL"/></Phase><Phase ID="Attack"><Wave value="WU04"/><Group value="Attack_Group"/></Phase></Engine></Description>
 <Description type="Sound" subType="Standard" ID="RM01" Name="Rage_of_Krolm"><Engine><Category value="0"/><Phase ID="Begin"><Wave value="RM01"/><DistanceModifier value="10000.0"/></Phase></Engine></Description>
 </Majesty>"""
@@ -1724,6 +1762,17 @@ end
         self.assertEqual(
             sound.find('./Engine/Phase[@ID="Effector Begin"]/Wave').get("value"),
             "DP01",
+        )
+        tempest = output.find(
+            f'./Description[@Name="{builder.ALCHEMIST_TEMPEST_SOUND}"]'
+        )
+        self.assertEqual(
+            tempest.find('./Engine/Phase[@ID="Effector Begin"]/Wave').get("value"),
+            "SL44",
+        )
+        self.assertEqual(
+            tempest.find('./Engine/Phase[@ID="Effector Begin"]/Group').get("value"),
+            "Guild_Spell_Group",
         )
         bottle = output.find(
             f'./Description[@Name="{builder.ALCHEMIST_BOTTLE_BREAK_SOUND}"]'
@@ -1811,6 +1860,8 @@ end
             + builder.ALCHEMIST_CAST_VOICE_SOUND.encode("ascii"),
             builder.ALCHEMIST_HIRED_VOICE_SOUND_ID
             + builder.ALCHEMIST_HIRED_VOICE_SOUND.encode("ascii"),
+            builder.ALCHEMIST_TEMPEST_SOUND_ID
+            + builder.ALCHEMIST_TEMPEST_SOUND.encode("ascii"),
         }
         self.assertEqual(set(by_name), expected_names)
         bottle = by_name[
@@ -1833,6 +1884,10 @@ end
             builder.ALCHEMIST_HIRED_VOICE_SOUND_ID
             + builder.ALCHEMIST_HIRED_VOICE_SOUND.encode("ascii")
         ]
+        tempest = by_name[
+            builder.ALCHEMIST_TEMPEST_SOUND_ID
+            + builder.ALCHEMIST_TEMPEST_SOUND.encode("ascii")
+        ]
         self.assertEqual(bottle.count(builder.ALCHEMIST_BOTTLE_BREAK_WAVE_ID), 1)
         self.assertEqual(laboratory.count(builder.ALCHEMIST_LAB_WAVE_ID), 1)
         self.assertEqual(hero.count(b"WU03"), 1)
@@ -1846,6 +1901,8 @@ end
         self.assertNotIn(b"AHC2", hero)
         self.assertEqual(cast.count(b"AHC2"), 1)
         self.assertEqual(hired.count(b"AHS1"), 1)
+        self.assertEqual(tempest.count(b"SL44"), 1)
+        self.assertNotIn(b"SL06", tempest)
         self.assertIn(b"SG21", cast)
         self.assertIn(b"SG14", hired)
 

@@ -14,6 +14,7 @@ import wave
 import xml.etree.ElementTree as ET
 
 from alchemist_art_package import (
+    ALCHEMICAL_TEMPEST_CURSOR_SET_ID,
     FLASH_FLASK_ACTIVATION_CUSTOM,
     FLASH_FLASK_ACTIVATION_DELAY_MS,
     FLASH_FLASK_ACTIVATION_HEADER,
@@ -21,14 +22,21 @@ from alchemist_art_package import (
     FLASH_FLASK_BUFF_CUSTOM,
     PHOENIX_EFFECT_HEADER,
     PHOENIX_EFFECT_PALETTE,
+    PHOENIX_EFFECT_TEMPLATE_SOURCE,
     PHOENIX_LIFECYCLE_ANIMATION_SET,
     PHOENIX_LIFECYCLE_CUSTOM,
     PHOENIX_LIFECYCLE_FRAMES,
     PHOENIX_VISIBLE_FRAMES,
     PARALYTIC_OIL_RESTRAINT_CUSTOM,
+    PHILOSOPHERS_STONE_HIT_CUSTOM,
+    PHILOSOPHERS_STONE_CURSOR_SET_ID,
+    RECIPE_PRIVATE_PLATE_TILE_GROUPS,
     STUN_SERUM_DEBUFF_CUSTOM,
     STUN_SERUM_IMPACT_CUSTOM,
     STUN_SERUM_RESTRAINT_CUSTOM,
+    TACTICAL_CURSOR_CUSTOM,
+    TACTICAL_CURSOR_SOURCE,
+    TACTICAL_CURSOR_TEMPLATE_SET_ID,
     VIGOR_EFFECT_CUSTOM,
     generated_discrete_strip_tile,
     generated_frost_armor_hold_tile,
@@ -155,12 +163,14 @@ ALCHEMIST_LAB_SOUND = "Alchy_Lab"
 ALCHEMIST_HERO_SOUND = "Alchy_Hero"
 ALCHEMIST_CAST_VOICE_SOUND = "Alchy_Cast"
 ALCHEMIST_HIRED_VOICE_SOUND = "Alchy_Hired"
+ALCHEMIST_TEMPEST_SOUND = "Alchy_Tempest"
 ALCHEMIST_VIGOR_SOUND_ID = b"AXV1"
 ALCHEMIST_BOTTLE_BREAK_SOUND_ID = b"AXB1"
 ALCHEMIST_LAB_SOUND_ID = b"AXL1"
 ALCHEMIST_HERO_SOUND_ID = b"AXH1"
 ALCHEMIST_CAST_VOICE_SOUND_ID = b"AXC1"
 ALCHEMIST_HIRED_VOICE_SOUND_ID = b"AXR1"
+ALCHEMIST_TEMPEST_SOUND_ID = b"AXM1"
 ALCHEMIST_BOTTLE_BREAK_WAVE_ID = b"AXBK"
 ALCHEMIST_LAB_WAVE_ID = b"AXLB"
 ALCHEMIST_VOICE_WAVES = (
@@ -1671,9 +1681,21 @@ def build_units_xml(stock_buildings_xml: Path, stock_characters_xml: Path) -> by
     )
     if stock_lightning_storm is None:
         raise ValueError("Stock Lightning Storm spell-unit description is missing")
-    for unit_id, unit_name, script_name, description in (
-        ("ALT1", "alchemical_tempest", "Alchemical_Tempest_Hit", "Alchemical Tempest"),
-        ("ALS1", "philosophers_stone", "Philosophers_Stone_Hit", "Philosopher's Stone"),
+    for unit_id, unit_name, script_name, description, default_sound in (
+        (
+            "ALT1",
+            "alchemical_tempest",
+            "Alchemical_Tempest_Hit",
+            "Alchemical Tempest",
+            ALCHEMIST_TEMPEST_SOUND,
+        ),
+        (
+            "ALS1",
+            "philosophers_stone",
+            "Philosophers_Stone_Hit",
+            "Philosopher's Stone",
+            "0",
+        ),
     ):
         spell_unit = ET.fromstring(
             ET.tostring(stock_lightning_storm, encoding="utf-8")
@@ -1681,6 +1703,8 @@ def build_units_xml(stock_buildings_xml: Path, stock_characters_xml: Path) -> by
         spell_unit.set("ID", unit_id)
         spell_unit.set("Name", unit_name)
         spell_unit.set("Description", description)
+        spell_unit.find("./Engine/ImageIDBase").set("value", "AMm6")
+        spell_unit.find("./Engine/DefaultSound").set("value", default_sound)
         spell_unit.find("./Engine/Script").set("GPLFunction", script_name)
         output.append(spell_unit)
     for level, source_name in enumerate(SOURCE_BUILDING_NAMES):
@@ -1805,6 +1829,24 @@ def build_brewing_overlays_xml(
         attachment.set("value", "2")
     resurrection_script.set("GPLFunction", "Phoenix_Phial_Resurrection_End")
     output.append(resurrection)
+
+    # Haunt's Gravechill uses the complete stock XR30 Frost Field one-shot
+    # overlay. Clone that exact target-attached contract for the Stone and
+    # replace only its private identity, art, and silent sound reference.
+    stone_source = stock_mx_root.find(
+        './/Description[@Name="Frost_Field_Hit_Effector"]'
+    )
+    if stone_source is None:
+        raise ValueError("Stock Frost Field hit overlay is missing")
+    stone = ET.fromstring(ET.tostring(stone_source, encoding="utf-8"))
+    stone.set("ID", "AST1")
+    stone.set("Name", "philosophers_stone_hit_effector")
+    stone.set("Description", "Philosopher's Stone Transmutation")
+    stone.find("./Engine/ImageIDBase").set(
+        "value", PHILOSOPHERS_STONE_HIT_CUSTOM[:4].decode("ascii")
+    )
+    stone.find("./Engine/DefaultSound").set("value", "0")
+    output.append(stone)
 
     # Oil ownership is permanent, so the literal lifetime analogue is the
     # Magic Ring's static duration-1/Infinite Menu-11 presenter. Keep that
@@ -2142,6 +2184,23 @@ def build_brewing_sounds_xml(stock_sounds_xml: Path) -> bytes:
     output = ET.Element("Majesty")
     output.append(sound)
 
+    # Lightning Storm's spell unit dispatches only the stock Effector Begin
+    # phase. Preserve that exact one-phase/group topology, changing only the
+    # private identity and its WAVE target to stock Meteor Storm audio SL44.
+    tempest_source = stock_root.find('.//Description[@Name="Lightning_Storm"]')
+    if tempest_source is None:
+        raise ValueError("Stock Lightning_Storm sound is missing")
+    tempest_sound = ET.fromstring(
+        ET.tostring(tempest_source, encoding="utf-8")
+    )
+    tempest_sound.set("ID", ALCHEMIST_TEMPEST_SOUND_ID.decode("ascii"))
+    tempest_sound.set("Name", ALCHEMIST_TEMPEST_SOUND)
+    tempest_phase = tempest_sound.find('./Engine/Phase[@ID="Effector Begin"]')
+    if tempest_phase is None or tempest_phase.find("./Wave") is None:
+        raise ValueError("Stock Lightning_Storm Effector Begin contract changed")
+    tempest_phase.find("./Wave").set("value", "SL44")
+    output.append(tempest_sound)
+
     # One private spell sound, cloned from Shield of Light's Begin/Spell_Group
     # contract, is shared by both thrown-flask actions.
     spell_source = stock_root.find('.//Description[@Name="Shield_of_Light"]')
@@ -2357,6 +2416,14 @@ def write_alchemist_sounddesc_cam(source_path: Path, output_path: Path) -> None:
             ALCHEMIST_LAB_SOUND_ID,
             ALCHEMIST_LAB_SOUND.encode("ascii"),
             (b"BT01", ALCHEMIST_LAB_WAVE_ID),
+        ),
+        (
+            b"SL06Lightning_Storm",
+            b"SL06",
+            b"Lightning_Storm",
+            ALCHEMIST_TEMPEST_SOUND_ID,
+            ALCHEMIST_TEMPEST_SOUND.encode("ascii"),
+            (b"SL06", b"SL44"),
         ),
     )
     entries: list[CamEntry] = []
@@ -3609,6 +3676,21 @@ def validate_output(
         "philosophers_stone",
     ]:
         raise ValueError("Private sovereign spell-unit descriptions are missing")
+    sovereign_unit_contract = [
+        (
+            item.find("./Engine/ImageIDBase").get("value"),
+            item.find("./Engine/DefaultSound").get("value"),
+            item.find("./Engine/Script").get("GPLFunction"),
+        )
+        for item in sovereign_units
+    ]
+    if sovereign_unit_contract != [
+        ("AMm6", ALCHEMIST_TEMPEST_SOUND, "Alchemical_Tempest_Hit"),
+        ("AMm6", "0", "Philosophers_Stone_Hit"),
+    ]:
+        raise ValueError(
+            "Private sovereign units retained Lightning art, sound, or callbacks"
+        )
     if hero.get("Name") != ALCHEMIST_HERO_NAME:
         raise ValueError("Private Alchemist hero description is missing")
     if hero.find("./Engine/ImageIDBase").get("value") != ALCHEMIST_HERO_ID:
@@ -3840,6 +3922,7 @@ def validate_output(
     ).getroot()
     expected_sounds = {
         ALCHEMIST_VIGOR_SOUND: {"Effector Begin": "DP01"},
+        ALCHEMIST_TEMPEST_SOUND: {"Effector Begin": "SL44"},
         ALCHEMIST_BOTTLE_BREAK_SOUND: {
             "Begin": ALCHEMIST_BOTTLE_BREAK_WAVE_ID.decode("ascii")
         },
@@ -3900,6 +3983,8 @@ def validate_output(
         ALCHEMIST_VIGOR_SOUND_ID + ALCHEMIST_VIGOR_SOUND.encode("ascii"): (
             b"DP01",
         ),
+        ALCHEMIST_TEMPEST_SOUND_ID
+        + ALCHEMIST_TEMPEST_SOUND.encode("ascii"): (b"SL44",),
         ALCHEMIST_BOTTLE_BREAK_SOUND_ID
         + ALCHEMIST_BOTTLE_BREAK_SOUND.encode("ascii"): (
             ALCHEMIST_BOTTLE_BREAK_WAVE_ID,
@@ -3931,6 +4016,37 @@ def validate_output(
                 raise ValueError(
                     f"Private Alchemist DSND lost WAVE target {wave_id!r}: {name!r}"
                 )
+    tempest_dsnd_name = (
+        ALCHEMIST_TEMPEST_SOUND_ID
+        + ALCHEMIST_TEMPEST_SOUND.encode("ascii")
+    )
+    tempest_dsnd = next(
+        (
+            entry.data
+            for entry in sounddesc_entries
+            if entry.name.rstrip(b"\x00") == tempest_dsnd_name
+        ),
+        None,
+    )
+    stock_lightning_dsnd = read_cam_entry(
+        game_path / "Data" / "sounddesc.cam",
+        b"DSND",
+        b"SL06Lightning_Storm",
+    ).data
+    expected_tempest_dsnd = clone_dsnd_identity(
+        stock_lightning_dsnd,
+        b"SL06",
+        b"Lightning_Storm",
+        ALCHEMIST_TEMPEST_SOUND_ID,
+        ALCHEMIST_TEMPEST_SOUND.encode("ascii"),
+    )
+    expected_tempest_dsnd = replace_single_dsnd_wave(
+        expected_tempest_dsnd, b"SL06", b"SL44"
+    )
+    if tempest_dsnd != expected_tempest_dsnd:
+        raise ValueError(
+            "Alchemical Tempest sound is not an exact Lightning dispatch clone with Meteor audio"
+        )
     overlays = ET.parse(
         output_root / "Data" / "alchemist_brewing_overlays.xml"
     ).getroot()
@@ -3952,6 +4068,45 @@ def validate_output(
         raise ValueError("Phoenix resurrection effector lost the stock resurrection sound")
     if overlays.find('./Description[@Name="phoenix_phial_visual_effector"]') is not None:
         raise ValueError("Obsolete second Phoenix visual effector is still packaged")
+    stone_overlay = overlays.find(
+        './Description[@Name="philosophers_stone_hit_effector"]'
+    )
+    if stone_overlay is None:
+        raise ValueError("Private Philosopher's Stone impact effector is missing")
+    stock_stone_root = ET.parse(
+        game_path
+        / "SDK"
+        / "OriginalQuests"
+        / "DataMX"
+        / "MX_Overlays.xml"
+    ).getroot()
+    stock_stone_overlay = stock_stone_root.find(
+        './/Description[@Name="Frost_Field_Hit_Effector"]'
+    )
+    if stock_stone_overlay is None:
+        raise ValueError("Stock Frost Field hit overlay is missing during validation")
+    expected_stone_overlay = ET.fromstring(
+        ET.tostring(stock_stone_overlay, encoding="utf-8")
+    )
+    expected_stone_overlay.set("ID", "AST1")
+    expected_stone_overlay.set("Name", "philosophers_stone_hit_effector")
+    expected_stone_overlay.set("Description", "Philosopher's Stone Transmutation")
+    expected_stone_overlay.find("./Engine/ImageIDBase").set("value", "AST1")
+    expected_stone_overlay.find("./Engine/DefaultSound").set("value", "0")
+    def normalized_xml_node(node: ET.Element):
+        return (
+            node.tag,
+            tuple(sorted(node.attrib.items())),
+            (node.text or "").strip(),
+            tuple(normalized_xml_node(child) for child in node),
+        )
+
+    if normalized_xml_node(stone_overlay) != normalized_xml_node(
+        expected_stone_overlay
+    ):
+        raise ValueError(
+            "Philosopher's Stone impact diverged from stock Frost Field hit"
+        )
     oil_statuses = (
         (
             PARALYTIC_OIL_STATUS_ID,
@@ -4230,6 +4385,7 @@ def validate_output(
         STUN_SERUM_IMPACT_CUSTOM,
         STUN_SERUM_RESTRAINT_CUSTOM,
         STUN_SERUM_DEBUFF_CUSTOM,
+        PHILOSOPHERS_STONE_HIT_CUSTOM,
     ):
         if not read_cam_entry(main_art, b"IMAG", name).data:
             raise ValueError(f"Private main art record is empty: {name!r}")
@@ -4289,6 +4445,7 @@ def validate_output(
         (VIGOR_EFFECT_CUSTOM, b"ALV1Spark", 29, 560),
         (FLASH_FLASK_BUFF_CUSTOM, b"AFF1Flask", 29, 560),
         (FLASH_FLASK_ACTIVATION_CUSTOM, b"AFF2Flash", 6, 505),
+        (PHILOSOPHERS_STONE_HIT_CUSTOM, b"AST1StoneHit", 6, 505),
     ):
         image = art_stock.read_cam_entry(main_art, b"IMAG", image_name).data
         indices = art_stock.animation_tile_indices(image, len(phoenix_tiles))
@@ -4318,6 +4475,41 @@ def validate_output(
             ):
                 raise ValueError("Flash Flask activation lost stock default cadence")
 
+    stock_mx_main = game_path / "DataMX" / "mx_maindata.cam"
+    stock_stone_image = art_stock.read_cam_entry(
+        stock_mx_main, b"IMAG", PHOENIX_EFFECT_TEMPLATE_SOURCE
+    ).data
+    stock_mx_tiles = art_stock.read_cam_entries(stock_mx_main, b"TILE")
+    stock_stone_indices = art_stock.animation_tile_indices(
+        stock_stone_image, len(stock_mx_tiles)
+    )
+    private_stone_image = art_stock.read_cam_entry(
+        main_art, b"IMAG", PHILOSOPHERS_STONE_HIT_CUSTOM
+    ).data
+    private_stone_indices = art_stock.animation_tile_indices(
+        private_stone_image, len(phoenix_tiles)
+    )
+    if len(stock_stone_indices) != 6 or len(private_stone_indices) != 6:
+        raise ValueError("Philosopher's Stone lost XR30's six-frame lifecycle")
+    restored_stone_image = art_stock.remap_imag_animation_tiles(
+        private_stone_image,
+        dict(zip(private_stone_indices, stock_stone_indices)),
+    )
+    if restored_stone_image != stock_stone_image:
+        raise ValueError("Philosopher's Stone changed XR30 timing or frame topology")
+    for frame, private_index in enumerate(private_stone_indices):
+        stock_template_index = stock_stone_indices[max(2, frame)]
+        expected_header = list(
+            struct.unpack_from("<8H", stock_mx_tiles[stock_template_index].data, 0)
+        )
+        # Generated indexed overlays use the established private-art control
+        # word while preserving XR30's canvas, hotspot, attachment, and flags.
+        expected_header[4] = 32
+        if struct.unpack_from("<8H", phoenix_tiles[private_index].data, 0) != tuple(
+            expected_header
+        ):
+            raise ValueError("Philosopher's Stone changed XR30 target attachment geometry")
+
     for name in (
         b"ALTIraw textures",
         b"ALBBbuilding frame",
@@ -4326,42 +4518,207 @@ def validate_output(
         b"ALWIweapon oil icon",
         b"ALPIphial icon",
         b"ALSRalchemy progress",
+        TACTICAL_CURSOR_CUSTOM,
     ):
         if not read_cam_entry(interface_art, b"IMAG", name).data:
             raise ValueError(f"Private interface art record is empty: {name!r}")
-    for art_path, prefixes in (
+    main_tile_entries = read_cam_entries(main_art, b"TILE")
+    main_prefixes = (
+        b"ALC1",
+        b"ALB1",
+        b"ALB2",
+        b"ALB3",
+        b"PXF1",
+        b"PXE1",
+        b"ALV1",
+        b"AFF1",
+        b"AFF2",
+        b"AST1",
+    )
+    first_private_main = next(
         (
-            main_art,
-            (
-                b"ALC1",
-                b"ALB1",
-                b"ALB2",
-                b"ALB3",
-                b"PXF1",
-                b"PXE1",
-                b"ALV1",
-                b"AFF1",
-                b"AFF2",
-            ),
+            index
+            for index, entry in enumerate(main_tile_entries)
+            if entry.name.rstrip(b"\x00").startswith(main_prefixes)
         ),
-        (
-            interface_art,
-            (b"ALTI", b"ALBB", b"ALBG", b"ALIN", b"ALWI", b"ALPI", b"ALSR"),
-        ),
-    ):
-        tile_entries = read_cam_entries(art_path, b"TILE")
-        first_private = next(
-            (
-                index
-                for index, entry in enumerate(tile_entries)
-                if entry.name.rstrip(b"\x00").startswith(prefixes)
-            ),
-            None,
+        None,
+    )
+    if first_private_main is None or not main_tile_entries[first_private_main].data:
+        raise ValueError("Private TILE payloads are missing from alchemist_maindata.cam")
+    if any(entry.data for entry in main_tile_entries[:first_private_main]):
+        raise ValueError("alchemist_maindata.cam overwrites a stock TILE slot")
+
+    # CUR1 is a complete stock expansion record. Retain every original cursor
+    # set literally, then append only two exact set-1014 clones whose four
+    # visible Lightning glyph references point at private icon TILEs.
+    stock_interface_art = game_path / "DataMX" / "mx_interfacedata.cam"
+    stock_cursor = read_cam_entry(
+        stock_interface_art, b"IMAG", TACTICAL_CURSOR_SOURCE
+    ).data
+    private_cursor = read_cam_entry(
+        interface_art, b"IMAG", TACTICAL_CURSOR_CUSTOM
+    ).data
+    if len(stock_cursor) != 8024 or len(private_cursor) != 8600:
+        raise ValueError("Private CUR1 record length changed")
+    stock_cursor_count = u32(stock_cursor, 20)
+    private_cursor_count = u32(private_cursor, 20)
+    if stock_cursor_count != 34 or private_cursor_count != 36:
+        raise ValueError("Private CUR1 animation-set count changed")
+    stock_cursor_entries = [
+        struct.unpack_from("<II", stock_cursor, 24 + index * 8)
+        for index in range(stock_cursor_count)
+    ]
+    private_cursor_entries = [
+        struct.unpack_from("<II", private_cursor, 24 + index * 8)
+        for index in range(private_cursor_count)
+    ]
+    if private_cursor[:20] != stock_cursor[:20] or private_cursor_entries[:34] != [
+        (set_id, offset + 16) for set_id, offset in stock_cursor_entries
+    ]:
+        raise ValueError("Private CUR1 changed a stock animation-set entry")
+    if private_cursor_entries[34:] != [
+        (ALCHEMICAL_TEMPEST_CURSOR_SET_ID, 8040),
+        (PHILOSOPHERS_STONE_CURSOR_SET_ID, 8320),
+    ]:
+        raise ValueError("Private CUR1 cursor set identities or offsets changed")
+    if private_cursor[312:8040] != stock_cursor[296:8024]:
+        raise ValueError("Private CUR1 changed a stock animation body")
+    stock_entry_map = dict(stock_cursor_entries)
+    private_entry_map = dict(private_cursor_entries)
+    stock_lightning_body = stock_cursor[
+        stock_entry_map[TACTICAL_CURSOR_TEMPLATE_SET_ID] :
+        min(
+            offset
+            for _set_id, offset in stock_cursor_entries
+            if offset > stock_entry_map[TACTICAL_CURSOR_TEMPLATE_SET_ID]
         )
-        if first_private is None or not tile_entries[first_private].data:
-            raise ValueError(f"Private TILE payloads are missing from {art_path.name}")
-        if any(entry.data for entry in tile_entries[:first_private]):
-            raise ValueError(f"{art_path.name} overwrites a stock TILE slot")
+    ]
+    if len(stock_lightning_body) != 280 or private_cursor[
+        private_entry_map[TACTICAL_CURSOR_TEMPLATE_SET_ID] :
+        private_entry_map[TACTICAL_CURSOR_TEMPLATE_SET_ID] + 280
+    ] != stock_lightning_body:
+        raise ValueError("Private CUR1 changed stock Lightning cursor set 1014")
+
+    interface_tile_entries = read_cam_entries(interface_art, b"TILE")
+    disabled_plate_names = {
+        b"ALBB" + f"{group[2]:05d}".encode("ascii")
+        for group in RECIPE_PRIVATE_PLATE_TILE_GROUPS
+    }
+    packaged_disabled_plates = [
+        (index, entry)
+        for index, entry in enumerate(interface_tile_entries)
+        if entry.name.rstrip(b"\x00") in disabled_plate_names
+    ]
+    if len(packaged_disabled_plates) != len(disabled_plate_names):
+        raise ValueError("Private disabled recipe plates are missing or duplicated")
+    for _index, entry in packaged_disabled_plates:
+        decoded = art_stock.decode_indexed_v3_tile(entry.data)
+        if decoded is None or any(
+            decoded[2][y][x] == 0
+            for y in range(1, len(decoded[2]) - 1)
+            for x in range(1, len(decoded[2][y]) - 1)
+        ):
+            raise ValueError("Packaged disabled recipe plate retained stock holes")
+    private_building_frame = read_cam_entry(
+        interface_art, b"IMAG", b"ALBBbuilding frame"
+    ).data
+    private_building_frame_refs = {
+        u32(private_building_frame, offset) & 0xFFFF
+        for offset in range(0, len(private_building_frame) - 3, 4)
+    }
+    if not {
+        index for index, _entry in packaged_disabled_plates
+    }.issubset(private_building_frame_refs):
+        raise ValueError("ALBB does not reference all private disabled recipe plates")
+    cursor_tile_indices: dict[bytes, int] = {}
+    for index, entry in enumerate(interface_tile_entries):
+        short_name = entry.name.rstrip(b"\x00")
+        if short_name in (b"ALCTTempestCursor", b"ALCSStoneCursor"):
+            cursor_tile_indices[short_name] = index
+    if set(cursor_tile_indices) != {b"ALCTTempestCursor", b"ALCSStoneCursor"}:
+        raise ValueError("Private tactical cursor TILEs are missing or duplicated")
+    glyph_offsets = (0x7C, 0xAC, 0xE4, 0x10C)
+    for set_id, tile_name in (
+        (ALCHEMICAL_TEMPEST_CURSOR_SET_ID, b"ALCTTempestCursor"),
+        (PHILOSOPHERS_STONE_CURSOR_SET_ID, b"ALCSStoneCursor"),
+    ):
+        expected_body = bytearray(stock_lightning_body)
+        tile_index = cursor_tile_indices[tile_name]
+        for offset in glyph_offsets:
+            original_ref = u32(expected_body, offset)
+            struct.pack_into(
+                "<I",
+                expected_body,
+                offset,
+                (original_ref & 0xFFFF0000) | tile_index,
+            )
+        actual_body = private_cursor[
+            private_entry_map[set_id] : private_entry_map[set_id] + 280
+        ]
+        if actual_body != bytes(expected_body):
+            raise ValueError(f"Private CUR1 set {set_id} is not an exact stock clone")
+        tile = interface_tile_entries[tile_index].data
+        if (
+            struct.unpack_from("<H", tile, 0)[0] != 3
+            or struct.unpack_from("<HH", tile, 2) != (40, 40)
+            or struct.unpack_from("<H", tile, 20)[0] != 1
+            or u32(tile, 22) >= len(tile)
+        ):
+            raise ValueError(f"Private CUR1 set {set_id} has an invalid cursor TILE")
+        decoded = art_stock.decode_indexed_v3_tile(tile)
+        if decoded is None or not any(
+            pixel != 0 for row in decoded[2] for pixel in row
+        ):
+            raise ValueError(f"Private CUR1 set {set_id} has a blank cursor TILE")
+        if any(
+            pixel >= 247 for row in decoded[2] for pixel in row
+        ):
+            raise ValueError(
+                f"Private CUR1 set {set_id} uses stock cursor/control indices"
+            )
+
+    stock_expansion_tiles = read_cam_entries(stock_interface_art, b"TILE")
+    if len(interface_tile_entries) <= 53 or len(stock_expansion_tiles) <= 53:
+        raise ValueError("Expansion CUR1 stock TILE range changed")
+    for tile_index in range(17, 54):
+        if interface_tile_entries[tile_index] != stock_expansion_tiles[tile_index]:
+            raise ValueError(
+                f"Private CUR1 did not preserve DataMX TILE {tile_index} literally"
+            )
+    interface_prefixes = (
+        b"ALTI",
+        b"ALBB",
+        b"ALBG",
+        b"ALIN",
+        b"ALWI",
+        b"ALPI",
+        b"ALSR",
+        b"ALCT",
+        b"ALCS",
+    )
+    first_private_interface = next(
+        (
+            index
+            for index, entry in enumerate(interface_tile_entries)
+            if entry.name.rstrip(b"\x00").startswith(interface_prefixes)
+        ),
+        None,
+    )
+    if (
+        first_private_interface is None
+        or not interface_tile_entries[first_private_interface].data
+    ):
+        raise ValueError(
+            "Private TILE payloads are missing from alchemist_interfacedata.cam"
+        )
+    if any(
+        entry.data
+        for index, entry in enumerate(interface_tile_entries[:first_private_interface])
+        if not 17 <= index <= 53
+    ):
+        raise ValueError(
+            "alchemist_interfacedata.cam overwrites an unrelated stock TILE slot"
+        )
     brewing_strings = read_cam_entry(text_cam, b"STRT", BREWING_DIALOG_ID).data
     if b"Vigor Elixir\x00" not in brewing_strings:
         raise ValueError("CGBR Vigor Elixir label is missing")
@@ -4612,6 +4969,9 @@ def validate_output(
     miasma_source = (
         output_root / "GPL" / "Alchemist_Miasma_Mist.gpl"
     ).read_text(encoding="utf-8")
+    reagent_source = (
+        output_root / "GPL" / "Alchemist_Reagents.gpl"
+    ).read_text(encoding="utf-8")
     cast_voice_call = '$PlaySound(ThisAgent, "Alchy_Cast", "Begin")'
     if cast_voice_call in flash_source:
         raise ValueError("Flash Flask must retain only its stock potion sound")
@@ -4619,6 +4979,41 @@ def validate_output(
         raise ValueError("Stun Serum lost its explicit thrown-bottle cast voice")
     if miasma_source.count(cast_voice_call) != 1:
         raise ValueError("Miasma Mist lost its explicit thrown-bottle cast voice")
+    tempest_cloud_call = (
+        '$CreateEffector ( thisagent, "miasma_mist_cloud_effector", 2300 );'
+    )
+    if (
+        reagent_source.count(tempest_cloud_call) != 1
+        or reagent_source.count(
+            '$NewThread ( thisagent\'s "activeScript", 500, thisagent );'
+        )
+        != 1
+        or reagent_source.count('$SetSpellUnitTimeout ( thisagent, 2300 );') != 2
+        or "lightening_storm_effector2" in reagent_source
+    ):
+        raise ValueError(
+            "Alchemical Tempest lost its stock Lightning lifecycle with private Miasma art"
+        )
+    stone_effect_call = (
+        '$CreateEffector ( thisagent, "philosophers_stone_hit_effector", 0 );'
+    )
+    stone_effect_offset = reagent_source.find(stone_effect_call)
+    stone_attack_offset = reagent_source.find(
+        "$player_spell_attack ( target, 100000, 100000 );",
+        stone_effect_offset,
+    )
+    if (
+        reagent_source.count(stone_effect_call) != 1
+        or stone_effect_offset < 0
+        or stone_attack_offset <= stone_effect_offset
+        or reagent_source.find(
+            "$SetSpellUnitTimeout ( thisagent, 2300 );",
+            stone_attack_offset,
+        ) <= stone_attack_offset
+    ):
+        raise ValueError(
+            "Philosopher's Stone lost its position-owned stock impact lifecycle"
+        )
     if building_data.count("(title AlchemistsLaboratory)") != 3:
         raise ValueError("Every GPL Laboratory level must use its production title")
     if building_data.count("(Alchemist_Brewing True)") != 3:

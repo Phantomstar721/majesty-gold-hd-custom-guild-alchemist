@@ -202,6 +202,10 @@ begin
 
 	if ($Check_rewards(thisagent,FALSE) == False)
 
+	// A complete reagent load uses Rogue's unchanged stock Go_home action, but
+	// immediately after reward handling so an accepted flag keeps priority.
+	if ($Alchemist_Return_Full_Reagent_Load(thisagent) == False)
+
 	// Preserve stock reward priority so an incidental encounter cannot make an
 	// Alchemist abandon an accepted bounty to refill a consumed flask. Bazaar
 	// shopping still precedes every ordinary equipment and hunting branch.
@@ -241,4 +245,20 @@ begin
 			thisagent's "activescript" = $hero_wander;
 		end
 
+end
+
+///////////////////////////////////////////////////////////////////////////////
+
+function Alchemist_Return_Full_Reagent_Load(agent ThisAgent) is boolean
+
+declare
+
+begin
+	if (ThisAgent's "num_picked_goodies" < 3)
+		return False;
+
+	if ($Go_home(ThisAgent,95) == False)
+		return False;
+
+	return True;
 end

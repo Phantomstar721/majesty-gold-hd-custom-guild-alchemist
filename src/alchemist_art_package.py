@@ -99,7 +99,13 @@ MIASMA_MISSILE_CUSTOM = b"AMm2Miasma Missile"
 MIASMA_PARTICLE_CUSTOM = b"AMm4Miasma Vapor"
 MIASMA_DEBUFF_CUSTOM = b"AMm5Miasma Icon"
 MIASMA_ANCHOR_CUSTOM = b"AMm6Miasma Anchor"
-MIASMA_PALETTE = 505
+# Keep each private effect on the closest literal stock palette for its art.
+# Giant Spider palette 577 preserves the approved Miasma raster's yellow-green
+# vapor range.  The previously shared fire palette 505 collapsed that range to
+# dark orange.  Tempest and the approved overhead drop remain on 505.
+MIASMA_CLOUD_PALETTE = 577
+MIASMA_DEBUFF_PALETTE = 505
+TEMPEST_PALETTE = 505
 TEMPEST_STORM_CUSTOM = b"ATm1Tempest Cloud"
 TEMPEST_MISSILE_CUSTOM = b"ATm2Tempest Missile"
 TEMPEST_PARTICLE_CUSTOM = b"ATm4Tempest Vapor"
@@ -240,6 +246,7 @@ def generated_area_effect_tile(
     frame_count: int,
     fit_ratio: float,
     brightness: float,
+    palette_index: int,
 ) -> bytes:
     """Render a stable-footprint stock Meteor field with moving interior art."""
     from PIL import ImageEnhance
@@ -308,7 +315,7 @@ def generated_area_effect_tile(
     return stock.rgba_to_indexed_tile(
         canvas,
         palettes,
-        MIASMA_PALETTE,
+        palette_index,
         tuple(header),
     )
 
@@ -320,6 +327,7 @@ def generated_miasma_particle_tile(
     source_png: Path,
     frame_index: int,
     frame_count: int,
+    palette_index: int,
 ) -> bytes:
     """Render a small translucent vapor curl for the stock Meteor emitter."""
     from PIL import ImageEnhance
@@ -353,7 +361,7 @@ def generated_miasma_particle_tile(
     return stock.rgba_to_indexed_tile(
         canvas,
         palettes,
-        MIASMA_PALETTE,
+        palette_index,
         tuple(header),
     )
 
@@ -1973,6 +1981,7 @@ def write_maindata(
                 len(miasma_storm_indices),
                 0.96,
                 0.68,
+                MIASMA_CLOUD_PALETTE,
             ),
         )
     miasma_storm_imag = stock.remap_imag_tile_indices(
@@ -2026,6 +2035,7 @@ def write_maindata(
                 miasma_cloud_source_png,
                 frame,
                 len(miasma_particle_indices),
+                MIASMA_CLOUD_PALETTE,
             ),
         )
     miasma_particle_imag = stock.remap_imag_animation_tiles(
@@ -2058,6 +2068,7 @@ def write_maindata(
                 len(tempest_storm_indices),
                 0.96 * TEMPEST_RADIUS / METEOR_STORM_RADIUS,
                 0.78,
+                TEMPEST_PALETTE,
             ),
         )
     tempest_storm_imag = stock.remap_imag_tile_indices(
@@ -2095,6 +2106,7 @@ def write_maindata(
                 tempest_area_source_png,
                 frame,
                 len(tempest_particle_indices),
+                TEMPEST_PALETTE,
             ),
         )
     tempest_particle_imag = stock.remap_imag_animation_tiles(
@@ -2123,7 +2135,7 @@ def write_maindata(
                 tempest_impact_source_png,
                 7,
                 tempest_impact_phase_indices[frame],
-                MIASMA_PALETTE,
+                TEMPEST_PALETTE,
                 struct.unpack_from("<8H", template_tile, 0),
             ),
         )
@@ -2144,7 +2156,7 @@ def write_maindata(
                 8,
                 frame,
                 len(buff_template_indices),
-                MIASMA_PALETTE,
+                MIASMA_DEBUFF_PALETTE,
                 fit_ratio=OVERHEAD_EFFECT_FIT_RATIO,
             ),
         )

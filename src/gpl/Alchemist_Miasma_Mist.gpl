@@ -12,12 +12,16 @@ expression #Alchemist_Miasma_Mist_Debuff_Duration 10000
 function Alchemist_Miasma_Mist_Check(agent ThisAgent) is integer
 
 declare
+	list Targets;
 	agent Target;
 
 begin
 	If ($IsDead(ThisAgent))
 		return 0;
 
+	// Reject the current combat target before entering Meteor Storm's stock
+	// list-size check.  This is the one private target rule: structures can
+	// never prompt Miasma Mist even when another enemy happens to be nearby.
 	Target = ThisAgent's "Target";
 	If ($NotValid(Target))
 		return 0;
@@ -25,16 +29,15 @@ begin
 		return 0;
 	If (Target's "Type" == "Building" || Target's "Type" == "Lair")
 		return 0;
-	If ($DistanceBetweenAgents(ThisAgent, Target) > ThisAgent's "castingrange")
-		return 0;
 
-	// Reuse the Alchemist's stock-list-eval combat-consumable boundary.  This
-	// keeps the expensive area spell for fights the stock evaluator considers
-	// dangerous rather than spending it on trivial incidental enemies.
-	If ($alchemist_combat_consumable_check(ThisAgent) == 0)
+	// Literal Meteor_storm_check discovery, radius, list-size branch, and
+	// return shape.  Do not return from inside a foreach here: the Beta2 GPL
+	// interpreter leaves that function result slot unowned and crashes.
+	Targets = $compile_enemies(ThisAgent, #Alchemist_Miasma_Mist_Radius);
+	if ($ListSize(Targets) > 0)
+		return 1;
+	else
 		return 0;
-
-	return 1;
 end
 
 

@@ -1173,6 +1173,7 @@ end
             'data="Alchemist_Building_Data.dat"\n'
             'data="Alchemist_Hero_Data.dat"\n'
             'data="Alchemist_Phoenix_Phial.dat"\n'
+            'data="Alchemist_Reagent.dat"\n'
             'source="Alchemist_Rogue.gpl"\n'
             'source="Alchemist_Embassy.gpl"\n'
             'source="Alchemist_Magic_Bazaar.gpl"\n'
@@ -1392,7 +1393,7 @@ end
             builder.ALCHEMY_OIL_INTENT_TEXT,
         )
         item_count = struct.unpack_from("<H", items, 0)[0]
-        self.assertEqual(item_count, builder.PHOENIX_PHIAL_ITEM_ID + 1)
+        self.assertEqual(item_count, builder.ALCHEMIST_REAGENT_ITEM_ID + 1)
         item_offset = struct.unpack_from(
             "<I", items, 4 + builder.PHOENIX_PHIAL_ITEM_ID * 4
         )[0]
@@ -1759,7 +1760,8 @@ end
             '$NewThread(ThisAgent\'s "ActiveScript", 1600, ThisAgent)',
             "$Alchemist_Miasma_Mist_Active(ThisAgent)",
             "$player_spell_attack(Target, 1, 1)",
-            "$alchemist_combat_consumable_check(ThisAgent)",
+            "$compile_enemies(ThisAgent, #Alchemist_Miasma_Mist_Radius)",
+            "$ListSize(Targets) > 0",
             'Target\'s "Type" == "Building"',
             'Target\'s "Type" == "Lair"',
             "#ATTRIB_Dodge, -10",
@@ -1773,6 +1775,11 @@ end
             '"miasma_mist_debuff_icon", 1, "infinite"',
         ):
             self.assertIn(stock_contract, source)
+        self.assertNotIn("$alchemist_combat_consumable_check(ThisAgent)", source)
+        check_source = source.split(
+            "function Alchemist_Miasma_Mist_Hit", 1
+        )[0]
+        self.assertNotIn("foreach Target in Targets do", check_source)
         self.assertEqual(source.count("#Alchemist_Miasma_Mist_Debuff_Duration;"), 1)
         self.assertIn("$SetSpellUnitTimeout(ThisAgent, Duration)", source)
         self.assertEqual(
@@ -1794,8 +1801,22 @@ end
             '$CreateEffector ( thisagent, "alchemical_tempest_cloud_effector", 2300 )',
             '$CreateMissile ( "alchemical_tempest_missile", thisagent, target )',
             '$CreateEffector ( target, "alchemical_tempest_impact", 0 )',
+            '$NewThread ( thisagent\'s "activeScript", 1600, thisagent )',
+            '$CreateNewInventoryItem ( #AlchemistReagent, alchemist,',
+            '$DeleteInventoryItem ( #AlchemistReagent, ThisAgent )',
         ):
             self.assertIn(stock_tempest_contract, reagent_source)
+        self.assertIn(
+            "$spelldamage ( $nullagent(), target, 100000, 100000 )",
+            reagent_source,
+        )
+        stone_source = reagent_source.split(
+            "function Philosophers_Stone_Hit", 1
+        )[1]
+        self.assertNotIn(
+            "$player_spell_attack ( target, 100000, 100000 )",
+            stone_source,
+        )
         self.assertNotIn(
             '$CreateEffector ( thisagent, "miasma_mist_cloud_effector", 2300 )',
             reagent_source,

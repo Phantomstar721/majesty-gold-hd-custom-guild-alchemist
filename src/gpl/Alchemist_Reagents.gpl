@@ -7,6 +7,9 @@
 // rest path deposits it in the Laboratory's num_resources field.
 ///////////////////////////////////////////////////////////////////////////////
 
+expression #AlchemistReagent 114
+expression #Alchemist_Reagent_Carry_Limit 3
+
 function Alchemist_Monster_Threat_Rank ( agent monster ) is integer
 declare
 	integer experience;
@@ -92,7 +95,17 @@ begin
 			home = alchemist's "Home";
 			if ( $IsValidGamePiece ( home ) )
 				if ( home's "title" == "AlchemistsLaboratory" )
-					alchemist's "num_picked_goodies" += 1;
+					if ( alchemist's "num_picked_goodies" <
+						#Alchemist_Reagent_Carry_Limit )
+						begin
+							// The carried part is a real cloned inventory item. The
+							// native Items panel therefore owns its presentation and
+							// save/load behavior while num_picked_goodies remains the
+							// stock guild-deposit authority.
+							$CreateNewInventoryItem ( #AlchemistReagent, alchemist,
+								#Allow_Cloned_Quest_Item );
+							alchemist's "num_picked_goodies" += 1;
+						end
 		end
 end
 
@@ -192,6 +205,8 @@ declare
 begin
 	ThisBuilding = ThisAgent's "Home";
 	$Drop_Off_Goodies ( ThisAgent, ThisBuilding );
+	While ( $AgentHasInventoryItem ( #AlchemistReagent, ThisAgent ) ) do
+		$DeleteInventoryItem ( #AlchemistReagent, ThisAgent );
 	$SetAttribute ( ThisBuilding, #ATTRIB_ReturnAmount,
 		ThisBuilding's "num_resources" );
 
@@ -258,7 +273,9 @@ begin
 		end
 
 	$CreateEffector ( thisagent, "alchemical_tempest_cloud_effector", 2300 );
-	$NewThread ( thisagent's "activeScript", 500, thisagent );
+	// Preserve Meteor Storm's native periodic cadence. The former 500 ms
+	// interval multiplied missile and impact work three times faster than stock.
+	$NewThread ( thisagent's "activeScript", 1600, thisagent );
 	$SetSpellUnitTimeout ( thisagent, 2300 );
 	$Alchemical_Tempest_Active ( thisagent );
 end
@@ -334,6 +351,9 @@ begin
 	// location.
 	$CreateEffector ( thisagent, "Got_Gold", 0, 3000 );
 	$CreateEffector ( thisagent, "philosophers_stone_hit_effector", 0 );
-	$player_spell_attack ( target, 100000, 100000 );
+	// Stock player_spell_attack may resist before applying any damage. Stone
+	// already excludes protected targets, so enter the stock spelldamage path
+	// directly to preserve normal HP-zero death callbacks without that roll.
+	$spelldamage ( $nullagent(), target, 100000, 100000 );
 	$SetSpellUnitTimeout ( thisagent, 2300 );
 end

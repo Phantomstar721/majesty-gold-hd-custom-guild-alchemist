@@ -213,6 +213,10 @@ PHOENIX_PHIAL_ITEM_ID = 113
 PHOENIX_PHIAL_ITEM_TEXT = (
     "Phoenix Phial\n\x01FFDDAA(75% chance to revive after death)"
 )
+ALCHEMIST_REAGENT_ITEM_ID = 114
+ALCHEMIST_REAGENT_ITEM_TEXT = (
+    "Monster Reagent\n\x01FFDDAA(Returns to the Alchemy Lab with 3)"
+)
 PHANTOM_COWL_TIER_NAMES = (
     "Frozen Cowl",
     "Icy Cowl",
@@ -1154,6 +1158,7 @@ def build_gpl_project(include_siege_test_fixture: bool) -> str:
         'data="Alchemist_Building_Data.dat"\n'
         'data="Alchemist_Hero_Data.dat"\n'
         'data="Alchemist_Phoenix_Phial.dat"\n'
+        'data="Alchemist_Reagent.dat"\n'
         + "\n".join(sources)
         + "\n"
     )
@@ -1784,6 +1789,41 @@ def build_units_xml(stock_buildings_xml: Path, stock_characters_xml: Path) -> by
     attributes = ET.SubElement(game, "Attributes")
     ET.SubElement(attributes, "Attribute", {"ID": "CanDropItem", "Value": "0"})
     ET.SubElement(attributes, "Attribute", {"ID": "PhoenixPhial", "Value": "0"})
+    reagent = ET.SubElement(
+        output,
+        "Description",
+        {
+            "type": "Unit",
+            "subType": "Character",
+            "ID": "ALR1",
+            "Name": "AlchemistReagent",
+            "Description": "Monster Reagent",
+        },
+    )
+    reagent_engine = ET.SubElement(reagent, "Engine", {"version": "1"})
+    ET.SubElement(reagent_engine, "Info", {"value": "Static"})
+    ET.SubElement(reagent_engine, "Info", {"value": "Directionless"})
+    ET.SubElement(reagent_engine, "CanUse", {"value": "HumanPlayer"})
+    ET.SubElement(reagent_engine, "Menu", {"value": "11"})
+    # The item is never spawned in the world. Reuse the existing private Phial
+    # image record rather than introducing unapproved art for a text-list row.
+    ET.SubElement(reagent_engine, "ImageIDBase", {"value": "PXF1"})
+    ET.SubElement(reagent_engine, "DefaultSound", {"value": "0"})
+    reagent_game = ET.SubElement(reagent, "Game", {"version": "1"})
+    ET.SubElement(reagent_game, "DialogID", {"value": "0"})
+    ET.SubElement(reagent_game, "MaxHP", {"value": "10"})
+    ET.SubElement(reagent_game, "Flags", {"value": "NotFlaggable"})
+    ET.SubElement(reagent_game, "Flags", {"value": "NotSpellTarget"})
+    ET.SubElement(reagent_game, "Flags", {"value": "IsInventoryItem"})
+    reagent_attributes = ET.SubElement(reagent_game, "Attributes")
+    ET.SubElement(
+        reagent_attributes, "Attribute", {"ID": "CanDropItem", "Value": "0"}
+    )
+    ET.SubElement(
+        reagent_attributes,
+        "Attribute",
+        {"ID": "AlchemistReagent", "Value": "0"},
+    )
     ET.indent(output, space="\t")
     return ET.tostring(output, encoding="utf-8", xml_declaration=False) + b"\n"
 
@@ -3398,6 +3438,7 @@ def build_gpl_text_cam(stock_gpl_text_cam: Path, output_path: Path) -> None:
     )
     shared_item_text: dict[int, str] = {
         PHOENIX_PHIAL_ITEM_ID: PHOENIX_PHIAL_ITEM_TEXT,
+        ALCHEMIST_REAGENT_ITEM_ID: ALCHEMIST_REAGENT_ITEM_TEXT,
         82: "Frost Armor\n\x01FFDDAA(+10 armor)",
     }
     for family, base_id, first_variant, names in (
@@ -3608,6 +3649,7 @@ def build_manifest(include_siege_test_fixture: bool = False) -> str:
 \t\t\t\t\t\t<Source>GPL\\Alchemist_Building_Data.dat</Source>
 \t\t\t\t\t\t<Source>GPL\\Alchemist_Hero_Data.dat</Source>
 \t\t\t\t\t\t<Source>GPL\\Alchemist_Phoenix_Phial.dat</Source>
+\t\t\t\t\t\t<Source>GPL\\Alchemist_Reagent.dat</Source>
 \t\t\t\t\t\t<Source>GPL\\Alchemist_Rogue.gpl</Source>
 \t\t\t\t\t\t<Source>GPL\\Alchemist_Embassy.gpl</Source>
 \t\t\t\t\t\t<Source>GPL\\Alchemist_Magic_Bazaar.gpl</Source>
@@ -3663,6 +3705,7 @@ def validate_output(
         output_root / "GPL" / "Alchemist_Building_Data.dat",
         output_root / "GPL" / "Alchemist_Hero_Data.dat",
         output_root / "GPL" / "Alchemist_Phoenix_Phial.dat",
+        output_root / "GPL" / "Alchemist_Reagent.dat",
         output_root / "GPL" / "Alchemist_Rogue.gpl",
         output_root / "GPL" / "Alchemist_Embassy.gpl",
         output_root / "GPL" / "Alchemist_Magic_Bazaar.gpl",
@@ -3722,12 +3765,14 @@ def validate_output(
         "ALS1",
         *BUILDING_IDS,
         "PXF1",
+        "ALR1",
     ]:
         raise ValueError("Alchemist unit ID sequence is invalid")
     hero = descriptions[0]
     sovereign_units = descriptions[1:3]
     buildings = descriptions[3:6]
     phoenix = descriptions[6]
+    reagent = descriptions[7]
     if [item.get("Name") for item in sovereign_units] != [
         "alchemical_tempest",
         "philosophers_stone",
@@ -3801,6 +3846,10 @@ def validate_output(
         raise ValueError("Phoenix Phial inventory-item description is missing")
     if phoenix.find("./Engine/ImageIDBase").get("value") != "PXF1":
         raise ValueError("Phoenix Phial must use its private inventory-item art")
+    if reagent.get("Name") != "AlchemistReagent" or reagent.find(
+        './Game/Flags[@value="IsInventoryItem"]'
+    ) is None:
+        raise ValueError("Monster Reagent inventory-item description is missing")
     potion_root = ET.parse(
         output_root / "Data" / "alchemist_combat_potions.xml"
     ).getroot()
@@ -4345,6 +4394,18 @@ def validate_output(
         != PHOENIX_PHIAL_ITEM_TEXT
     ):
         raise ValueError("Phoenix Phial QITM inventory text is incorrect")
+    if item_count <= ALCHEMIST_REAGENT_ITEM_ID:
+        raise ValueError("Monster Reagent QITM slot was not appended")
+    reagent_item_offset = struct.unpack_from(
+        "<I", item_strings, 4 + ALCHEMIST_REAGENT_ITEM_ID * 4
+    )[0]
+    reagent_item_end = item_strings.index(b"\x00", reagent_item_offset + 4)
+    if (
+        u32(item_strings, reagent_item_offset) != ALCHEMIST_REAGENT_ITEM_ID
+        or item_strings[reagent_item_offset + 4 : reagent_item_end].decode("cp1252")
+        != ALCHEMIST_REAGENT_ITEM_TEXT
+    ):
+        raise ValueError("Monster Reagent QITM inventory text is incorrect")
     help_strings = read_cam_entry(gpl_text_cam, b"STRT", b"HPTX").data
     help_count = struct.unpack_from("<H", help_strings, 0)[0]
     help_offsets = struct.unpack_from(f"<{help_count}I", help_strings, 4)
@@ -5099,7 +5160,7 @@ def validate_output(
         or reagent_source.count(tempest_missile_call) != 1
         or reagent_source.count(tempest_impact_call) != 1
         or reagent_source.count(
-            '$NewThread ( thisagent\'s "activeScript", 500, thisagent );'
+            '$NewThread ( thisagent\'s "activeScript", 1600, thisagent );'
         )
         != 1
         or reagent_source.count('$SetSpellUnitTimeout ( thisagent, 2300 );') != 2
@@ -5108,6 +5169,27 @@ def validate_output(
         raise ValueError(
             "Alchemical Tempest lost its stock Lightning owner or Meteor impact lifecycle"
         )
+    for meteor_eligibility_contract in (
+        "$compile_enemies(ThisAgent, #Alchemist_Miasma_Mist_Radius)",
+        "$ListSize(Targets) > 0",
+        'Target\'s "Type" == "Building"',
+        'Target\'s "Type" == "Lair"',
+    ):
+        if meteor_eligibility_contract not in miasma_source:
+            raise ValueError(
+                "Miasma Mist lost its stock Meteor Storm eligibility lifecycle"
+            )
+    if "$alchemist_combat_consumable_check(ThisAgent)" in miasma_source:
+        raise ValueError("Miasma Mist retained the retired consumable danger gate")
+    for reagent_inventory_contract in (
+        "$CreateNewInventoryItem ( #AlchemistReagent, alchemist,",
+        "$DeleteInventoryItem ( #AlchemistReagent, ThisAgent )",
+        "#Alchemist_Reagent_Carry_Limit 3",
+    ):
+        if reagent_inventory_contract not in reagent_source:
+            raise ValueError(
+                "Monster Reagents lost their stock inventory-item carry lifecycle"
+            )
     stone_effect_call = (
         '$CreateEffector ( thisagent, "philosophers_stone_hit_effector", 0 );'
     )
@@ -5115,7 +5197,7 @@ def validate_output(
     stone_effect_offset = reagent_source.find(stone_effect_call)
     stone_gold_offset = reagent_source.find(stone_gold_call)
     stone_attack_offset = reagent_source.find(
-        "$player_spell_attack ( target, 100000, 100000 );",
+        "$spelldamage ( $nullagent(), target, 100000, 100000 );",
         stone_effect_offset,
     )
     if (
@@ -5380,6 +5462,7 @@ def build(
     (gpl_dir / "Alchemist_Building_Data.dat").write_bytes(building_data.encode("utf-8"))
     shutil.copy2(GPL_SOURCE_ROOT / "Alchemist_Hero_Data.dat", gpl_dir)
     shutil.copy2(GPL_SOURCE_ROOT / "Alchemist_Phoenix_Phial.dat", gpl_dir)
+    shutil.copy2(GPL_SOURCE_ROOT / "Alchemist_Reagent.dat", gpl_dir)
     shutil.copy2(GPL_SOURCE_ROOT / "Alchemist_Rogue.gpl", gpl_dir)
     embassy_source = build_alchemist_embassy(
         sdk_data.parent / "GPLMx" / "TaskModules" / "Buildings" / "Embassy.gpl",

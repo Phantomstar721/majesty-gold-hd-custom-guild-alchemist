@@ -76,6 +76,7 @@ SOURCE_RAGE_DIALOG_ID = b"AP24"
 SOURCE_RESEARCH_DIALOG_ID = b"APa1"
 SOURCE_MARKET_RESEARCH_DIALOG_ID = b"APa3"
 SOURCE_VISITORS_DIALOG_ID = b"AP02"
+SOURCE_ITEMS_DIALOG_ID = b"AP22"
 RAGE_PROGRESS_RECORD_OFFSET = 0x0C28
 RAGE_PROGRESS_INNER_OFFSET = 0x40
 RAGE_PROGRESS_OUTER_RECT_OFFSET = 0x08
@@ -145,6 +146,7 @@ BREWING_ALCHEMICAL_TEMPEST_CONTROL_ID = 0x2A20
 BREWING_PHILOSOPHERS_STONE_CONTROL_ID = 0x2A21
 BREWING_REAGENT_METER_CONTROL_ID = 0x2A22
 BREWING_REAGENT_METER_LABEL_CONTROL_ID = 0x2A23
+BREWING_REAGENT_COUNT_CONTROL_ID = 0x2A24
 BREWING_ALCHEMICAL_TEMPEST_PRICE_CONTROL_ID = (
     BREWING_ALCHEMICAL_TEMPEST_CONTROL_ID - 1000
 )
@@ -153,6 +155,14 @@ BREWING_PHILOSOPHERS_STONE_PRICE_CONTROL_ID = (
 )
 REAGENT_METER_OUTER_RECT = (30, 190, 162, 21)
 REAGENT_METER_INNER_RECT = (31, 193, 160, 15)
+AP22_HEALING_COUNT_RECORD_START = 0x05EC
+AP22_HEALING_COUNT_RECORD_END = 0x0688
+AP22_HEALING_COUNT_RECT = (161, 198, 32, 17)
+AP22_HEALING_COUNT_TEXT_INDEX_OFFSET = 0x1C
+AP22_HEALING_COUNT_TOOLTIP_INDEX_OFFSET = 0x24
+AP22_HEALING_COUNT_CONTROL_ID_OFFSET = 0x44
+AP22_HEALING_COUNT_CONTROL_ID = 0x03F8
+REAGENT_COUNT_RECT = (151, 193, 40, 15)
 # Northern Expansion's final stock AITX table contains 309 records. Private
 # intents append after it so expansion statuses are never replaced.
 ALCHEMY_OIL_INTENT_INDEX = 309
@@ -3194,6 +3204,53 @@ def add_reagent_meter_control(brewing_menu: bytes, rage_menu: bytes) -> bytes:
     return bytes(brewing_menu[:-4] + source)
 
 
+def add_reagent_count_control(brewing_menu: bytes, items_menu: bytes) -> bytes:
+    """Clone AP22's Healing Potion quantity field beside the Reagents label."""
+    source = bytearray(
+        items_menu[
+            AP22_HEALING_COUNT_RECORD_START:AP22_HEALING_COUNT_RECORD_END
+        ]
+    )
+    if (
+        len(source) != 0x9C
+        or u32(source, len(source) - 8) != 0x26
+        or source[-4:] != b"\x00" * 4
+    ):
+        raise ValueError("Stock AP22 Healing Potion count record changed")
+    if u32(source, 0) != 5:
+        raise ValueError("Stock AP22 Healing Potion count control type changed")
+    if struct.unpack_from("<4I", source, 0x08) != AP22_HEALING_COUNT_RECT:
+        raise ValueError("Stock AP22 Healing Potion count rectangle changed")
+    if (
+        u32(source, AP22_HEALING_COUNT_TEXT_INDEX_OFFSET) != 15
+        or u32(source, AP22_HEALING_COUNT_TOOLTIP_INDEX_OFFSET) != 16
+        or u32(source, AP22_HEALING_COUNT_CONTROL_ID_OFFSET)
+        != AP22_HEALING_COUNT_CONTROL_ID
+    ):
+        raise ValueError("Stock AP22 Healing Potion count bindings changed")
+    struct.pack_into("<4I", source, 0x08, *REAGENT_COUNT_RECT)
+    struct.pack_into(
+        "<I", source, AP22_HEALING_COUNT_TEXT_INDEX_OFFSET, 39
+    )
+    struct.pack_into(
+        "<I", source, AP22_HEALING_COUNT_TOOLTIP_INDEX_OFFSET, 40
+    )
+    struct.pack_into(
+        "<I",
+        source,
+        AP22_HEALING_COUNT_CONTROL_ID_OFFSET,
+        BREWING_REAGENT_COUNT_CONTROL_ID,
+    )
+    if source.count(b"INTI") != 1:
+        raise ValueError("Stock AP22 Healing Potion count art changed")
+    source = source.replace(b"INTI", b"ALTI", 1)
+    if brewing_menu[-8:] != b"\xff" * 8:
+        raise ValueError("CGBR terminal marker changed before reagent-count insertion")
+    # Retain the previous final-control terminator, append AP22's complete
+    # count record, then add that record's terminator and the stream terminator.
+    return bytes(brewing_menu[:-4] + source + b"\xff" * 8)
+
+
 def add_stock_visitors_control(
     laboratory_menu: bytes, blacksmith_menu: bytes
 ) -> bytes:
@@ -3295,6 +3352,9 @@ def build_text_cam(
     research_menu = read_cam_entry(
         stock_text_cam, b"SMNU", SOURCE_RESEARCH_DIALOG_ID
     ).data
+    items_menu = read_cam_entry(
+        stock_text_cam, b"SMNU", SOURCE_ITEMS_DIALOG_ID
+    ).data
     brewing_menu = append_stock_research_action_control(
         brewing_menu,
         research_menu,
@@ -3339,6 +3399,7 @@ def build_text_cam(
         raise ValueError("CGBR must contain exactly three stock Rage progress-art references")
     brewing_menu = brewing_menu.replace(b"INSr", b"ALSR")
     brewing_menu = add_reagent_meter_control(brewing_menu, rage_menu)
+    brewing_menu = add_reagent_count_control(brewing_menu, items_menu)
     brewing_strings = read_cam_entry(
         stock_text_cam, b"STRT", SOURCE_BREWING_DIALOG_ID
     ).data
@@ -3387,11 +3448,13 @@ def build_text_cam(
             28: "Invigorated",
             29: "Researching Weapon Oil",
             30: "Researching Phoenix Phial",
-            33: "Reagents: 0/10",
+            33: "Reagents",
             34: "Phoenix Phial",
             35: "Research Phoenix Phials for sale to heroes.",
             36: "Weapon Oil",
             37: "Research weapon oil for the Laboratory's stock enchanting service.",
+            39: "0/10",
+            40: "This Laboratory's current number of stored Reagents.",
         },
     )
     write_cam(
@@ -4490,6 +4553,28 @@ def validate_output(
         != BREWING_REAGENT_METER_LABEL_CONTROL_ID
     ):
         raise ValueError("CGBR Reagent Stock label control changed")
+    count_marker = struct.pack("<I", BREWING_REAGENT_COUNT_CONTROL_ID)
+    if brewing_menu.count(count_marker) != 1:
+        raise ValueError("CGBR AP22 Reagent count control is missing or duplicated")
+    reagent_count_record = brewing_menu.index(count_marker) - (
+        AP22_HEALING_COUNT_CONTROL_ID_OFFSET
+    )
+    if (
+        u32(brewing_menu, reagent_count_record) != 5
+        or struct.unpack_from("<4I", brewing_menu, reagent_count_record + 0x08)
+        != REAGENT_COUNT_RECT
+        or u32(
+            brewing_menu,
+            reagent_count_record + AP22_HEALING_COUNT_TEXT_INDEX_OFFSET,
+        )
+        != 39
+        or u32(
+            brewing_menu,
+            reagent_count_record + AP22_HEALING_COUNT_TOOLTIP_INDEX_OFFSET,
+        )
+        != 40
+    ):
+        raise ValueError("CGBR AP22 Reagent count clone changed")
     if brewing_menu[-8:] != b"\xff" * 8 or brewing_menu[-12:] == b"\xff" * 12:
         raise ValueError("CGBR SMNU stream does not have the stock two-word terminator")
     for menu_name, menu_data in (("CGAL", menu), ("CGBR", brewing_menu)):
@@ -4893,6 +4978,8 @@ def validate_output(
         raise ValueError("CGBR active progress label is missing")
     if b"Phoenix Phial\x00" not in brewing_strings:
         raise ValueError("CGBR Phoenix Phial label is missing")
+    if b"Reagents\x00" not in brewing_strings or b"0/10\x00" not in brewing_strings:
+        raise ValueError("CGBR AP22-shaped Reagent label/count strings are missing")
     for private_text in (
         b"Alchemical Tempest\x00",
         b"Destroy ordinary enemies in a wide area. Requires 10 Reagents.\x00",
@@ -4912,6 +4999,9 @@ def validate_output(
         (5, b"Destroy ordinary enemies in a wide area. Requires 10 Reagents."),
         (7, b"Philosopher's Stone"),
         (8, b"Transmute one ordinary enemy into 3000 gold. Requires 10 Reagents."),
+        (33, b"Reagents"),
+        (39, b"0/10"),
+        (40, b"This Laboratory's current number of stored Reagents."),
     ):
         string_offset = brewing_string_offsets[index]
         string_end = brewing_strings.index(b"\x00", string_offset + 4)

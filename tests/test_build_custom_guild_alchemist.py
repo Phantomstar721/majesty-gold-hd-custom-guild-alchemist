@@ -2224,6 +2224,49 @@ end
             builder.BREWING_WEAPON_OIL_CONTROL_ID + 1000,
         )
 
+    def test_reagent_count_clones_stock_healing_potion_count_control(self) -> None:
+        stock = Path(
+            r"C:\Program Files (x86)\Steam\steamapps\common\Majesty HD\Data\textdata.cam"
+        )
+        brewing = builder.read_cam_entry(
+            stock, b"SMNU", builder.SOURCE_BREWING_DIALOG_ID
+        ).data
+        rage = builder.read_cam_entry(
+            stock, b"SMNU", builder.SOURCE_RAGE_DIALOG_ID
+        ).data
+        items = builder.read_cam_entry(
+            stock, b"SMNU", builder.SOURCE_ITEMS_DIALOG_ID
+        ).data
+        brewing = builder.add_reagent_meter_control(brewing, rage)
+        output = builder.add_reagent_count_control(brewing, items)
+        marker = output.index(
+            struct.pack("<I", builder.BREWING_REAGENT_COUNT_CONTROL_ID)
+        )
+        record = marker - builder.AP22_HEALING_COUNT_CONTROL_ID_OFFSET
+        self.assertEqual(struct.unpack_from("<I", output, record)[0], 5)
+        self.assertEqual(
+            struct.unpack_from("<4I", output, record + 0x08),
+            builder.REAGENT_COUNT_RECT,
+        )
+        self.assertEqual(
+            struct.unpack_from(
+                "<I",
+                output,
+                record + builder.AP22_HEALING_COUNT_TEXT_INDEX_OFFSET,
+            )[0],
+            39,
+        )
+        self.assertEqual(
+            struct.unpack_from(
+                "<I",
+                output,
+                record + builder.AP22_HEALING_COUNT_TOOLTIP_INDEX_OFFSET,
+            )[0],
+            40,
+        )
+        self.assertEqual(output[record + 0x3C : record + 0x40], b"ALTI")
+        self.assertEqual(output[-8:], b"\xff" * 8)
+
     def test_cgal_clones_stock_visitors_control_for_layout(self) -> None:
         stock = Path(
             r"C:\Program Files (x86)\Steam\steamapps\common\Majesty HD\Data\textdata.cam"

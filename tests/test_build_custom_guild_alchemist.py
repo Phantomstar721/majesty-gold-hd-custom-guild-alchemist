@@ -1820,6 +1820,12 @@ end
             "$spelldamage ( $nullagent(), target, 100000, 100000 )",
             reagent_source,
         )
+        self.assertIn(
+            'target\'s "type" != "monster" && target\'s "type" != "hero"',
+            reagent_source,
+        )
+        self.assertIn("$compile_enemies ( thisagent, 150 )", reagent_source)
+        self.assertIn("$compile_enemies ( thisagent, 45 )", reagent_source)
         stone_source = reagent_source.split(
             "function Philosophers_Stone_Hit", 1
         )[1]

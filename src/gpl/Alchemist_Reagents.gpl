@@ -239,7 +239,10 @@ declare
 begin
 	if ( $IsValidGamePiece ( target ) == FALSE )
 		return TRUE;
-	if ( target's "type" != "monster" )
+	// Stock compile_enemies returns hostile monsters plus heroes filtered by
+	// #NotMyTeam. Preserve that complete sovereign-spell target list and reject
+	// only object classes that stock attack spells do not treat as enemies.
+	if ( target's "type" != "monster" && target's "type" != "hero" )
 		return TRUE;
 	if ( $HasAttribute ( "resist_critical", target ) )
 		if ( target's "resist_critical" == TRUE )
@@ -252,7 +255,8 @@ function Alchemical_Tempest_Hit ( agent thisagent, agent laboratory )
 ///////////////////////////////////////////////////////////////////////////////
 // Literal Lightning Storm birth/active lifecycle. The private command route
 // carries the selected Laboratory as target, and the successful birth is the
-// first stock commit point at which reagent stock is spent.
+// first stock commit point at which reagent stock is spent. Stock
+// compile_enemies supplies both hostile monsters and enemy heroes.
 declare
 begin
 	if ( $IsValidGamePiece ( laboratory ) == FALSE )
@@ -308,9 +312,9 @@ end
 function Philosophers_Stone_Hit ( agent thisagent, agent laboratory )
 ///////////////////////////////////////////////////////////////////////////////
 // Uses Lightning Storm's sovereign target-placement construction, narrowed to
-// the closest ordinary monster at the clicked point. Protected quest agents
+// the closest ordinary enemy at the clicked point. Protected quest agents
 // never consume stock. A successful transmutation gives the stock reward to
-// the Laboratory owner and then follows the monster's ordinary death path.
+// the Laboratory owner and then follows the target's ordinary death path.
 declare
 	list nearby, eligible;
 	agent target;

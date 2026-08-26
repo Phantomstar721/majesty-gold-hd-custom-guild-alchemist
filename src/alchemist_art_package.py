@@ -106,6 +106,11 @@ MIASMA_ANCHOR_CUSTOM = b"AMm6Miasma Anchor"
 MIASMA_CLOUD_PALETTE = 577
 MIASMA_DEBUFF_PALETTE = 505
 TEMPEST_PALETTE = 505
+MIASMA_CLOUD_BRIGHTNESS = 1.15
+MIASMA_CLOUD_SATURATION = 1.40
+MIASMA_PARTICLE_BRIGHTNESS = 0.95
+MIASMA_PARTICLE_SATURATION = 1.40
+MIASMA_PARTICLE_ALPHA_SCALE = 0.72
 TEMPEST_STORM_CUSTOM = b"ATm1Tempest Cloud"
 TEMPEST_MISSILE_CUSTOM = b"ATm2Tempest Missile"
 TEMPEST_PARTICLE_CUSTOM = b"ATm4Tempest Vapor"
@@ -113,6 +118,10 @@ TEMPEST_IMPACT_SOURCE = b"WRg2meteor_blast"
 TEMPEST_IMPACT_CUSTOM = b"ATm7Tempest Impact"
 TEMPEST_RADIUS = 150
 METEOR_STORM_RADIUS = 175
+# Keep Tempest's private Meteor field on the complete stock field footprint.
+# The previous second scale-down made its visible boundary too small to
+# communicate which units were inside the 150-unit gameplay radius.
+TEMPEST_VISUAL_FIT_RATIO = 0.96
 BUFF_ICON_PALETTE = 560
 OVERHEAD_EFFECT_FIT_RATIO = 0.80
 FLASH_FLASK_ACTIVATION_PALETTE = 505
@@ -246,6 +255,7 @@ def generated_area_effect_tile(
     frame_count: int,
     fit_ratio: float,
     brightness: float,
+    saturation: float,
     palette_index: int,
 ) -> bytes:
     """Render a stable-footprint stock Meteor field with moving interior art."""
@@ -309,6 +319,7 @@ def generated_area_effect_tile(
                 alpha = round(255 * (1.0 - smooth))
             pixels[x, y] = alpha
     canvas = Image.composite(moving, normalized_frames[0], mask)
+    canvas = ImageEnhance.Color(canvas).enhance(saturation)
     canvas = ImageEnhance.Brightness(canvas).enhance(brightness)
     header = list(struct.unpack_from("<8H", template_tile, 0))
     header[4] = 32
@@ -328,6 +339,9 @@ def generated_miasma_particle_tile(
     frame_index: int,
     frame_count: int,
     palette_index: int,
+    brightness: float = 0.60,
+    saturation: float = 1.0,
+    alpha_scale: float = 0.62,
 ) -> bytes:
     """Render a small translucent vapor curl for the stock Meteor emitter."""
     from PIL import ImageEnhance
@@ -348,8 +362,9 @@ def generated_miasma_particle_tile(
         resample=Image.Resampling.BICUBIC,
         expand=True,
     )
-    source = ImageEnhance.Brightness(source).enhance(0.60)
-    alpha = source.getchannel("A").point(lambda value: round(value * 0.62))
+    source = ImageEnhance.Color(source).enhance(saturation)
+    source = ImageEnhance.Brightness(source).enhance(brightness)
+    alpha = source.getchannel("A").point(lambda value: round(value * alpha_scale))
     source.putalpha(alpha)
     canvas = Image.new("RGBA", (width, height), (0, 0, 0, 0))
     canvas.alpha_composite(
@@ -1980,7 +1995,8 @@ def write_maindata(
                 frame,
                 len(miasma_storm_indices),
                 0.96,
-                0.68,
+                MIASMA_CLOUD_BRIGHTNESS,
+                MIASMA_CLOUD_SATURATION,
                 MIASMA_CLOUD_PALETTE,
             ),
         )
@@ -2036,6 +2052,9 @@ def write_maindata(
                 frame,
                 len(miasma_particle_indices),
                 MIASMA_CLOUD_PALETTE,
+                MIASMA_PARTICLE_BRIGHTNESS,
+                MIASMA_PARTICLE_SATURATION,
+                MIASMA_PARTICLE_ALPHA_SCALE,
             ),
         )
     miasma_particle_imag = stock.remap_imag_animation_tiles(
@@ -2066,8 +2085,9 @@ def write_maindata(
                 tempest_area_source_png,
                 frame,
                 len(tempest_storm_indices),
-                0.96 * TEMPEST_RADIUS / METEOR_STORM_RADIUS,
+                TEMPEST_VISUAL_FIT_RATIO,
                 0.78,
+                1.0,
                 TEMPEST_PALETTE,
             ),
         )

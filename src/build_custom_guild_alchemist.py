@@ -231,10 +231,8 @@ PHOENIX_PHIAL_ITEM_ID = 113
 PHOENIX_PHIAL_ITEM_TEXT = (
     "Phoenix Phial\n\x01FFDDAA(75% chance to revive after death)"
 )
-ALCHEMIST_REAGENT_ITEM_ID = 114
-ALCHEMIST_REAGENT_ITEM_TEXT = (
-    "Monster Reagent\n\x01FFDDAA(Returns to the Alchemy Lab with 3)"
-)
+ALCHEMIST_REAGENT_ITEM_NAME = "AlchemistReagent"
+ALCHEMIST_REAGENT_HELP_ID = "hAL4"
 PHANTOM_COWL_TIER_NAMES = (
     "Frozen Cowl",
     "Icy Cowl",
@@ -448,6 +446,9 @@ ALCHEMIST_HELP_PAGES = {
         "curiosities of an entire realm into bottled possibility. Its furnaces never cool, "
         "its glassworks never empty and its alchemists insist that the occasional explosion "
         "is a sign of vigorous scholarship."
+    ),
+    ALCHEMIST_REAGENT_HELP_ID: (
+        "Monster Reagent\n\x01FFDDAA(Returns to the Alchemy Lab with 3)"
     ),
 }
 ALCHEMIST_BDEP_RULE = b"ALB1 : ABJ2 ABJ3 NOT NOT ||"
@@ -1808,6 +1809,7 @@ def build_units_xml(stock_buildings_xml: Path, stock_characters_xml: Path) -> by
     ET.SubElement(reagent_game, "Flags", {"value": "NotFlaggable"})
     ET.SubElement(reagent_game, "Flags", {"value": "NotSpellTarget"})
     ET.SubElement(reagent_game, "Flags", {"value": "IsInventoryItem"})
+    ET.SubElement(reagent_game, "HelpID", {"value": ALCHEMIST_REAGENT_HELP_ID})
     reagent_attributes = ET.SubElement(reagent_game, "Attributes")
     ET.SubElement(
         reagent_attributes, "Attribute", {"ID": "CanDropItem", "Value": "0"}
@@ -3496,7 +3498,6 @@ def build_gpl_text_cam(stock_gpl_text_cam: Path, output_path: Path) -> None:
     )
     shared_item_text: dict[int, str] = {
         PHOENIX_PHIAL_ITEM_ID: PHOENIX_PHIAL_ITEM_TEXT,
-        ALCHEMIST_REAGENT_ITEM_ID: ALCHEMIST_REAGENT_ITEM_TEXT,
         82: "Frost Armor\n\x01FFDDAA(+10 armor)",
     }
     for family, base_id, first_variant, names in (
@@ -3908,10 +3909,26 @@ def validate_output(
         raise ValueError("Phoenix Phial inventory-item description is missing")
     if phoenix.find("./Engine/ImageIDBase").get("value") != "PXF1":
         raise ValueError("Phoenix Phial must use its private inventory-item art")
-    if reagent.get("Name") != "AlchemistReagent" or reagent.find(
+    if reagent.get("Name") != ALCHEMIST_REAGENT_ITEM_NAME or reagent.find(
         './Game/Flags[@value="IsInventoryItem"]'
     ) is None:
         raise ValueError("Monster Reagent inventory-item description is missing")
+    if reagent.find("./Game/HelpID").get("value") != ALCHEMIST_REAGENT_HELP_ID:
+        raise ValueError("Monster Reagent private help text is missing")
+    reagent_can_drop = reagent.find(
+        './Game/Attributes/Attribute[@ID="CanDropItem"]'
+    )
+    reagent_inventory_attribute = reagent.find(
+        f'./Game/Attributes/Attribute[@ID="{ALCHEMIST_REAGENT_ITEM_NAME}"]'
+    )
+    if (
+        reagent_can_drop is None
+        or reagent_can_drop.get("Value") != "0"
+        or reagent_inventory_attribute is None
+    ):
+        raise ValueError(
+            "Monster Reagent lost the SDK named non-droppable inventory contract"
+        )
     potion_root = ET.parse(
         output_root / "Data" / "alchemist_combat_potions.xml"
     ).getroot()
@@ -4456,18 +4473,6 @@ def validate_output(
         != PHOENIX_PHIAL_ITEM_TEXT
     ):
         raise ValueError("Phoenix Phial QITM inventory text is incorrect")
-    if item_count <= ALCHEMIST_REAGENT_ITEM_ID:
-        raise ValueError("Monster Reagent QITM slot was not appended")
-    reagent_item_offset = struct.unpack_from(
-        "<I", item_strings, 4 + ALCHEMIST_REAGENT_ITEM_ID * 4
-    )[0]
-    reagent_item_end = item_strings.index(b"\x00", reagent_item_offset + 4)
-    if (
-        u32(item_strings, reagent_item_offset) != ALCHEMIST_REAGENT_ITEM_ID
-        or item_strings[reagent_item_offset + 4 : reagent_item_end].decode("cp1252")
-        != ALCHEMIST_REAGENT_ITEM_TEXT
-    ):
-        raise ValueError("Monster Reagent QITM inventory text is incorrect")
     help_strings = read_cam_entry(gpl_text_cam, b"STRT", b"HPTX").data
     help_count = struct.unpack_from("<H", help_strings, 0)[0]
     help_offsets = struct.unpack_from(f"<{help_count}I", help_strings, 4)
@@ -5279,13 +5284,24 @@ def validate_output(
     if "$alchemist_combat_consumable_check(ThisAgent)" in miasma_source:
         raise ValueError("Miasma Mist retained the retired consumable danger gate")
     for reagent_inventory_contract in (
-        "$CreateNewInventoryItem ( #AlchemistReagent, alchemist,",
-        "$DeleteInventoryItem ( #AlchemistReagent, ThisAgent )",
+        '$CreateNewInventoryItem ( "AlchemistReagent", alchemist )',
+        '$AgentHasInventoryItem ( "AlchemistReagent", ThisAgent )',
+        '$DeleteInventoryItem ( "AlchemistReagent", ThisAgent )',
+        'alchemist\'s "num_picked_goodies" == 0',
         "#Alchemist_Reagent_Carry_Limit 3",
     ):
         if reagent_inventory_contract not in reagent_source:
             raise ValueError(
-                "Monster Reagents lost their stock inventory-item carry lifecycle"
+                "Monster Reagents lost their SDK named-item carry lifecycle"
+            )
+    for unsafe_reagent_contract in (
+        "#AlchemistReagent",
+        "#Allow_Cloned_Quest_Item",
+        "function Hero_Drop_Quest_Items",
+    ):
+        if unsafe_reagent_contract in reagent_source:
+            raise ValueError(
+                "Monster Reagents retained an unsafe numeric or global death-drop path"
             )
     stone_effect_call = (
         '$CreateEffector ( thisagent, "philosophers_stone_hit_effector", 0 );'

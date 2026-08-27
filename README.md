@@ -72,6 +72,18 @@ Mist reject buildings and lairs as targets.
 
 ## Brewing
 
+### Monster Reagents
+
+Nearby ordinary monster deaths can award an Alchemist a Monster Reagent based
+on the monster's stock threat value. An Alchemist carries up to three and
+deposits them at home through Majesty's normal guild resource lifecycle. The
+Lab stores the deposited total for its level 3 sovereign recipes.
+
+The carried entry uses Majesty's named, non-droppable special-item lifecycle,
+while the stock carried-goodies field owns the quantity. If its owner dies,
+normal hero-death cleanup removes the entry without spawning a world item.
+Alchemical Tempest and Philosopher's Stone each consume 10 stored Reagents.
+
 ### Weapon Oil
 
 Weapon Oil research costs 250 gold. A weapon-using hero can buy one oil for

@@ -1407,7 +1407,7 @@ end
             builder.ALCHEMY_OIL_INTENT_TEXT,
         )
         item_count = struct.unpack_from("<H", items, 0)[0]
-        self.assertEqual(item_count, builder.ALCHEMIST_REAGENT_ITEM_ID + 1)
+        self.assertEqual(item_count, builder.PHOENIX_PHIAL_ITEM_ID + 1)
         item_offset = struct.unpack_from(
             "<I", items, 4 + builder.PHOENIX_PHIAL_ITEM_ID * 4
         )[0]
@@ -1812,10 +1812,15 @@ end
             '$CreateMissile ( "alchemical_tempest_missile", thisagent, target )',
             '$CreateEffector ( target, "alchemical_tempest_impact", 0 )',
             '$NewThread ( thisagent\'s "activeScript", 1600, thisagent )',
-            '$CreateNewInventoryItem ( #AlchemistReagent, alchemist,',
-            '$DeleteInventoryItem ( #AlchemistReagent, ThisAgent )',
+            '$CreateNewInventoryItem ( "AlchemistReagent", alchemist )',
+            '$AgentHasInventoryItem ( "AlchemistReagent", ThisAgent )',
+            '$DeleteInventoryItem ( "AlchemistReagent", ThisAgent )',
         ):
             self.assertIn(stock_tempest_contract, reagent_source)
+        self.assertIn('alchemist\'s "num_picked_goodies" == 0', reagent_source)
+        self.assertNotIn("#AlchemistReagent", reagent_source)
+        self.assertNotIn("#Allow_Cloned_Quest_Item", reagent_source)
+        self.assertNotIn("function Hero_Drop_Quest_Items", reagent_source)
         self.assertIn(
             "$spelldamage ( $nullagent(), target, 100000, 100000 )",
             reagent_source,

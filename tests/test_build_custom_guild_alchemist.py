@@ -688,6 +688,40 @@ class AlchemistGuildTests(unittest.TestCase):
         self.assertNotIn('return "Phantom";', source)
         self.assertIn("$RandomNumber (17) + 1", source)
 
+    def test_mausoleum_home_mapping_is_literal_stock_guild_title_clone(self) -> None:
+        game = Path(r"C:\Program Files (x86)\Steam\steamapps\common\Majesty HD")
+        stock_path = (
+            game
+            / "SDK"
+            / "OriginalQuests"
+            / "GPLMx"
+            / "TaskModules"
+            / "Buildings"
+            / "Mausoleum.gpl"
+        )
+        source = builder.build_alchemist_guild_title(stock_path)
+        stock = stock_path.read_text(encoding="cp1252")
+        stock_function = builder.extract_gpl_function(stock, "Guild_Title")
+        stock_anchor = (
+            '\telse if ( ThisAgent\'s "title" == "Wizard" )\n'
+            '\t\treturn "Wizards_Guild";\n'
+            "\telse\n"
+        )
+        private_anchor = (
+            '\telse if ( ThisAgent\'s "title" == "Wizard" )\n'
+            '\t\treturn "Wizards_Guild";\n'
+            '\telse if ( ThisAgent\'s "title" == "Alchemist" )\n'
+            '\t\treturn "AlchemistsLaboratory";\n'
+            "\telse\n"
+        )
+        self.assertEqual(
+            source,
+            stock_function.replace(stock_anchor, private_anchor, 1) + "\n",
+        )
+        self.assertEqual(source.count("function Guild_Title"), 1)
+        self.assertEqual(source.count('return "AlchemistsLaboratory";'), 1)
+        self.assertNotIn("Mausoleum_Resurrect_Finish", source)
+
     def test_haunt_compatibility_selector_retains_haunt_paladin_rule(self) -> None:
         repo = Path(__file__).resolve().parents[1]
         game = Path(r"C:\Program Files (x86)\Steam\steamapps\common\Majesty HD")
@@ -802,9 +836,9 @@ class AlchemistGuildTests(unittest.TestCase):
         self.assertIn("(attack_action basic_attack)", data)
         self.assertIn("(attacktype 1)", data)
         self.assertIn("(castingrange 130)", data)
-        self.assertIn("(PercentageHPRetreat 25)", data)
-        self.assertIn("(enemy_estimation .8)", data)
-        self.assertIn("(self_estimation 1.5)", data)
+        self.assertIn("(PercentageHPRetreat 30)", data)
+        self.assertIn("(enemy_estimation .9)", data)
+        self.assertIn("(self_estimation 1.4)", data)
         self.assertIn("(birthScript\t\tAlchemist_birth)", data)
         self.assertNotIn("Cultist_Dagger", data)
         self.assertNotIn("Fire_Dagger", data)
@@ -824,6 +858,8 @@ class AlchemistGuildTests(unittest.TestCase):
             '$createeffector(thisagent,"thought_bubble_think",#think_bubble_time)',
             "$SpecifyIntent (ThisAgent, #Intent_Thinking)",
             "$check_nearby(thisagent)",
+            "$Alchemist_Purchase_Nearby_Equipment(thisagent)",
+            "$Alchemist_Purchase_Nearby_Bazaar(thisagent, 75)",
             "$Check_rewards(thisagent,FALSE)",
             "$Alchemist_Purchase_Bazaar(thisagent, 75)",
             "$Defend_home(thisagent)",
@@ -848,9 +884,31 @@ class AlchemistGuildTests(unittest.TestCase):
         self.assertNotIn("$Loot_Gravestones", source)
         self.assertNotIn('"poison_plants"', source)
         self.assertNotIn("Cultist_tree", source)
+        self.assertEqual(source.count("$Purchase_equipment(thisagent)"), 1)
+        self.assertEqual(
+            source.count("$Alchemist_Purchase_Bazaar(thisagent, 75)"), 1
+        )
+        self.assertEqual(
+            source.count("$Alchemist_Purchase_Nearby_Equipment(thisagent)"), 1
+        )
+        self.assertEqual(
+            source.count("$Alchemist_Purchase_Nearby_Bazaar(thisagent, 75)"), 1
+        )
+        self.assertLess(
+            source.index("$Alchemist_Purchase_Nearby_Equipment(thisagent)"),
+            source.index("$Check_rewards(thisagent,FALSE)"),
+        )
+        self.assertLess(
+            source.index("$Alchemist_Purchase_Nearby_Bazaar(thisagent, 75)"),
+            source.index("$Check_rewards(thisagent,FALSE)"),
+        )
         self.assertLess(
             source.index("$Check_rewards(thisagent,FALSE)"),
             source.index("$Alchemist_Purchase_Bazaar(thisagent, 75)"),
+        )
+        self.assertLess(
+            source.index("$Check_rewards(thisagent,FALSE)"),
+            source.index("$Purchase_equipment(thisagent)"),
         )
         for cultist_only in ("$Build_Pack", "$Swarm", "$Seed_Resource_Check"):
             self.assertNotIn(cultist_only, source)
@@ -860,6 +918,8 @@ class AlchemistGuildTests(unittest.TestCase):
             encoding="utf-8"
         )
         self.assertIn("expression #Alchemist_Base_Movement_Bonus -45", source)
+        self.assertIn("expression #Alchemist_Hire_Grant 100", source)
+        self.assertIn("expression #Alchemist_Town_Shopping_Range 500", source)
         self.assertIn("expression #Alchemist_Flash_Flask_Confidence 60", source)
         self.assertIn("expression #Alchemist_Stun_Serum_Confidence 100", source)
         self.assertIn("expression #Alchemist_Miasma_Mist_Confidence 30", source)
@@ -869,6 +929,11 @@ class AlchemistGuildTests(unittest.TestCase):
         self.assertIn("$SetAttribute(ThisAgent, #ATTRIB_Speed, 2)", source)
         self.assertIn("Function Alchemist_birth", source)
         self.assertIn("$hero_birth(ThisAgent)", source)
+        self.assertIn(
+            "$AdjustAttribute(\n\t\tThisAgent,\n\t\t#ATTRIB_StoredGold,\n"
+            "\t\t#Alchemist_Hire_Grant\n\t);",
+            source,
+        )
         self.assertIn('Home\'s "Title" == "AlchemistsLaboratory"', source)
         self.assertIn('"AlchemistRecruitmentVoice"', source)
         self.assertIn("$RandomNumber(100) + 1 <= 20", source)
@@ -902,6 +967,7 @@ class AlchemistGuildTests(unittest.TestCase):
         )
         source = builder.build_alchemist_magic_bazaar(stock)
         self.assertIn("Function Alchemist_Purchase_Bazaar", source)
+        self.assertIn("Function Alchemist_Purchase_Nearby_Bazaar", source)
         self.assertIn("Function Alchemist_Bazaar_Item_Check", source)
         self.assertNotIn("Function Purchase_Bazaar", source)
         self.assertNotIn("Function Bazaar_Item_Check", source)
@@ -918,6 +984,38 @@ class AlchemistGuildTests(unittest.TestCase):
             "$SetBuyerIntent",
         ):
             self.assertIn(stock_owner, source)
+        self.assertIn(
+            "Search_Dist = #Alchemist_Town_Shopping_Range;",
+            source,
+        )
+
+    def test_nearby_equipment_is_a_stock_clone_with_only_local_radius(self) -> None:
+        stock = Path(
+            r"C:\Program Files (x86)\Steam\steamapps\common\Majesty HD\SDK\OriginalQuests\GPLMx\DecisionTrees\Modules\mx_Purchase_Equipment.gpl"
+        )
+        source = builder.build_alchemist_nearby_equipment(stock)
+        self.assertIn("Function Alchemist_Purchase_Nearby_Equipment", source)
+        self.assertIn("Function Alchemist_Nearby_Poison_Check", source)
+        self.assertNotIn("Function Purchase_Equipment", source)
+        self.assertNotIn("Function Poison_Check", source)
+        self.assertEqual(
+            source.count(
+                "Search_Dist = #Alchemist_Town_Shopping_Range;"
+            ),
+            2,
+        )
+        self.assertNotIn("#ATTRIB_Intelligence) / 2", source)
+        self.assertNotIn("#ATTRIB_Artifice) / 2", source)
+        for stock_dispatch in (
+            "$BlackSmith_Check",
+            "$WizGuild_Check",
+            "$Potion_Check",
+            "$Ring_Check",
+            "$Market3_Check",
+            "$Stat_Boost_Check",
+        ):
+            self.assertIn(stock_dispatch, source)
+        self.assertIn("$Alchemist_Nearby_Poison_Check", source)
 
     def test_alchemist_potion_dispatch_is_private_and_stock_shaped(self) -> None:
         game = Path(r"C:\Program Files (x86)\Steam\steamapps\common\Majesty HD")
@@ -1088,7 +1186,7 @@ class AlchemistGuildTests(unittest.TestCase):
             ("Artifice", "20"),
             ("Attack", "45"),
             ("Parry", "35"),
-            ("Dodge", "35"),
+            ("Dodge", "40"),
             ("WeaponBasicDamage", "6"),
         ):
             self.assertEqual(hero.find(f"./Game/{field_name}").get("value"), expected)
@@ -1174,10 +1272,11 @@ end
             'data="Alchemist_Building_Data.dat"\n'
             'data="Alchemist_Hero_Data.dat"\n'
             'data="Alchemist_Phoenix_Phial.dat"\n'
-            'data="Alchemist_Reagent.dat"\n'
             'source="Alchemist_Rogue.gpl"\n'
             'source="Alchemist_Embassy.gpl"\n'
+            'source="Alchemist_Guild_Title.gpl"\n'
             'source="Alchemist_Magic_Bazaar.gpl"\n'
+            'source="Alchemist_Nearby_Equipment.gpl"\n'
             'source="Alchemist_Inventory.gpl"\n'
             'source="Alchemist_Consumable_Threat.gpl"\n'
             'source="Alchemist_Strength_Potion.gpl"\n'
@@ -1812,15 +1911,20 @@ end
             '$CreateMissile ( "alchemical_tempest_missile", thisagent, target )',
             '$CreateEffector ( target, "alchemical_tempest_impact", 0 )',
             '$NewThread ( thisagent\'s "activeScript", 1600, thisagent )',
-            '$CreateNewInventoryItem ( "AlchemistReagent", alchemist )',
-            '$AgentHasInventoryItem ( "AlchemistReagent", ThisAgent )',
-            '$DeleteInventoryItem ( "AlchemistReagent", ThisAgent )',
+            'alchemist\'s "num_picked_goodies" += 1',
+            '$Drop_Off_Goodies ( ThisAgent, ThisBuilding )',
+            "#Alchemist_Reagent_Carry_Limit 3",
         ):
             self.assertIn(stock_tempest_contract, reagent_source)
-        self.assertIn('alchemist\'s "num_picked_goodies" == 0', reagent_source)
-        self.assertNotIn("#AlchemistReagent", reagent_source)
-        self.assertNotIn("#Allow_Cloned_Quest_Item", reagent_source)
-        self.assertNotIn("function Hero_Drop_Quest_Items", reagent_source)
+        for nonstock_inventory_contract in (
+            "AlchemistReagent",
+            "$CreateNewInventoryItem",
+            "$AgentHasInventoryItem",
+            "$DeleteInventoryItem",
+            "#Allow_Cloned_Quest_Item",
+            "function Hero_Drop_Quest_Items",
+        ):
+            self.assertNotIn(nonstock_inventory_contract, reagent_source)
         self.assertIn(
             "$spelldamage ( $nullagent(), target, 100000, 100000 )",
             reagent_source,

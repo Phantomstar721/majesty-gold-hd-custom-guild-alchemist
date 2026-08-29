@@ -231,8 +231,6 @@ PHOENIX_PHIAL_ITEM_ID = 113
 PHOENIX_PHIAL_ITEM_TEXT = (
     "Phoenix Phial\n\x01FFDDAA(75% chance to revive after death)"
 )
-ALCHEMIST_REAGENT_ITEM_NAME = "AlchemistReagent"
-ALCHEMIST_REAGENT_HELP_ID = "hAL4"
 PHANTOM_COWL_TIER_NAMES = (
     "Frozen Cowl",
     "Icy Cowl",
@@ -447,9 +445,6 @@ ALCHEMIST_HELP_PAGES = {
         "its glassworks never empty and its alchemists insist that the occasional explosion "
         "is a sign of vigorous scholarship."
     ),
-    ALCHEMIST_REAGENT_HELP_ID: (
-        "Monster Reagent\n\x01FFDDAA(Returns to the Alchemy Lab with 3)"
-    ),
 }
 ALCHEMIST_BDEP_RULE = b"ALB1 : ABJ2 ABJ3 NOT NOT ||"
 PHANTOM_BDEP_RULE = b"PHG1 : ABJ2 ABJ3 NOT NOT ||"
@@ -622,6 +617,28 @@ def build_alchemist_embassy(
     if 'return "Paladin";' not in function or 'return "Phantom";' in function:
         raise ValueError("Standalone Embassy selector changed stock Paladin behavior")
     return function + "\n"
+
+
+def build_alchemist_guild_title(stock_mausoleum: Path) -> str:
+    """Clone stock Guild_Title and add only the Alchemist home mapping."""
+
+    source = stock_mausoleum.read_text(encoding="cp1252")
+    function = extract_gpl_function(source, "Guild_Title")
+    anchor = (
+        '\telse if ( ThisAgent\'s "title" == "Wizard" )\n'
+        '\t\treturn "Wizards_Guild";\n'
+        "\telse\n"
+    )
+    if function.count(anchor) != 1:
+        raise ValueError("Stock Guild_Title Wizard fallback anchor changed")
+    replacement = (
+        '\telse if ( ThisAgent\'s "title" == "Wizard" )\n'
+        '\t\treturn "Wizards_Guild";\n'
+        '\telse if ( ThisAgent\'s "title" == "Alchemist" )\n'
+        '\t\treturn "AlchemistsLaboratory";\n'
+        "\telse\n"
+    )
+    return function.replace(anchor, replacement, 1) + "\n"
 
 
 def build_siege_test_fixture(stock_quests: Path) -> str:
@@ -864,7 +881,75 @@ def build_alchemist_magic_bazaar(stock_magic_bazaar: Path) -> str:
     if check.count(stock_fire_gate) != 1:
         raise ValueError("Stock Bazaar fire-balm eligibility changed")
     check = check.replace(stock_fire_gate, private_fire_gate, 1)
-    return purchase + "\n\n" + check + "\n"
+
+    nearby_purchase = purchase.replace(
+        "Function Alchemist_Purchase_Bazaar",
+        "Function Alchemist_Purchase_Nearby_Bazaar",
+        1,
+    )
+    stock_search = (
+        "\tSearch_Dist = $GetAttribute (ThisAgent, #ATTRIB_SightRange ) * "
+        "( $GetAttribute ( ThisAgent, #ATTRIB_Intelligence ) / 2 );"
+    )
+    nearby_search = "\tSearch_Dist = #Alchemist_Town_Shopping_Range;"
+    if nearby_purchase.count(stock_search) != 1:
+        raise ValueError("Stock Bazaar intelligence search radius changed")
+    nearby_purchase = nearby_purchase.replace(stock_search, nearby_search, 1)
+    return purchase + "\n\n" + nearby_purchase + "\n\n" + check + "\n"
+
+
+def build_alchemist_nearby_equipment(stock_purchase_equipment: Path) -> str:
+    """Clone stock equipment shopping with only its pre-reward radius narrowed."""
+
+    source = stock_purchase_equipment.read_text(encoding="cp1252")
+    purchase = extract_gpl_function(source, "Purchase_Equipment")
+    poison = extract_gpl_function(source, "Poison_Check")
+
+    stock_purchase_signature = (
+        "Function Purchase_Equipment (agent ThisAgent) is boolean"
+    )
+    if purchase.count(stock_purchase_signature) != 1:
+        raise ValueError("Stock Purchase_Equipment signature changed")
+    purchase = purchase.replace(
+        stock_purchase_signature,
+        "Function Alchemist_Purchase_Nearby_Equipment (agent ThisAgent) is boolean",
+        1,
+    )
+    stock_purchase_search = (
+        "\tSearch_Dist = $GetAttribute (ThisAgent, #ATTRIB_SightRange) * "
+        "($GetAttribute (ThisAgent, #ATTRIB_Intelligence) / 2);"
+    )
+    nearby_purchase_search = "\tSearch_Dist = #Alchemist_Town_Shopping_Range;"
+    if purchase.count(stock_purchase_search) != 1:
+        raise ValueError("Stock equipment intelligence search radius changed")
+    purchase = purchase.replace(
+        stock_purchase_search, nearby_purchase_search, 1
+    )
+    if purchase.count("$Poison_Check") != 1:
+        raise ValueError("Stock equipment Poison_Check dispatch changed")
+    purchase = purchase.replace(
+        "$Poison_Check", "$Alchemist_Nearby_Poison_Check", 1
+    )
+
+    stock_poison_signature = (
+        "Function Poison_Check (agent ThisAgent) is boolean"
+    )
+    if poison.count(stock_poison_signature) != 1:
+        raise ValueError("Stock Poison_Check signature changed")
+    poison = poison.replace(
+        stock_poison_signature,
+        "Function Alchemist_Nearby_Poison_Check (agent ThisAgent) is boolean",
+        1,
+    )
+    stock_poison_search = (
+        "\tSearch_Dist = $GetAttribute (ThisAgent, #ATTRIB_SightRange) * "
+        "($GetAttribute (ThisAgent, #ATTRIB_Artifice) / 2);"
+    )
+    nearby_poison_search = "\tSearch_Dist = #Alchemist_Town_Shopping_Range;"
+    if poison.count(stock_poison_search) != 1:
+        raise ValueError("Stock poison Artifice search radius changed")
+    poison = poison.replace(stock_poison_search, nearby_poison_search, 1)
+    return purchase + "\n\n" + poison + "\n"
 
 
 def build_alchemist_inventory(stock_inventory: Path) -> str:
@@ -1130,7 +1215,9 @@ def build_gpl_project(include_siege_test_fixture: bool) -> str:
     sources = [
         'source="Alchemist_Rogue.gpl"',
         'source="Alchemist_Embassy.gpl"',
+        'source="Alchemist_Guild_Title.gpl"',
         'source="Alchemist_Magic_Bazaar.gpl"',
+        'source="Alchemist_Nearby_Equipment.gpl"',
         'source="Alchemist_Inventory.gpl"',
         'source="Alchemist_Consumable_Threat.gpl"',
         'source="Alchemist_Strength_Potion.gpl"',
@@ -1152,7 +1239,6 @@ def build_gpl_project(include_siege_test_fixture: bool) -> str:
         'data="Alchemist_Building_Data.dat"\n'
         'data="Alchemist_Hero_Data.dat"\n'
         'data="Alchemist_Phoenix_Phial.dat"\n'
-        'data="Alchemist_Reagent.dat"\n'
         + "\n".join(sources)
         + "\n"
     )
@@ -1644,7 +1730,7 @@ def build_units_xml(stock_buildings_xml: Path, stock_characters_xml: Path) -> by
         "Artifice": "20",
         "Attack": "45",
         "Parry": "35",
-        "Dodge": "35",
+        "Dodge": "40",
         "WeaponBasicDamage": "6",
     }
     for field_name, field_value in balance_values.items():
@@ -1783,42 +1869,6 @@ def build_units_xml(stock_buildings_xml: Path, stock_characters_xml: Path) -> by
     attributes = ET.SubElement(game, "Attributes")
     ET.SubElement(attributes, "Attribute", {"ID": "CanDropItem", "Value": "0"})
     ET.SubElement(attributes, "Attribute", {"ID": "PhoenixPhial", "Value": "0"})
-    reagent = ET.SubElement(
-        output,
-        "Description",
-        {
-            "type": "Unit",
-            "subType": "Character",
-            "ID": "ALR1",
-            "Name": "AlchemistReagent",
-            "Description": "Monster Reagent",
-        },
-    )
-    reagent_engine = ET.SubElement(reagent, "Engine", {"version": "1"})
-    ET.SubElement(reagent_engine, "Info", {"value": "Static"})
-    ET.SubElement(reagent_engine, "Info", {"value": "Directionless"})
-    ET.SubElement(reagent_engine, "CanUse", {"value": "HumanPlayer"})
-    ET.SubElement(reagent_engine, "Menu", {"value": "11"})
-    # The item is never spawned in the world. Reuse the existing private Phial
-    # image record rather than introducing unapproved art for a text-list row.
-    ET.SubElement(reagent_engine, "ImageIDBase", {"value": "PXF1"})
-    ET.SubElement(reagent_engine, "DefaultSound", {"value": "0"})
-    reagent_game = ET.SubElement(reagent, "Game", {"version": "1"})
-    ET.SubElement(reagent_game, "DialogID", {"value": "0"})
-    ET.SubElement(reagent_game, "MaxHP", {"value": "10"})
-    ET.SubElement(reagent_game, "Flags", {"value": "NotFlaggable"})
-    ET.SubElement(reagent_game, "Flags", {"value": "NotSpellTarget"})
-    ET.SubElement(reagent_game, "Flags", {"value": "IsInventoryItem"})
-    ET.SubElement(reagent_game, "HelpID", {"value": ALCHEMIST_REAGENT_HELP_ID})
-    reagent_attributes = ET.SubElement(reagent_game, "Attributes")
-    ET.SubElement(
-        reagent_attributes, "Attribute", {"ID": "CanDropItem", "Value": "0"}
-    )
-    ET.SubElement(
-        reagent_attributes,
-        "Attribute",
-        {"ID": "AlchemistReagent", "Value": "0"},
-    )
     ET.indent(output, space="\t")
     return ET.tostring(output, encoding="utf-8", xml_declaration=False) + b"\n"
 
@@ -3712,10 +3762,11 @@ def build_manifest(include_siege_test_fixture: bool = False) -> str:
 \t\t\t\t\t\t<Source>GPL\\Alchemist_Building_Data.dat</Source>
 \t\t\t\t\t\t<Source>GPL\\Alchemist_Hero_Data.dat</Source>
 \t\t\t\t\t\t<Source>GPL\\Alchemist_Phoenix_Phial.dat</Source>
-\t\t\t\t\t\t<Source>GPL\\Alchemist_Reagent.dat</Source>
 \t\t\t\t\t\t<Source>GPL\\Alchemist_Rogue.gpl</Source>
 \t\t\t\t\t\t<Source>GPL\\Alchemist_Embassy.gpl</Source>
+\t\t\t\t\t\t<Source>GPL\\Alchemist_Guild_Title.gpl</Source>
 \t\t\t\t\t\t<Source>GPL\\Alchemist_Magic_Bazaar.gpl</Source>
+\t\t\t\t\t\t<Source>GPL\\Alchemist_Nearby_Equipment.gpl</Source>
 \t\t\t\t\t\t<Source>GPL\\Alchemist_Inventory.gpl</Source>
 \t\t\t\t\t\t<Source>GPL\\Alchemist_Consumable_Threat.gpl</Source>
 \t\t\t\t\t\t<Source>GPL\\Alchemist_Strength_Potion.gpl</Source>
@@ -3768,10 +3819,11 @@ def validate_output(
         output_root / "GPL" / "Alchemist_Building_Data.dat",
         output_root / "GPL" / "Alchemist_Hero_Data.dat",
         output_root / "GPL" / "Alchemist_Phoenix_Phial.dat",
-        output_root / "GPL" / "Alchemist_Reagent.dat",
         output_root / "GPL" / "Alchemist_Rogue.gpl",
         output_root / "GPL" / "Alchemist_Embassy.gpl",
+        output_root / "GPL" / "Alchemist_Guild_Title.gpl",
         output_root / "GPL" / "Alchemist_Magic_Bazaar.gpl",
+        output_root / "GPL" / "Alchemist_Nearby_Equipment.gpl",
         output_root / "GPL" / "Alchemist_Inventory.gpl",
         output_root / "GPL" / "Alchemist_Consumable_Threat.gpl",
         output_root / "GPL" / "Alchemist_Strength_Potion.gpl",
@@ -3828,14 +3880,12 @@ def validate_output(
         "ALS1",
         *BUILDING_IDS,
         "PXF1",
-        "ALR1",
     ]:
         raise ValueError("Alchemist unit ID sequence is invalid")
     hero = descriptions[0]
     sovereign_units = descriptions[1:3]
     buildings = descriptions[3:6]
     phoenix = descriptions[6]
-    reagent = descriptions[7]
     if [item.get("Name") for item in sovereign_units] != [
         "alchemical_tempest",
         "philosophers_stone",
@@ -3909,26 +3959,6 @@ def validate_output(
         raise ValueError("Phoenix Phial inventory-item description is missing")
     if phoenix.find("./Engine/ImageIDBase").get("value") != "PXF1":
         raise ValueError("Phoenix Phial must use its private inventory-item art")
-    if reagent.get("Name") != ALCHEMIST_REAGENT_ITEM_NAME or reagent.find(
-        './Game/Flags[@value="IsInventoryItem"]'
-    ) is None:
-        raise ValueError("Monster Reagent inventory-item description is missing")
-    if reagent.find("./Game/HelpID").get("value") != ALCHEMIST_REAGENT_HELP_ID:
-        raise ValueError("Monster Reagent private help text is missing")
-    reagent_can_drop = reagent.find(
-        './Game/Attributes/Attribute[@ID="CanDropItem"]'
-    )
-    reagent_inventory_attribute = reagent.find(
-        f'./Game/Attributes/Attribute[@ID="{ALCHEMIST_REAGENT_ITEM_NAME}"]'
-    )
-    if (
-        reagent_can_drop is None
-        or reagent_can_drop.get("Value") != "0"
-        or reagent_inventory_attribute is None
-    ):
-        raise ValueError(
-            "Monster Reagent lost the SDK named non-droppable inventory contract"
-        )
     potion_root = ET.parse(
         output_root / "Data" / "alchemist_combat_potions.xml"
     ).getroot()
@@ -5194,9 +5224,27 @@ def validate_output(
         raise ValueError("Alchemist Fire Balm must retain a valid stock melee action")
     if "Cultist_Dagger" in hero_data or "Fire_Dagger" in hero_data:
         raise ValueError("Alchemist must not retain Cultist projectile attacks")
+    for balance_contract in (
+        "(PercentageHPRetreat 30)",
+        "(enemy_estimation .9)",
+        "(self_estimation 1.4)",
+    ):
+        if balance_contract not in hero_data:
+            raise ValueError(
+                f"Alchemist early-survival contract is missing: {balance_contract}"
+            )
     alchemist_tree = (output_root / "GPL" / "Alchemist_Rogue.gpl").read_text(
         encoding="utf-8"
     )
+    for grant_contract in (
+        "expression #Alchemist_Hire_Grant 100",
+        "#ATTRIB_StoredGold",
+        "#Alchemist_Hire_Grant",
+    ):
+        if grant_contract not in alchemist_tree:
+            raise ValueError(f"Alchemist hire grant is missing: {grant_contract}")
+    if "expression #Alchemist_Town_Shopping_Range 500" not in alchemist_tree:
+        raise ValueError("Alchemist shopping lost the Call to Grave spacing boundary")
     embassy_source = (output_root / "GPL" / "Alchemist_Embassy.gpl").read_text(
         encoding="utf-8"
     )
@@ -5217,6 +5265,72 @@ def validate_output(
             or 'return "Phantom";' in embassy_source
         ):
             raise ValueError("Standalone Embassy selector changed stock eligibility")
+    guild_title_source = (
+        output_root / "GPL" / "Alchemist_Guild_Title.gpl"
+    ).read_text(encoding="utf-8")
+    expected_guild_title = build_alchemist_guild_title(
+        game_path
+        / "SDK"
+        / "OriginalQuests"
+        / "GPLMx"
+        / "TaskModules"
+        / "Buildings"
+        / "Mausoleum.gpl"
+    )
+    if guild_title_source != expected_guild_title:
+        raise ValueError(
+            "Alchemist mausoleum support is not the literal stock Guild_Title clone"
+        )
+    if guild_title_source.count(
+        'else if ( ThisAgent\'s "title" == "Alchemist" )'
+    ) != 1 or guild_title_source.count(
+        'return "AlchemistsLaboratory";'
+    ) != 1:
+        raise ValueError("Alchemist mausoleum home mapping is missing or duplicated")
+    for forbidden_mausoleum_override in (
+        "Mausoleum_Resurrect_Begin",
+        "Mausoleum_Resurrect_Finish",
+        "Find_New_Home",
+        "Guild_Placement_Check",
+    ):
+        if forbidden_mausoleum_override in guild_title_source:
+            raise ValueError(
+                "Alchemist mausoleum support replaced more than stock Guild_Title"
+            )
+    stock_gplmx = game_path / "SDK" / "OriginalQuests" / "GPLMx"
+    bazaar_source = (
+        output_root / "GPL" / "Alchemist_Magic_Bazaar.gpl"
+    ).read_text(encoding="utf-8")
+    expected_bazaar_source = build_alchemist_magic_bazaar(
+        stock_gplmx / "TaskModules" / "Buildings" / "Magic_Bazaar.gpl"
+    )
+    if bazaar_source != expected_bazaar_source:
+        raise ValueError("Alchemist Bazaar shopping diverged from its stock clones")
+    nearby_equipment_source = (
+        output_root / "GPL" / "Alchemist_Nearby_Equipment.gpl"
+    ).read_text(encoding="utf-8")
+    expected_nearby_equipment_source = build_alchemist_nearby_equipment(
+        stock_gplmx
+        / "DecisionTrees"
+        / "Modules"
+        / "mx_Purchase_Equipment.gpl"
+    )
+    if nearby_equipment_source != expected_nearby_equipment_source:
+        raise ValueError(
+            "Alchemist nearby equipment shopping diverged from its stock clone"
+        )
+    priority_contract = (
+        "$Alchemist_Purchase_Nearby_Equipment(thisagent)",
+        "$Alchemist_Purchase_Nearby_Bazaar(thisagent, 75)",
+        "$Check_rewards(thisagent,FALSE)",
+        "$Alchemist_Purchase_Bazaar(thisagent, 75)",
+        "$Purchase_equipment(thisagent)",
+    )
+    priority_offsets = [alchemist_tree.find(token) for token in priority_contract]
+    if -1 in priority_offsets or priority_offsets != sorted(priority_offsets):
+        raise ValueError(
+            "Alchemist local-shopping, reward, and broad-shopping priority changed"
+        )
     if "$Steal_Check" in alchemist_tree:
         raise ValueError("Alchemist must not retain Rogue stealing")
     for recruitment_contract in (
@@ -5283,25 +5397,27 @@ def validate_output(
             )
     if "$alchemist_combat_consumable_check(ThisAgent)" in miasma_source:
         raise ValueError("Miasma Mist retained the retired consumable danger gate")
-    for reagent_inventory_contract in (
-        '$CreateNewInventoryItem ( "AlchemistReagent", alchemist )',
-        '$AgentHasInventoryItem ( "AlchemistReagent", ThisAgent )',
-        '$DeleteInventoryItem ( "AlchemistReagent", ThisAgent )',
-        'alchemist\'s "num_picked_goodies" == 0',
+    for reagent_stock_contract in (
+        'alchemist\'s "num_picked_goodies" += 1',
+        '$Drop_Off_Goodies ( ThisAgent, ThisBuilding )',
         "#Alchemist_Reagent_Carry_Limit 3",
     ):
-        if reagent_inventory_contract not in reagent_source:
+        if reagent_stock_contract not in reagent_source:
             raise ValueError(
-                "Monster Reagents lost their SDK named-item carry lifecycle"
+                "Monster Reagents lost their stock carried-goodies lifecycle"
             )
     for unsafe_reagent_contract in (
+        "AlchemistReagent",
+        "$CreateNewInventoryItem",
+        "$AgentHasInventoryItem",
+        "$DeleteInventoryItem",
         "#AlchemistReagent",
         "#Allow_Cloned_Quest_Item",
         "function Hero_Drop_Quest_Items",
     ):
         if unsafe_reagent_contract in reagent_source:
             raise ValueError(
-                "Monster Reagents retained an unsafe numeric or global death-drop path"
+                "Monster Reagents retained a non-stock inventory-item path"
             )
     stone_effect_call = (
         '$CreateEffector ( thisagent, "philosophers_stone_hit_effector", 0 );'
@@ -5575,7 +5691,6 @@ def build(
     (gpl_dir / "Alchemist_Building_Data.dat").write_bytes(building_data.encode("utf-8"))
     shutil.copy2(GPL_SOURCE_ROOT / "Alchemist_Hero_Data.dat", gpl_dir)
     shutil.copy2(GPL_SOURCE_ROOT / "Alchemist_Phoenix_Phial.dat", gpl_dir)
-    shutil.copy2(GPL_SOURCE_ROOT / "Alchemist_Reagent.dat", gpl_dir)
     shutil.copy2(GPL_SOURCE_ROOT / "Alchemist_Rogue.gpl", gpl_dir)
     embassy_source = build_alchemist_embassy(
         sdk_data.parent / "GPLMx" / "TaskModules" / "Buildings" / "Embassy.gpl",
@@ -5588,6 +5703,16 @@ def build(
     )
     (gpl_dir / "Alchemist_Embassy.gpl").write_text(
         embassy_source, encoding="utf-8"
+    )
+    guild_title_source = build_alchemist_guild_title(
+        sdk_data.parent
+        / "GPLMx"
+        / "TaskModules"
+        / "Buildings"
+        / "Mausoleum.gpl"
+    )
+    (gpl_dir / "Alchemist_Guild_Title.gpl").write_text(
+        guild_title_source, encoding="utf-8"
     )
     shutil.copy2(GPL_SOURCE_ROOT / "Alchemist_Stun_Serum.gpl", gpl_dir)
     shutil.copy2(GPL_SOURCE_ROOT / "Alchemist_Flash_Flask.gpl", gpl_dir)
@@ -5618,6 +5743,16 @@ def build(
     )
     (gpl_dir / "Alchemist_Magic_Bazaar.gpl").write_text(
         bazaar_source, encoding="utf-8"
+    )
+    nearby_equipment_source = build_alchemist_nearby_equipment(
+        sdk_data.parent
+        / "GPLMx"
+        / "DecisionTrees"
+        / "Modules"
+        / "mx_Purchase_Equipment.gpl"
+    )
+    (gpl_dir / "Alchemist_Nearby_Equipment.gpl").write_text(
+        nearby_equipment_source, encoding="utf-8"
     )
     inventory_source = build_alchemist_inventory(
         sdk_data.parent / "GPLMx" / "TaskModules" / "Subtasks" / "mx_Inventory.gpl"

@@ -42,10 +42,23 @@ profitable equipment while retaining ordinary Marketplace, Blacksmith,
 Library, and Wizard Guild shopping.
 
 Their base identity includes 11 Vitality, 18 Intelligence, 20 Artifice,
-45 Attack, 35 Parry, 35 Dodge, 6 weapon damage, 22 Greed, 18 Luck, poison
-immunity, a 25 percent retreat threshold, and movement between a Warrior and a
-Rogue. They engage at Rogue attack distance so they can prepare spells before
-closing to melee range.
+45 Attack, 35 Parry, 40 Dodge, 6 weapon damage, 22 Greed, 18 Luck, poison
+immunity, a 30 percent retreat threshold, and movement between a Warrior and a
+Rogue. Their threat judgment remains braver than a Rogue but is tempered for
+their lightly armored melee role. Each new hire also receives a fixed 100-gold
+research grant in addition to Majesty's normal starting purse.
+
+When a suitable equipment or Magic Bazaar shop lies within 500 units, private
+literal clones of the stock purchase checks let that nearby purchase precede a
+new reward flag. This matches the Phantom's established Call to Grave spacing,
+which treats 500 units as one meaningful town-scale travel segment. Outside
+that local range, reward evaluation occurs before the original
+intelligence-modified shopping checks, so an Alchemist already in the field
+continues toward an available reward instead of interrupting it to cross the
+map back to town.
+With no reward available, the original broad shopping behavior remains in its
+stock decision-tree position. Alchemists engage at Rogue attack distance so
+they can prepare spells before closing to melee range.
 
 Alchemists prioritize researched Magic Bazaar preparations in this order:
 Speed, Strength, Regeneration, Fire Balm, Shapeshift, and Invisibility. They do
@@ -79,9 +92,10 @@ on the monster's stock threat value. An Alchemist carries up to three and
 deposits them at home through Majesty's normal guild resource lifecycle. The
 Lab stores the deposited total for its level 3 sovereign recipes.
 
-The carried entry uses Majesty's named, non-droppable special-item lifecycle,
-while the stock carried-goodies field owns the quantity. If its owner dies,
-normal hero-death cleanup removes the entry without spawning a world item.
+Carried Reagents use Majesty's stock `num_picked_goodies` field, just like
+ordinary carried guild resources. They do not add an entry to the hero Items
+panel. The normal guild rest path transfers the carried count to the Lab and
+resets the hero's count to zero.
 Alchemical Tempest and Philosopher's Stone each consume 10 stored Reagents.
 
 ### Weapon Oil

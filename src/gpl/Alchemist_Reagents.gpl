@@ -97,12 +97,9 @@ begin
 					if ( alchemist's "num_picked_goodies" <
 						#Alchemist_Reagent_Carry_Limit )
 						begin
-							// Clone the SDK SpecialItemsExample named-item lifecycle.
-							// One non-droppable marker owns native Items-panel and
-							// save/load presentation. Majesty's stock num_picked_goodies
-							// remains the authoritative carried count from zero to three.
-							if ( alchemist's "num_picked_goodies" == 0 )
-								$CreateNewInventoryItem ( "AlchemistReagent", alchemist );
+							// Literal stock collect_object_callback carried-goodies
+							// lifecycle. Majesty persists this count and the stock guild
+							// rest path deposits and resets it.
 							alchemist's "num_picked_goodies" += 1;
 						end
 		end
@@ -204,8 +201,6 @@ declare
 begin
 	ThisBuilding = ThisAgent's "Home";
 	$Drop_Off_Goodies ( ThisAgent, ThisBuilding );
-	if ( $AgentHasInventoryItem ( "AlchemistReagent", ThisAgent ) )
-		$DeleteInventoryItem ( "AlchemistReagent", ThisAgent );
 	$SetAttribute ( ThisBuilding, #ATTRIB_ReturnAmount,
 		ThisBuilding's "num_resources" );
 

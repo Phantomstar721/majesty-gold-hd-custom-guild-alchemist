@@ -7,6 +7,9 @@
 
 // Stock Vigilance uses -50 to produce a clearly faster movement profile.
 expression #Alchemist_Base_Movement_Bonus -45
+expression #Alchemist_Hire_Grant 100
+// Match Call to Grave's accepted 500-unit minimum meaningful travel segment.
+expression #Alchemist_Town_Shopping_Range 500
 expression #Alchemist_Flash_Flask_Confidence 60
 expression #Alchemist_Stun_Serum_Confidence 100
 expression #Alchemist_Miasma_Mist_Confidence 30
@@ -77,6 +80,13 @@ Declare
 
 Begin
 	$hero_birth(ThisAgent);
+	// Stock hero_birth gives every hero 50-99 StoredGold. Add the fixed
+	// Alchemist employment grant to that same stock-owned purse.
+	$AdjustAttribute(
+		ThisAgent,
+		#ATTRIB_StoredGold,
+		#Alchemist_Hire_Grant
+	);
 	Home = ThisAgent's "Home";
 	If (
 		$IsValidGamePiece(Home) &&
@@ -200,15 +210,20 @@ begin
 
 	if ($check_nearby(thisagent) == False)
 
+	// Literal stock purchase clones restricted to the Call-to-Grave-derived
+	// 500-unit town spacing let genuinely nearby shopping preempt a new flag.
+	// The original broad purchase calls retain their stock positions below
+	// reward handling.
+	if ($Alchemist_Purchase_Nearby_Equipment(thisagent) == False)
+
+	if ($Alchemist_Purchase_Nearby_Bazaar(thisagent, 75) == False)
+
 	if ($Check_rewards(thisagent,FALSE) == False)
 
 	// A complete reagent load uses Rogue's unchanged stock Go_home action, but
 	// immediately after reward handling so an accepted flag keeps priority.
 	if ($Alchemist_Return_Full_Reagent_Load(thisagent) == False)
 
-	// Preserve stock reward priority so an incidental encounter cannot make an
-	// Alchemist abandon an accepted bounty to refill a consumed flask. Bazaar
-	// shopping still precedes every ordinary equipment and hunting branch.
 	if ($Alchemist_Purchase_Bazaar(thisagent, 75) == False)
 
 	if ($Defend_home(thisagent) == False)

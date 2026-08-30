@@ -48,17 +48,18 @@ Rogue. Their threat judgment remains braver than a Rogue but is tempered for
 their lightly armored melee role. Each new hire also receives a fixed 100-gold
 research grant in addition to Majesty's normal starting purse.
 
-When a suitable equipment or Magic Bazaar shop lies within 500 units, private
-literal clones of the stock purchase checks let that nearby purchase precede a
+When a suitable equipment or Magic Bazaar shop lies within 500 units, complete
+private clones of the stock purchase checks let that nearby purchase precede a
 new reward flag. This matches the Phantom's established Call to Grave spacing,
-which treats 500 units as one meaningful town-scale travel segment. Outside
-that local range, reward evaluation occurs before the original
-intelligence-modified shopping checks, so an Alchemist already in the field
-continues toward an available reward instead of interrupting it to cross the
-map back to town.
-With no reward available, the original broad shopping behavior remains in its
-stock decision-tree position. Alchemists engage at Rogue attack distance so
-they can prepare spells before closing to melee range.
+which treats 500 units as one meaningful town-scale travel segment. A field
+Alchemist with at least 2,000 gold may also use the stock full-range equipment
+search before accepting a new reward. This funded resupply trip requires a real
+researched purchase; having merely used one of five healing potions is not
+enough to trigger it. Once the Alchemist reaches town, the local stock clone can
+finish the remaining shopping. A full load of three Reagents likewise uses the
+stock 95-percent Go Home decision before another bounty is accepted.
+Alchemists engage at Rogue attack distance so they can prepare spells before
+closing to melee range.
 
 Alchemists prioritize researched Magic Bazaar preparations in this order:
 Speed, Strength, Regeneration, Fire Balm, Shapeshift, and Invisibility. They do
@@ -96,7 +97,11 @@ Carried Reagents use Majesty's stock `num_picked_goodies` field, just like
 ordinary carried guild resources. They do not add an entry to the hero Items
 panel. The normal guild rest path transfers the carried count to the Lab and
 resets the hero's count to zero.
-Alchemical Tempest and Philosopher's Stone each consume 10 stored Reagents.
+Arcane Infusion and Philosopher's Stone each consume 10 stored Reagents.
+At 10 or more stored Reagents, the Lab's potion pool displays a bright,
+amber-green bubbling readiness glow. It uses the stock Wizard Tower enchantment's
+persistent building-effector lifecycle and disappears immediately when a cast
+reduces that Lab below 10 Reagents.
 
 ### Weapon Oil
 
@@ -115,14 +120,14 @@ Expanded Building Slots runtime.
 
 ### Phoenix Phial
 
-Phoenix Phial research costs 750 gold. A hero can buy one phial for 1,000 gold.
+Phoenix Phial research costs 750 gold. A hero can buy one phial for 750 gold.
 On death it is consumed and has a 75 percent chance to resurrect the hero at
 the death location with 25 percent health. The revived hero then enters the
 stock Flee behavior. The phial appears in the hero Items panel.
 
 ### Vigor Elixir
 
-Vigor Elixir costs the sovereign 1,500 gold and affects every living hero for
+Vigor Elixir costs the sovereign 1,500 gold plus 1 stored Reagent and affects every living hero for
 30 seconds. It grants 20 current and maximum hit points, improves movement by
 200, and raises self estimation by 1. Its application, timed cleanup, repeat
 use, progress bar, and mutual exclusion with Rage of Krolm use a private clone

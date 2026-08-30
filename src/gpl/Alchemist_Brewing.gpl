@@ -36,6 +36,11 @@ begin
 	Palace = $GetTruePalace(ThisAgent);
 	if ($GetPlayerData(Palace, "Gold") >= 1500)
 		begin
+			// Philosopher's Stone established the Laboratory-owned stock
+			// resource transaction. Vigor uses that exact commit so a failed
+			// or depleted command cannot charge gold or start the effect.
+			if ($Alchemist_Consume_Reagent_Stock(ThisAgent, 1) == FALSE)
+				return;
 			$AdjustPlayerData(Palace, "Gold", -1500);
 			// Exact stock Rage target query, with only the private effector,
 			// values, duration, and sound substituted for the Alchemist brew.

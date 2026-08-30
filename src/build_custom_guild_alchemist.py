@@ -14,7 +14,6 @@ import wave
 import xml.etree.ElementTree as ET
 
 from alchemist_art_package import (
-    ALCHEMICAL_TEMPEST_CURSOR_SET_ID,
     FLASH_FLASK_ACTIVATION_CUSTOM,
     FLASH_FLASK_ACTIVATION_DELAY_MS,
     FLASH_FLASK_ACTIVATION_HEADER,
@@ -30,16 +29,21 @@ from alchemist_art_package import (
     PHOENIX_VISIBLE_FRAMES,
     PARALYTIC_OIL_RESTRAINT_CUSTOM,
     PHILOSOPHERS_STONE_HIT_CUSTOM,
+    PHILOSOPHERS_STONE_ANIMATION_SET,
     PHILOSOPHERS_STONE_DELAY_MS,
+    PHILOSOPHERS_STONE_FRAMES,
+    PHILOSOPHERS_STONE_HEADER,
     PHILOSOPHERS_STONE_CURSOR_SET_ID,
+    REAGENT_READY_CANVAS,
+    REAGENT_READY_CUSTOM,
+    REAGENT_READY_HOTSPOT,
+    REAGENT_READY_PALETTE,
+    REAGENT_READY_SOURCE,
+    REAGENT_READY_SOURCE_TILES,
     RECIPE_PRIVATE_PLATE_TILE_GROUPS,
     STUN_SERUM_DEBUFF_CUSTOM,
     STUN_SERUM_IMPACT_CUSTOM,
     STUN_SERUM_RESTRAINT_CUSTOM,
-    TEMPEST_IMPACT_CUSTOM,
-    TEMPEST_MISSILE_CUSTOM,
-    TEMPEST_PARTICLE_CUSTOM,
-    TEMPEST_STORM_CUSTOM,
     TACTICAL_CURSOR_CUSTOM,
     TACTICAL_CURSOR_SOURCE,
     TACTICAL_CURSOR_TEMPLATE_SET_ID,
@@ -142,13 +146,10 @@ BREWING_PHOENIX_PHIAL_PROGRESS_CONTROL_ID = 0x2A17
 BREWING_PHOENIX_PHIAL_ACTIVE_DISPLAY_CONTROL_ID = 0x2A18
 BREWING_PHOENIX_PHIAL_ICON_CONTROL_ID = BREWING_PHOENIX_PHIAL_CONTROL_ID + 500
 BREWING_PHOENIX_PHIAL_PRICE_CONTROL_ID = BREWING_PHOENIX_PHIAL_CONTROL_ID + 1000
-BREWING_ALCHEMICAL_TEMPEST_CONTROL_ID = 0x2A20
+BREWING_ARCANE_INFUSION_CONTROL_ID = 0x2A20
 BREWING_PHILOSOPHERS_STONE_CONTROL_ID = 0x2A21
 BREWING_REAGENT_METER_LABEL_CONTROL_ID = 0x2A23
 BREWING_REAGENT_COUNT_CONTROL_ID = 0x2A24
-BREWING_ALCHEMICAL_TEMPEST_PRICE_CONTROL_ID = (
-    BREWING_ALCHEMICAL_TEMPEST_CONTROL_ID - 1000
-)
 BREWING_PHILOSOPHERS_STONE_PRICE_CONTROL_ID = (
     BREWING_PHILOSOPHERS_STONE_CONTROL_ID - 1000
 )
@@ -187,14 +188,12 @@ ALCHEMIST_LAB_SOUND = "Alchy_Lab"
 ALCHEMIST_HERO_SOUND = "Alchy_Hero"
 ALCHEMIST_CAST_VOICE_SOUND = "Alchy_Cast"
 ALCHEMIST_HIRED_VOICE_SOUND = "Alchy_Hired"
-ALCHEMIST_TEMPEST_SOUND = "Alchy_Tempest"
 ALCHEMIST_VIGOR_SOUND_ID = b"AXV1"
 ALCHEMIST_BOTTLE_BREAK_SOUND_ID = b"AXB1"
 ALCHEMIST_LAB_SOUND_ID = b"AXL1"
 ALCHEMIST_HERO_SOUND_ID = b"AXH1"
 ALCHEMIST_CAST_VOICE_SOUND_ID = b"AXC1"
 ALCHEMIST_HIRED_VOICE_SOUND_ID = b"AXR1"
-ALCHEMIST_TEMPEST_SOUND_ID = b"AXM1"
 ALCHEMIST_BOTTLE_BREAK_WAVE_ID = b"AXBK"
 ALCHEMIST_LAB_WAVE_ID = b"AXLB"
 ALCHEMIST_VOICE_WAVES = (
@@ -272,10 +271,6 @@ MIASMA_MIST_MISSILE_ID = "AMM2"
 MIASMA_MIST_CLOUD_OVERLAY_ID = "AMM3"
 MIASMA_MIST_PARTICLE_ID = "AMM4"
 MIASMA_MIST_DEBUFF_ID = "AMM5"
-ALCHEMICAL_TEMPEST_MISSILE_ID = "ATM2"
-ALCHEMICAL_TEMPEST_CLOUD_OVERLAY_ID = "ATM3"
-ALCHEMICAL_TEMPEST_PARTICLE_ID = "ATM4"
-ALCHEMICAL_TEMPEST_IMPACT_ID = "ATM7"
 MIASMA_MIST_DURATION_MS = "21000"
 MIASMA_MIST_COOLDOWN_MS = "60000"
 MIASMA_MIST_DEBUFF_DURATION_MS = "10000"
@@ -425,7 +420,7 @@ ALCHEMIST_HELP_PAGES = {
     ),
     ALCHEMIST_BUILDING_HELP_IDS[1]: (
         "- Allows Phoenix Phials to be researched for 750 gold\n\n"
-        "- Researched Phoenix Phials may be purchased by visiting heroes for 1,000 gold\n\n"
+        "- Researched Phoenix Phials may be purchased by visiting heroes for 750 gold\n\n"
         "- A carried Phoenix Phial is consumed at death and has a 75% chance to revive its owner\n\n"
         "\x01DDBB44Upgrading the Laboratory adds\n"
         "+ Vigor Elixir\n"
@@ -641,6 +636,47 @@ def build_alchemist_guild_title(stock_mausoleum: Path) -> str:
     return function.replace(anchor, replacement, 1) + "\n"
 
 
+def build_alchemist_adopt(stock_building_births: Path) -> str:
+    """Clone stock adopt and privatize Alchemist ownership transitions."""
+
+    source = stock_building_births.read_text(encoding="cp1252")
+    function = extract_gpl_function(source, "adopt")
+    stock_cleanup = (
+        '\tIf ( $CheckEffector ( Stray, "Rage_Icon" ))\n'
+        "\t\tbegin\n"
+        "\n"
+        '\t\t\t$DeleteEffector ( Stray, "Rage_Icon" );\n'
+        "\n"
+        "\t\tend\n"
+    )
+    if function.count(stock_cleanup) != 1:
+        raise ValueError("Stock adopt Rage ownership-transition cleanup changed")
+    private_cleanup = (
+        '\n\tIf ( $CheckEffector ( Stray, '
+        '"alchemist_invigorating_elixer_icon" ))\n'
+        "\t\tbegin\n"
+        "\n"
+        '\t\t\t$DeleteEffector ( Stray, '
+        '"alchemist_invigorating_elixer_icon" );\n'
+        "\n"
+        "\t\tend\n"
+    )
+    function = function.replace(
+        stock_cleanup, stock_cleanup + private_cleanup, 1
+    )
+    ownership_anchor = (
+        '\t$setunitplayernumber ( stray, $getunitplayernumber ( thisguild ));\n'
+    )
+    if function.count(ownership_anchor) != 1:
+        raise ValueError("Stock adopt player-ownership boundary changed")
+    infusion_reapply = (
+        ownership_anchor
+        + '\tif ( stray\'s "title" == "Alchemist" )\n'
+        + "\t\t$Alchemist_Apply_Arcane_Infusion ( stray );\n"
+    )
+    return function.replace(ownership_anchor, infusion_reapply, 1) + "\n"
+
+
 def build_siege_test_fixture(stock_quests: Path) -> str:
     source = stock_quests.read_text(encoding="cp1252")
     function = extract_gpl_function(source, "SIEGE")
@@ -662,6 +698,7 @@ def build_siege_test_fixture(stock_quests: Path) -> str:
         '$RandomCoord ( palace, 400, 525 ), "MaxHP" );'
         + '\n\talchemyLab\'s "num_resources" = 20;'
         + '\n\t$SetAttribute ( alchemyLab, #ATTRIB_ReturnAmount, 20 );'
+        + '\n\t$Alchemist_Update_Reagent_Ready_Effector ( alchemyLab );'
         + '\n\t$AdjustPlayerData ( palace, "gold", 100000 );'
         + '\n\ttestWarriorOne = $SpawnUnit ( palace, "Warrior", '
         '$RandomCoord ( alchemyLab, 150, 200 ) );'
@@ -736,12 +773,22 @@ def build_alchemist_economy(stock_purchase_equipment: Path) -> str:
         "\tlist blacksmiths,wizguilds,markets,shops,fairgrounds,buildings,alchemyLabs,phoenixLabs;",
         1,
     )
-    wizard_anchor = '\twizGuilds = $listTitles(buildings,"Wizards_Guild");'
-    if function.count(wizard_anchor) != 1:
+    wizard_anchors = (
+        '\twizGuilds = $listTitles(buildings,"Wizards_Guild");',
+        '\twizGuilds = $RemoveTitles(buildings,"Wizards_Guild");',
+    )
+    matching_wizard_anchors = [
+        anchor for anchor in wizard_anchors if function.count(anchor) == 1
+    ]
+    if len(matching_wizard_anchors) != 1:
         raise ValueError("Stock Purchase_Equipment Wizard list construction changed")
+    wizard_anchor = matching_wizard_anchors[0]
+    lab_list_function = (
+        "$RemoveTitles" if "$RemoveTitles" in wizard_anchor else "$listTitles"
+    )
     gate = (
         wizard_anchor
-        + '\n\talchemyLabs = $listTitles(buildings,"AlchemistsLaboratory");'
+        + f'\n\talchemyLabs = {lab_list_function}(buildings,"AlchemistsLaboratory");'
         + '\n\tphoenixLabs = $List_Attribs(alchemyLabs,#ATTRIB_ResearchPowerfulItem);'
         + "\n\talchemyLabs = $List_Attribs(alchemyLabs,#ATTRIB_ResearchArrows);"
     )
@@ -772,15 +819,19 @@ def build_alchemist_economy(stock_purchase_equipment: Path) -> str:
     )
     if function.count(market_anchor) != 1:
         raise ValueError("Stock Purchase_Equipment Market3 branch changed")
-    phoenix_after_market = (
-        market_anchor
+    # Phoenix Phial is the Laboratory's consumable defensive item. Preserve
+    # the stock single-item check and nested Else chain, but evaluate it after
+    # Ring of Protection and before the permanent Teleportation Amulet.
+    phoenix_before_market = (
+        "\t\t\t\t\t\t\t\t\tIf ($Phoenix_Phial_Check (ThisAgent,phoenixLabs))"
+        + "\n\t\t\t\t\t\t\t\t\t\tbegin"
+        + "\n\t\t\t\t\t\t\t\t\t\t\tFlag = TRUE;"
+        + "\n\t\t\t\t\t\t\t\t\t\tend"
         + "\n\t\t\t\t\t\t\t\t\tElse"
-        + "\n\t\t\t\t\t\t\t\t\t\tIf ($Phoenix_Phial_Check (ThisAgent,phoenixLabs))"
-        + "\n\t\t\t\t\t\t\t\t\t\t\tbegin"
-        + "\n\t\t\t\t\t\t\t\t\t\t\t\tFlag = TRUE;"
-        + "\n\t\t\t\t\t\t\t\t\t\t\tend"
+        + "\n"
+        + market_anchor
     )
-    return function.replace(market_anchor, phoenix_after_market, 1) + "\n"
+    return function.replace(market_anchor, phoenix_before_market, 1) + "\n"
 
 
 def build_alchemist_damage(stock_make_attack: Path) -> str:
@@ -899,11 +950,15 @@ def build_alchemist_magic_bazaar(stock_magic_bazaar: Path) -> str:
 
 
 def build_alchemist_nearby_equipment(stock_purchase_equipment: Path) -> str:
-    """Clone stock equipment shopping with only its pre-reward radius narrowed."""
+    """Build local and funded variants of the private stock shopping clone."""
 
     source = stock_purchase_equipment.read_text(encoding="cp1252")
-    purchase = extract_gpl_function(source, "Purchase_Equipment")
     poison = extract_gpl_function(source, "Poison_Check")
+
+    # Begin from the same complete private clone packaged as Purchase_Equipment.
+    # This is important: deriving the local pass directly from the retail
+    # function silently omits Weapon Oil and Phoenix Phial.
+    purchase = build_alchemist_economy(stock_purchase_equipment).rstrip()
 
     stock_purchase_signature = (
         "Function Purchase_Equipment (agent ThisAgent) is boolean"
@@ -949,7 +1004,40 @@ def build_alchemist_nearby_equipment(stock_purchase_equipment: Path) -> str:
     if poison.count(stock_poison_search) != 1:
         raise ValueError("Stock poison Artifice search radius changed")
     poison = poison.replace(stock_poison_search, nearby_poison_search, 1)
-    return purchase + "\n\n" + poison + "\n"
+
+    funded = build_alchemist_economy(stock_purchase_equipment).rstrip()
+    if funded.count(stock_purchase_signature) != 1:
+        raise ValueError("Private funded Purchase_Equipment signature changed")
+    funded = funded.replace(
+        stock_purchase_signature,
+        "Function Alchemist_Funded_Resupply (agent ThisAgent) is boolean",
+        1,
+    )
+    funded_begin = "Begin\n\t//See if ThisAgent can use Weapons"
+    funded_gate = (
+        "Begin\n"
+        "\t// Keep distant bounty work ahead of incidental shopping. A funded\n"
+        "\t// resupply uses the complete stock selector only after the hero has\n"
+        "\t// accumulated a substantial purse.\n"
+        "\tIf ($Total_Gold (ThisAgent) < #Alchemist_Funded_Resupply_Gold)\n"
+        "\t\treturn False;\n\n"
+        "\t//See if ThisAgent can use Weapons"
+    )
+    if funded.count(funded_begin) != 1:
+        raise ValueError("Private funded Purchase_Equipment Begin changed")
+    funded = funded.replace(funded_begin, funded_gate, 1)
+    stock_potion_dispatch = "If ($Potion_Check (ThisAgent,shops))"
+    funded_potion_dispatch = (
+        "If (($GetAttribute (ThisAgent, #ATTRIB_NumHealingPotions) == 0) && "
+        "$Potion_Check (ThisAgent,shops))"
+    )
+    if funded.count(stock_potion_dispatch) != 1:
+        raise ValueError("Private funded Potion_Check dispatch changed")
+    funded = funded.replace(
+        stock_potion_dispatch, funded_potion_dispatch, 1
+    )
+
+    return purchase + "\n\n" + funded + "\n\n" + poison + "\n"
 
 
 def build_alchemist_inventory(stock_inventory: Path) -> str:
@@ -1216,6 +1304,7 @@ def build_gpl_project(include_siege_test_fixture: bool) -> str:
         'source="Alchemist_Rogue.gpl"',
         'source="Alchemist_Embassy.gpl"',
         'source="Alchemist_Guild_Title.gpl"',
+        'source="Alchemist_Adopt.gpl"',
         'source="Alchemist_Magic_Bazaar.gpl"',
         'source="Alchemist_Nearby_Equipment.gpl"',
         'source="Alchemist_Inventory.gpl"',
@@ -1778,13 +1867,6 @@ def build_units_xml(stock_buildings_xml: Path, stock_characters_xml: Path) -> by
         raise ValueError("Stock Lightning Storm spell-unit description is missing")
     for unit_id, unit_name, script_name, description, default_sound in (
         (
-            "ALT1",
-            "alchemical_tempest",
-            "Alchemical_Tempest_Hit",
-            "Alchemical Tempest",
-            ALCHEMIST_TEMPEST_SOUND,
-        ),
-        (
             "ALS1",
             "philosophers_stone",
             "Philosophers_Stone_Hit",
@@ -1942,6 +2024,34 @@ def build_brewing_overlays_xml(
     )
     stone.find("./Engine/DefaultSound").set("value", "0")
     output.append(stone)
+
+    # Wizard Tower enchantment is Majesty's stock persistent building-owned
+    # presentation. Keep its Infinite CreateEffector/DeleteEffector lifecycle
+    # and StackPriority, then use Got_Gold's directionless position-owned
+    # registration because the private art is aligned to the Lab's complete
+    # level-3 canvas rather than a retail tower attachment point.
+    ready_source = stock_root.find(
+        './/Description[@Name="wiztower_enchantment"]'
+    )
+    if ready_source is None:
+        raise ValueError("Stock Wizard Tower enchantment overlay is missing")
+    ready = ET.fromstring(ET.tostring(ready_source, encoding="utf-8"))
+    ready.set("ID", "ARR1")
+    ready.set("Name", "alchemist_reagent_ready_effector")
+    ready.set("Description", "Laboratory Reagents Ready")
+    ready_engine = ready.find("./Engine")
+    ready_image = ready.find("./Engine/ImageIDBase")
+    ready_sound = ready.find("./Engine/DefaultSound")
+    if ready_engine is None or ready_image is None or ready_sound is None:
+        raise ValueError("Stock Wizard Tower enchantment contract changed")
+    ready_image.set("value", "ALR1")
+    ready_sound.set("value", "0")
+    ready_attachment = ready_engine.find("./AttachmentPointID")
+    if ready_attachment is None or ready_attachment.get("value") != "2":
+        raise ValueError("Stock Wizard Tower attachment contract changed")
+    ready_engine.remove(ready_attachment)
+    ready_engine.insert(0, ET.Element("Info", {"value": "Directionless"}))
+    output.append(ready)
 
     # Oil ownership is permanent, so the literal lifetime analogue is the
     # Magic Ring's static duration-1/Infinite Menu-11 presenter. Keep that
@@ -2261,39 +2371,6 @@ def build_miasma_mist_xml(
     particle.set("Description", "Miasma Mist")
     particle.find("./Engine/ImageIDBase").set("value", "AMm4")
 
-    tempest_missile = ET.fromstring(ET.tostring(stock_missile, encoding="utf-8"))
-    tempest_missile.set("ID", ALCHEMICAL_TEMPEST_MISSILE_ID)
-    tempest_missile.set("Name", "alchemical_tempest_missile")
-    tempest_missile.set("Description", "Alchemical Tempest")
-    tempest_missile.find("./Engine/ImageIDBase").set("value", "ATm2")
-    tempest_missile.find("./Engine/Script").set(
-        "GPLFunction", "Alchemical_Tempest_Missile_Hit"
-    )
-
-    tempest_cloud = ET.fromstring(ET.tostring(stock_cloud, encoding="utf-8"))
-    tempest_cloud.set("ID", ALCHEMICAL_TEMPEST_CLOUD_OVERLAY_ID)
-    tempest_cloud.set("Name", "alchemical_tempest_cloud_effector")
-    tempest_cloud.set("Description", "Alchemical Tempest")
-    tempest_cloud.find("./Engine/ImageIDBase").set("value", "ATm1")
-    tempest_cloud_attachment = tempest_cloud.find("./Engine/AttachmentPointID")
-    if tempest_cloud_attachment is None:
-        tempest_cloud_attachment = ET.SubElement(
-            tempest_cloud.find("./Engine"), "AttachmentPointID"
-        )
-    tempest_cloud_attachment.set("value", "2")
-
-    tempest_impact = ET.fromstring(ET.tostring(stock_cloud, encoding="utf-8"))
-    tempest_impact.set("ID", ALCHEMICAL_TEMPEST_IMPACT_ID)
-    tempest_impact.set("Name", "alchemical_tempest_impact")
-    tempest_impact.set("Description", "Alchemical Tempest Impact")
-    tempest_impact.find("./Engine/ImageIDBase").set("value", "ATm7")
-
-    tempest_particle = ET.fromstring(ET.tostring(stock_particle, encoding="utf-8"))
-    tempest_particle.set("ID", ALCHEMICAL_TEMPEST_PARTICLE_ID)
-    tempest_particle.set("Name", "alchemical_tempest_cloud_attachment")
-    tempest_particle.set("Description", "Alchemical Tempest")
-    tempest_particle.find("./Engine/ImageIDBase").set("value", "ATm4")
-
     output = ET.Element("Majesty")
     output.extend(
         (
@@ -2303,10 +2380,6 @@ def build_miasma_mist_xml(
             cloud,
             icon,
             particle,
-            tempest_missile,
-            tempest_cloud,
-            tempest_impact,
-            tempest_particle,
         )
     )
     ET.indent(output, space="\t")
@@ -2326,24 +2399,6 @@ def build_brewing_sounds_xml(stock_sounds_xml: Path) -> bytes:
         raise ValueError("Stock Drink_Potion sound contract changed")
     output = ET.Element("Majesty")
     output.append(sound)
-
-    # Lightning Storm's spell unit dispatches only the stock Effector Begin
-    # phase. Preserve that exact one-phase/group topology, changing only the
-    # private identity and its WAVE target to stock Lunord Wind Storm audio
-    # SL27, as requested for the alchemical whirlwind presentation.
-    tempest_source = stock_root.find('.//Description[@Name="Lightning_Storm"]')
-    if tempest_source is None:
-        raise ValueError("Stock Lightning_Storm sound is missing")
-    tempest_sound = ET.fromstring(
-        ET.tostring(tempest_source, encoding="utf-8")
-    )
-    tempest_sound.set("ID", ALCHEMIST_TEMPEST_SOUND_ID.decode("ascii"))
-    tempest_sound.set("Name", ALCHEMIST_TEMPEST_SOUND)
-    tempest_phase = tempest_sound.find('./Engine/Phase[@ID="Effector Begin"]')
-    if tempest_phase is None or tempest_phase.find("./Wave") is None:
-        raise ValueError("Stock Lightning_Storm Effector Begin contract changed")
-    tempest_phase.find("./Wave").set("value", "SL27")
-    output.append(tempest_sound)
 
     # One private spell sound, cloned from Shield of Light's Begin/Spell_Group
     # contract, is shared by both thrown-flask actions.
@@ -2560,14 +2615,6 @@ def write_alchemist_sounddesc_cam(source_path: Path, output_path: Path) -> None:
             ALCHEMIST_LAB_SOUND_ID,
             ALCHEMIST_LAB_SOUND.encode("ascii"),
             (b"BT01", ALCHEMIST_LAB_WAVE_ID),
-        ),
-        (
-            b"SL06Lightning_Storm",
-            b"SL06",
-            b"Lightning_Storm",
-            ALCHEMIST_TEMPEST_SOUND_ID,
-            ALCHEMIST_TEMPEST_SOUND.encode("ascii"),
-            (b"SL06", b"SL27"),
         ),
     )
     entries: list[CamEntry] = []
@@ -3152,7 +3199,7 @@ def normalize_brewing_recipe_button_plates(brewing_menu: bytes) -> bytes:
     # field from 120 to the full 162-pixel action plate. Its native centering
     # and fnt4 rendering remain unchanged.
     for width_offset, label in (
-        (0x0348, "Alchemical Tempest"),
+        (0x0348, "Arcane Infusion"),
         (0x04F0, "Philosopher's Stone"),
     ):
         if u32(output, width_offset) != 120:
@@ -3160,7 +3207,7 @@ def normalize_brewing_recipe_button_plates(brewing_menu: bytes) -> bytes:
         struct.pack_into("<I", output, width_offset, 162)
     for art_offset, stock_art, image_set, label in (
         (0x01C4, b"ALBB", 0x405, "Vigor Elixir"),
-        (0x036C, b"INBb", 0x406, "Alchemical Tempest"),
+        (0x036C, b"INBb", 0x406, "Arcane Infusion"),
         (0x0514, b"INBb", 0x407, "Philosopher's Stone"),
     ):
         if output[art_offset : art_offset + 4] != stock_art:
@@ -3170,7 +3217,7 @@ def normalize_brewing_recipe_button_plates(brewing_menu: bytes) -> bytes:
         output[art_offset : art_offset + 4] = b"ALBB"
     for rect_offset, expected, label in (
         (0x0184, VIGOR_ROW_OUTER_RECT, "Vigor Elixir"),
-        (0x032C, (30, 139, 162, 20), "Alchemical Tempest"),
+        (0x032C, (30, 139, 162, 20), "Arcane Infusion"),
         (0x04D4, (30, 164, 162, 20), "Philosopher's Stone"),
     ):
         if struct.unpack_from("<4I", output, rect_offset) != expected:
@@ -3478,13 +3525,13 @@ def build_text_cam(
         {
             0: "ALCHEMY LAB",
             1: "Vigor Elixir",
-            2: "Invigorate every unit for 30 seconds: faster movement, 20 bonus hit points, and greater confidence.",
+            2: "Invigorate every unit for 30 seconds: faster movement, 20 bonus hit points, and greater confidence. Costs 1 Reagent.",
             3: "1500",
             # Keep AP69's two complete lower spell controls unchanged. Their
             # streamed text properties still address the same stock STRT
             # positions; only CGBR's private copies of those strings differ.
-            4: "Alchemical Tempest",
-            5: "Destroy ordinary enemies in a wide area. Requires 10 Reagents.",
+            4: "Arcane Infusion",
+            5: "Permanently grant all current and future Alchemists 25 Magic Resistance. Requires 10 Reagents. One use per kingdom.",
             6: "",
             7: "Philosopher's Stone",
             8: "Transmute one ordinary enemy into 3000 gold. Requires 10 Reagents.",
@@ -3765,6 +3812,7 @@ def build_manifest(include_siege_test_fixture: bool = False) -> str:
 \t\t\t\t\t\t<Source>GPL\\Alchemist_Rogue.gpl</Source>
 \t\t\t\t\t\t<Source>GPL\\Alchemist_Embassy.gpl</Source>
 \t\t\t\t\t\t<Source>GPL\\Alchemist_Guild_Title.gpl</Source>
+\t\t\t\t\t\t<Source>GPL\\Alchemist_Adopt.gpl</Source>
 \t\t\t\t\t\t<Source>GPL\\Alchemist_Magic_Bazaar.gpl</Source>
 \t\t\t\t\t\t<Source>GPL\\Alchemist_Nearby_Equipment.gpl</Source>
 \t\t\t\t\t\t<Source>GPL\\Alchemist_Inventory.gpl</Source>
@@ -3822,6 +3870,7 @@ def validate_output(
         output_root / "GPL" / "Alchemist_Rogue.gpl",
         output_root / "GPL" / "Alchemist_Embassy.gpl",
         output_root / "GPL" / "Alchemist_Guild_Title.gpl",
+        output_root / "GPL" / "Alchemist_Adopt.gpl",
         output_root / "GPL" / "Alchemist_Magic_Bazaar.gpl",
         output_root / "GPL" / "Alchemist_Nearby_Equipment.gpl",
         output_root / "GPL" / "Alchemist_Inventory.gpl",
@@ -3876,18 +3925,16 @@ def validate_output(
     descriptions = root.findall("Description")
     if [item.get("ID") for item in descriptions] != [
         ALCHEMIST_HERO_ID,
-        "ALT1",
         "ALS1",
         *BUILDING_IDS,
         "PXF1",
     ]:
         raise ValueError("Alchemist unit ID sequence is invalid")
     hero = descriptions[0]
-    sovereign_units = descriptions[1:3]
-    buildings = descriptions[3:6]
-    phoenix = descriptions[6]
+    sovereign_units = descriptions[1:2]
+    buildings = descriptions[2:5]
+    phoenix = descriptions[5]
     if [item.get("Name") for item in sovereign_units] != [
-        "alchemical_tempest",
         "philosophers_stone",
     ]:
         raise ValueError("Private sovereign spell-unit descriptions are missing")
@@ -3900,7 +3947,6 @@ def validate_output(
         for item in sovereign_units
     ]
     if sovereign_unit_contract != [
-        ("AMm6", ALCHEMIST_TEMPEST_SOUND, "Alchemical_Tempest_Hit"),
         ("AMm6", "0", "Philosophers_Stone_Hit"),
     ]:
         raise ValueError(
@@ -4132,45 +4178,11 @@ def validate_output(
         or miasma_particle.find("./Engine/ImageIDBase").get("value") != "AMm4"
     ):
         raise ValueError("Miasma Mist lost its private cloud/debuff presentation")
-    tempest_missile = miasma_root.find(
-        './Description[@Name="alchemical_tempest_missile"]'
-    )
-    tempest_cloud = miasma_root.find(
-        './Description[@Name="alchemical_tempest_cloud_effector"]'
-    )
-    tempest_impact = miasma_root.find(
-        './Description[@Name="alchemical_tempest_impact"]'
-    )
-    tempest_particle = miasma_root.find(
-        './Description[@Name="alchemical_tempest_cloud_attachment"]'
-    )
-    if any(
-        item is None
-        for item in (
-            tempest_missile,
-            tempest_cloud,
-            tempest_impact,
-            tempest_particle,
-        )
-    ):
-        raise ValueError("Alchemical Tempest stock-clone presentation is incomplete")
-    if (
-        tempest_missile.find("./Engine/ImageIDBase").get("value") != "ATm2"
-        or tempest_missile.find("./Engine/Script").get("GPLFunction")
-        != "Alchemical_Tempest_Missile_Hit"
-        or tempest_cloud.find("./Engine/ImageIDBase").get("value") != "ATm1"
-        or tempest_cloud.find("./Engine/AttachmentPointID").get("value") != "2"
-        or tempest_impact.find("./Engine/ImageIDBase").get("value") != "ATm7"
-        or tempest_impact.find("./Engine/AttachmentPointID").get("value") != "3"
-        or tempest_particle.find("./Engine/ImageIDBase").get("value") != "ATm4"
-    ):
-        raise ValueError("Alchemical Tempest diverged from Meteor Storm presentation")
     sounds_root = ET.parse(
         output_root / "Data" / "alchemist_brewing_sounds.xml"
     ).getroot()
     expected_sounds = {
         ALCHEMIST_VIGOR_SOUND: {"Effector Begin": "DP01"},
-        ALCHEMIST_TEMPEST_SOUND: {"Effector Begin": "SL27"},
         ALCHEMIST_BOTTLE_BREAK_SOUND: {
             "Begin": ALCHEMIST_BOTTLE_BREAK_WAVE_ID.decode("ascii")
         },
@@ -4231,8 +4243,6 @@ def validate_output(
         ALCHEMIST_VIGOR_SOUND_ID + ALCHEMIST_VIGOR_SOUND.encode("ascii"): (
             b"DP01",
         ),
-        ALCHEMIST_TEMPEST_SOUND_ID
-        + ALCHEMIST_TEMPEST_SOUND.encode("ascii"): (b"SL27",),
         ALCHEMIST_BOTTLE_BREAK_SOUND_ID
         + ALCHEMIST_BOTTLE_BREAK_SOUND.encode("ascii"): (
             ALCHEMIST_BOTTLE_BREAK_WAVE_ID,
@@ -4264,37 +4274,6 @@ def validate_output(
                 raise ValueError(
                     f"Private Alchemist DSND lost WAVE target {wave_id!r}: {name!r}"
                 )
-    tempest_dsnd_name = (
-        ALCHEMIST_TEMPEST_SOUND_ID
-        + ALCHEMIST_TEMPEST_SOUND.encode("ascii")
-    )
-    tempest_dsnd = next(
-        (
-            entry.data
-            for entry in sounddesc_entries
-            if entry.name.rstrip(b"\x00") == tempest_dsnd_name
-        ),
-        None,
-    )
-    stock_lightning_dsnd = read_cam_entry(
-        game_path / "Data" / "sounddesc.cam",
-        b"DSND",
-        b"SL06Lightning_Storm",
-    ).data
-    expected_tempest_dsnd = clone_dsnd_identity(
-        stock_lightning_dsnd,
-        b"SL06",
-        b"Lightning_Storm",
-        ALCHEMIST_TEMPEST_SOUND_ID,
-        ALCHEMIST_TEMPEST_SOUND.encode("ascii"),
-    )
-    expected_tempest_dsnd = replace_single_dsnd_wave(
-        expected_tempest_dsnd, b"SL06", b"SL27"
-    )
-    if tempest_dsnd != expected_tempest_dsnd:
-        raise ValueError(
-            "Alchemical Tempest sound is not an exact Lightning dispatch clone with Wind Storm audio"
-        )
     overlays = ET.parse(
         output_root / "Data" / "alchemist_brewing_overlays.xml"
     ).getroot()
@@ -4352,6 +4331,35 @@ def validate_output(
     ):
         raise ValueError(
             "Philosopher's Stone impact diverged from stock Got_Gold presenter"
+        )
+    ready_overlay = overlays.find(
+        './Description[@Name="alchemist_reagent_ready_effector"]'
+    )
+    if ready_overlay is None:
+        raise ValueError("Private Reagent-ready building effector is missing")
+    stock_ready_overlay = stock_stone_root.find(
+        './/Description[@Name="wiztower_enchantment"]'
+    )
+    if stock_ready_overlay is None:
+        raise ValueError("Stock Wizard Tower enchantment is missing during validation")
+    expected_ready_overlay = ET.fromstring(
+        ET.tostring(stock_ready_overlay, encoding="utf-8")
+    )
+    expected_ready_overlay.set("ID", "ARR1")
+    expected_ready_overlay.set("Name", "alchemist_reagent_ready_effector")
+    expected_ready_overlay.set("Description", "Laboratory Reagents Ready")
+    expected_ready_engine = expected_ready_overlay.find("./Engine")
+    expected_ready_engine.find("./ImageIDBase").set("value", "ALR1")
+    expected_ready_engine.find("./DefaultSound").set("value", "0")
+    expected_ready_engine.remove(expected_ready_engine.find("./AttachmentPointID"))
+    expected_ready_engine.insert(
+        0, ET.Element("Info", {"value": "Directionless"})
+    )
+    if normalized_xml_node(ready_overlay) != normalized_xml_node(
+        expected_ready_overlay
+    ):
+        raise ValueError(
+            "Reagent-ready presentation diverged from its stock building overlay clone"
         )
     oil_statuses = (
         (
@@ -4663,10 +4671,7 @@ def validate_output(
         STUN_SERUM_RESTRAINT_CUSTOM,
         STUN_SERUM_DEBUFF_CUSTOM,
         PHILOSOPHERS_STONE_HIT_CUSTOM,
-        TEMPEST_STORM_CUSTOM,
-        TEMPEST_MISSILE_CUSTOM,
-        TEMPEST_PARTICLE_CUSTOM,
-        TEMPEST_IMPACT_CUSTOM,
+        REAGENT_READY_CUSTOM,
     ):
         if not read_cam_entry(main_art, b"IMAG", name).data:
             raise ValueError(f"Private main art record is empty: {name!r}")
@@ -4722,11 +4727,55 @@ def validate_output(
         for entry in art_stock.read_cam_entries(main_art, b"IMAG")
     ):
         raise ValueError("Alchemist art CAM contains a stock or obsolete Phoenix channel")
+
+    reagent_ready_image = art_stock.read_cam_entry(
+        main_art, b"IMAG", REAGENT_READY_CUSTOM
+    ).data
+    reagent_ready_entries = {
+        entry.name.rstrip(b"\x00"): (index, entry.data)
+        for index, entry in enumerate(phoenix_tiles)
+        if entry.name.rstrip(b"\x00").startswith(b"ALR1Ready")
+    }
+    if len(reagent_ready_entries) != len(REAGENT_READY_SOURCE_TILES):
+        raise ValueError("Reagent-ready overlay lost its 16 stock Wizard Tower phases")
+    reagent_ready_reverse: dict[int, int] = {}
+    for frame, source_index in enumerate(REAGENT_READY_SOURCE_TILES):
+        name = f"ALR1Ready{frame:02d}".encode("ascii")
+        private_index, tile = reagent_ready_entries[name]
+        if art_stock.tile_palette_index(tile) != REAGENT_READY_PALETTE:
+            raise ValueError("Reagent-ready overlay lost its yellow-green palette")
+        header = struct.unpack_from("<8H", tile, 0)
+        if (header[2], header[1]) != REAGENT_READY_CANVAS:
+            raise ValueError("Reagent-ready overlay lost the level-3 Lab canvas")
+        if tuple(header[5:7]) != REAGENT_READY_HOTSPOT:
+            raise ValueError("Reagent-ready overlay lost the level-3 Lab hotspot")
+        decoded = art_stock.decode_indexed_v3_tile(tile)
+        if decoded is None or not any(
+            value != 0 for row in decoded[2] for value in row
+        ):
+            raise ValueError("Reagent-ready overlay contains a blank phase")
+        reagent_ready_reverse[private_index] = source_index
+    restored_reagent_ready = art_stock.remap_imag_tile_indices(
+        reagent_ready_image,
+        reagent_ready_reverse,
+    )
+    stock_reagent_ready = art_stock.read_cam_entry(
+        game_path / "Data" / "maindata.cam",
+        b"IMAG",
+        REAGENT_READY_SOURCE,
+    ).data
+    if restored_reagent_ready != stock_reagent_ready:
+        raise ValueError("Reagent-ready IMAG diverged from Wizard Tower timing/topology")
     for image_name, tile_prefix, frame_count, palette_index in (
         (VIGOR_EFFECT_CUSTOM, b"ALV1Spark", 29, 560),
         (FLASH_FLASK_BUFF_CUSTOM, b"AFF1Flask", 29, 560),
         (FLASH_FLASK_ACTIVATION_CUSTOM, b"AFF2Flash", 6, 505),
-        (PHILOSOPHERS_STONE_HIT_CUSTOM, b"AST1StoneHit", 6, 505),
+        (
+            PHILOSOPHERS_STONE_HIT_CUSTOM,
+            b"AST1StoneHit",
+            PHILOSOPHERS_STONE_FRAMES,
+            505,
+        ),
     ):
         image = art_stock.read_cam_entry(main_art, b"IMAG", image_name).data
         indices = art_stock.animation_tile_indices(image, len(phoenix_tiles))
@@ -4758,9 +4807,13 @@ def validate_output(
 
     stock_mx_main = game_path / "DataMX" / "mx_maindata.cam"
     stock_stone_image = art_stock.read_cam_entry(
-        stock_mx_main, b"IMAG", PHOENIX_EFFECT_TEMPLATE_SOURCE
+        game_path / "Data" / "maindata.cam",
+        b"IMAG",
+        b"HRC1resurrect_e",
     ).data
-    stock_mx_tiles = art_stock.read_cam_entries(stock_mx_main, b"TILE")
+    stock_mx_tiles = art_stock.read_cam_entries(
+        game_path / "Data" / "maindata.cam", b"TILE"
+    )
     stock_stone_indices = art_stock.animation_tile_indices(
         stock_stone_image, len(stock_mx_tiles)
     )
@@ -4770,38 +4823,35 @@ def validate_output(
     private_stone_indices = art_stock.animation_tile_indices(
         private_stone_image, len(phoenix_tiles)
     )
-    if len(stock_stone_indices) != 6 or len(private_stone_indices) != 6:
-        raise ValueError("Philosopher's Stone lost XR30's six-frame lifecycle")
+    if (
+        len(stock_stone_indices) != PHILOSOPHERS_STONE_FRAMES
+        or len(private_stone_indices) != PHILOSOPHERS_STONE_FRAMES
+    ):
+        raise ValueError("Philosopher's Stone lost HRC1's 29-frame lifecycle")
     restored_stone_image = art_stock.remap_imag_animation_tiles(
         private_stone_image,
         dict(zip(private_stone_indices, stock_stone_indices)),
     )
     restored_stone_image = set_single_overlay_animation_delay(
         restored_stone_image,
-        PHOENIX_EFFECT_TEMPLATE_ANIMATION_SET,
+        PHILOSOPHERS_STONE_ANIMATION_SET,
         (PHILOSOPHERS_STONE_DELAY_MS,),
-        FLASH_FLASK_ACTIVATION_SOURCE_DELAY_MS,
+        0,
     )
     if restored_stone_image != stock_stone_image:
-        raise ValueError("Philosopher's Stone changed XR30 beyond its native delay")
+        raise ValueError("Philosopher's Stone changed HRC1 timing or topology")
     stone_set_offset = struct.unpack_from("<I", private_stone_image, 28)[0]
     if (
         struct.unpack_from("<I", private_stone_image, stone_set_offset + 28)[0]
         != PHILOSOPHERS_STONE_DELAY_MS
     ):
-        raise ValueError("Philosopher's Stone lost its private XR30 cadence")
-    for frame, private_index in enumerate(private_stone_indices):
-        stock_template_index = stock_stone_indices[max(2, frame)]
-        expected_header = list(
-            struct.unpack_from("<8H", stock_mx_tiles[stock_template_index].data, 0)
-        )
-        # Generated indexed overlays use the established private-art control
-        # word while preserving XR30's canvas, hotspot, attachment, and flags.
-        expected_header[4] = 32
-        if struct.unpack_from("<8H", phoenix_tiles[private_index].data, 0) != tuple(
-            expected_header
+        raise ValueError("Philosopher's Stone lost HRC1's stock default cadence")
+    for private_index in private_stone_indices:
+        if (
+            struct.unpack_from("<8H", phoenix_tiles[private_index].data, 0)
+            != PHILOSOPHERS_STONE_HEADER
         ):
-            raise ValueError("Philosopher's Stone changed XR30 target attachment geometry")
+            raise ValueError("Philosopher's Stone lost its enlarged centered canvas")
 
     for name in (
         b"ALTIraw textures",
@@ -4844,8 +4894,8 @@ def validate_output(
         raise ValueError("alchemist_maindata.cam overwrites a stock TILE slot")
 
     # CUR1 is a complete stock expansion record. Retain every original cursor
-    # set literally, then append only two exact set-1014 clones whose four
-    # visible Lightning glyph references point at private icon TILEs.
+    # set literally, then append Stone's exact set-1014 clone whose four
+    # visible Lightning glyph references point at its private icon TILE.
     stock_interface_art = game_path / "DataMX" / "mx_interfacedata.cam"
     stock_cursor = read_cam_entry(
         stock_interface_art, b"IMAG", TACTICAL_CURSOR_SOURCE
@@ -4853,11 +4903,11 @@ def validate_output(
     private_cursor = read_cam_entry(
         interface_art, b"IMAG", TACTICAL_CURSOR_CUSTOM
     ).data
-    if len(stock_cursor) != 8024 or len(private_cursor) != 8600:
+    if len(stock_cursor) != 8024 or len(private_cursor) != 8312:
         raise ValueError("Private CUR1 record length changed")
     stock_cursor_count = u32(stock_cursor, 20)
     private_cursor_count = u32(private_cursor, 20)
-    if stock_cursor_count != 34 or private_cursor_count != 36:
+    if stock_cursor_count != 34 or private_cursor_count != 35:
         raise ValueError("Private CUR1 animation-set count changed")
     stock_cursor_entries = [
         struct.unpack_from("<II", stock_cursor, 24 + index * 8)
@@ -4868,15 +4918,14 @@ def validate_output(
         for index in range(private_cursor_count)
     ]
     if private_cursor[:20] != stock_cursor[:20] or private_cursor_entries[:34] != [
-        (set_id, offset + 16) for set_id, offset in stock_cursor_entries
+        (set_id, offset + 8) for set_id, offset in stock_cursor_entries
     ]:
         raise ValueError("Private CUR1 changed a stock animation-set entry")
     if private_cursor_entries[34:] != [
-        (ALCHEMICAL_TEMPEST_CURSOR_SET_ID, 8040),
-        (PHILOSOPHERS_STONE_CURSOR_SET_ID, 8320),
+        (PHILOSOPHERS_STONE_CURSOR_SET_ID, 8032),
     ]:
         raise ValueError("Private CUR1 cursor set identities or offsets changed")
-    if private_cursor[312:8040] != stock_cursor[296:8024]:
+    if private_cursor[304:8032] != stock_cursor[296:8024]:
         raise ValueError("Private CUR1 changed a stock animation body")
     stock_entry_map = dict(stock_cursor_entries)
     private_entry_map = dict(private_cursor_entries)
@@ -4928,13 +4977,12 @@ def validate_output(
     cursor_tile_indices: dict[bytes, int] = {}
     for index, entry in enumerate(interface_tile_entries):
         short_name = entry.name.rstrip(b"\x00")
-        if short_name in (b"ALCTTempestCursor", b"ALCSStoneCursor"):
+        if short_name == b"ALCSStoneCursor":
             cursor_tile_indices[short_name] = index
-    if set(cursor_tile_indices) != {b"ALCTTempestCursor", b"ALCSStoneCursor"}:
+    if set(cursor_tile_indices) != {b"ALCSStoneCursor"}:
         raise ValueError("Private tactical cursor TILEs are missing or duplicated")
     glyph_offsets = (0x7C, 0xAC, 0xE4, 0x10C)
     for set_id, tile_name in (
-        (ALCHEMICAL_TEMPEST_CURSOR_SET_ID, b"ALCTTempestCursor"),
         (PHILOSOPHERS_STONE_CURSOR_SET_ID, b"ALCSStoneCursor"),
     ):
         expected_body = bytearray(stock_lightning_body)
@@ -4988,7 +5036,6 @@ def validate_output(
         b"ALWI",
         b"ALPI",
         b"ALSR",
-        b"ALCT",
         b"ALCS",
     )
     first_private_interface = next(
@@ -5024,8 +5071,8 @@ def validate_output(
     if b"Reagents\x00" not in brewing_strings or b"0\x00" not in brewing_strings:
         raise ValueError("CGBR AP22-shaped Reagent label/count strings are missing")
     for private_text in (
-        b"Alchemical Tempest\x00",
-        b"Destroy ordinary enemies in a wide area. Requires 10 Reagents.\x00",
+        b"Arcane Infusion\x00",
+        b"Permanently grant all current and future Alchemists 25 Magic Resistance. Requires 10 Reagents. One use per kingdom.\x00",
         b"Philosopher's Stone\x00",
         b"Transmute one ordinary enemy into 3000 gold. Requires 10 Reagents.\x00",
     ):
@@ -5038,8 +5085,11 @@ def validate_output(
         f"<{brewing_string_count}I", brewing_strings, 4
     )
     for index, expected_text in (
-        (4, b"Alchemical Tempest"),
-        (5, b"Destroy ordinary enemies in a wide area. Requires 10 Reagents."),
+        (4, b"Arcane Infusion"),
+        (
+            5,
+            b"Permanently grant all current and future Alchemists 25 Magic Resistance. Requires 10 Reagents. One use per kingdom.",
+        ),
         (7, b"Philosopher's Stone"),
         (8, b"Transmute one ordinary enemy into 3000 gold. Requires 10 Reagents."),
         (33, b"Reagents"),
@@ -5070,7 +5120,7 @@ def validate_output(
             raise ValueError(f"CGBR {label} no longer occupies its native AP69 slot")
     for art_offset, image_set, label in (
         (0x01C4, 0x405, "Vigor Elixir"),
-        (0x036C, 0x406, "Alchemical Tempest"),
+        (0x036C, 0x406, "Arcane Infusion"),
         (0x0514, 0x407, "Philosopher's Stone"),
     ):
         if (
@@ -5093,7 +5143,7 @@ def validate_output(
         if struct.unpack_from("<4I", brewing_menu, offset) != rectangle:
             raise ValueError(f"CGBR stock Fervus {label} rectangle changed")
     for private_id in (
-        BREWING_ALCHEMICAL_TEMPEST_CONTROL_ID,
+        BREWING_ARCANE_INFUSION_CONTROL_ID,
         BREWING_PHILOSOPHERS_STONE_CONTROL_ID,
     ):
         if struct.pack("<I", private_id) in brewing_menu:
@@ -5245,6 +5295,8 @@ def validate_output(
             raise ValueError(f"Alchemist hire grant is missing: {grant_contract}")
     if "expression #Alchemist_Town_Shopping_Range 500" not in alchemist_tree:
         raise ValueError("Alchemist shopping lost the Call to Grave spacing boundary")
+    if "expression #Alchemist_Funded_Resupply_Gold 2000" not in alchemist_tree:
+        raise ValueError("Alchemist funded-resupply purse threshold changed")
     embassy_source = (output_root / "GPL" / "Alchemist_Embassy.gpl").read_text(
         encoding="utf-8"
     )
@@ -5297,6 +5349,26 @@ def validate_output(
             raise ValueError(
                 "Alchemist mausoleum support replaced more than stock Guild_Title"
             )
+    adopt_source = (output_root / "GPL" / "Alchemist_Adopt.gpl").read_text(
+        encoding="utf-8"
+    )
+    expected_adopt = build_alchemist_adopt(
+        game_path
+        / "SDK"
+        / "OriginalQuests"
+        / "GPLMx"
+        / "mx_Building_Births.gpl"
+    )
+    if adopt_source != expected_adopt:
+        raise ValueError(
+            "Alchemist adoption hooks diverged from the literal stock clone"
+        )
+    if adopt_source.count(
+        '$DeleteEffector ( Stray, "alchemist_invigorating_elixer_icon" );'
+    ) != 1:
+        raise ValueError("Vigor adoption cleanup is missing or duplicated")
+    if adopt_source.count("$Alchemist_Apply_Arcane_Infusion ( stray );") != 1:
+        raise ValueError("Arcane Infusion adoption grant is missing or duplicated")
     stock_gplmx = game_path / "SDK" / "OriginalQuests" / "GPLMx"
     bazaar_source = (
         output_root / "GPL" / "Alchemist_Magic_Bazaar.gpl"
@@ -5320,8 +5392,10 @@ def validate_output(
             "Alchemist nearby equipment shopping diverged from its stock clone"
         )
     priority_contract = (
+        "$Alchemist_Return_Full_Reagent_Load(thisagent)",
         "$Alchemist_Purchase_Nearby_Equipment(thisagent)",
         "$Alchemist_Purchase_Nearby_Bazaar(thisagent, 75)",
+        "$Alchemist_Funded_Resupply(thisagent)",
         "$Check_rewards(thisagent,FALSE)",
         "$Alchemist_Purchase_Bazaar(thisagent, 75)",
         "$Purchase_equipment(thisagent)",
@@ -5329,7 +5403,7 @@ def validate_output(
     priority_offsets = [alchemist_tree.find(token) for token in priority_contract]
     if -1 in priority_offsets or priority_offsets != sorted(priority_offsets):
         raise ValueError(
-            "Alchemist local-shopping, reward, and broad-shopping priority changed"
+            "Alchemist reagent-return, shopping, and reward priority changed"
         )
     if "$Steal_Check" in alchemist_tree:
         raise ValueError("Alchemist must not retain Rogue stealing")
@@ -5362,29 +5436,21 @@ def validate_output(
         raise ValueError("Flash Flask must retain only its stock potion sound")
     if impact_sound_call not in stun_source or impact_sound_call not in miasma_source:
         raise ValueError("Thrown-bottle spells lost their stock impact-phase bottle sound")
-    tempest_cloud_call = (
-        '$CreateEffector ( thisagent, "alchemical_tempest_cloud_effector", 2300 );'
-    )
-    tempest_missile_call = (
-        '$CreateMissile ( "alchemical_tempest_missile", thisagent, target );'
-    )
-    tempest_impact_call = (
-        '$CreateEffector ( target, "alchemical_tempest_impact", 0 );'
-    )
-    if (
-        reagent_source.count(tempest_cloud_call) != 1
-        or reagent_source.count(tempest_missile_call) != 1
-        or reagent_source.count(tempest_impact_call) != 1
-        or reagent_source.count(
-            '$NewThread ( thisagent\'s "activeScript", 1600, thisagent );'
-        )
-        != 1
-        or reagent_source.count('$SetSpellUnitTimeout ( thisagent, 2300 );') != 2
-        or "lightening_storm_effector2" in reagent_source
+    for infusion_contract in (
+        "function Alchemist_Arcane_Infusion",
+        "function Alchemist_Apply_Arcane_Infusion",
+        "#ATTRIB_ResearchArrows",
+        "#ATTRIB_MagicResistance, 25",
+        '"AlchemistArcaneInfusionApplied"',
+        '"resist_magic_effector"',
+        '$ListObjects ( laboratory, "hero", -1, Heroes, #MyPlayer,',
     ):
-        raise ValueError(
-            "Alchemical Tempest lost its stock Lightning owner or Meteor impact lifecycle"
-        )
+        if infusion_contract not in reagent_source:
+            raise ValueError(
+                f"Arcane Infusion lost its stock-derived lifecycle: {infusion_contract}"
+            )
+    if "Alchemical_Tempest" in reagent_source:
+        raise ValueError("Retired Alchemical Tempest gameplay remains in GPL")
     for meteor_eligibility_contract in (
         "$compile_enemies(ThisAgent, #Alchemist_Miasma_Mist_Radius)",
         "$ListSize(Targets) > 0",
@@ -5401,11 +5467,31 @@ def validate_output(
         'alchemist\'s "num_picked_goodies" += 1',
         '$Drop_Off_Goodies ( ThisAgent, ThisBuilding )',
         "#Alchemist_Reagent_Carry_Limit 3",
+        "$Alchemist_Update_Reagent_Ready_Effector ( ThisBuilding )",
+        "$Alchemist_Update_Reagent_Ready_Effector ( laboratory )",
+        'laboratory\'s "num_resources" >= 10',
+        '"alchemist_reagent_ready_effector"',
+        '"Infinite"',
     ):
         if reagent_stock_contract not in reagent_source:
             raise ValueError(
                 "Monster Reagents lost their stock carried-goodies lifecycle"
             )
+    ready_function = extract_gpl_function(
+        reagent_source,
+        "Alchemist_Update_Reagent_Ready_Effector",
+    )
+    if (
+        ready_function.count("$CreateEffector") != 1
+        or ready_function.count("$DeleteEffector") != 1
+        or ready_function.count("$CheckEffector") != 1
+        or "$NewThread" in ready_function
+        or "$RunThread" in ready_function
+        or "ActiveScript" in ready_function
+    ):
+        raise ValueError(
+            "Reagent-ready indicator diverged from the stock Wizard Tower effector lifecycle"
+        )
     for unsafe_reagent_contract in (
         "AlchemistReagent",
         "$CreateNewInventoryItem",
@@ -5436,7 +5522,7 @@ def validate_output(
         or stone_gold_offset < 0
         or stone_attack_offset <= stone_effect_offset
         or reagent_source.find(
-            "$SetSpellUnitTimeout ( thisagent, 2300 );",
+            "$SetSpellUnitTimeout ( thisagent, 3500 );",
             stone_attack_offset,
         ) <= stone_attack_offset
     ):
@@ -5464,6 +5550,8 @@ def validate_output(
     validate_siege_test_symbols(compiled_symbols, include_siege_test_fixture)
     if b"Alchemist_DoInvigoratingElixer" not in compiled_symbols:
         raise ValueError("Compiled Alchemist bytecode lost its private Vigor symbol")
+    if b"Alchemist_Arcane_Infusion" not in compiled_symbols:
+        raise ValueError("Compiled Alchemist bytecode lost Arcane Infusion")
     for symbol in (
         b"Alchemist_Flash_Flask_Begin",
         b"Alchemist_Flash_Flask_End",
@@ -5713,6 +5801,12 @@ def build(
     )
     (gpl_dir / "Alchemist_Guild_Title.gpl").write_text(
         guild_title_source, encoding="utf-8"
+    )
+    adopt_source = build_alchemist_adopt(
+        sdk_data.parent / "GPLMx" / "mx_Building_Births.gpl"
+    )
+    (gpl_dir / "Alchemist_Adopt.gpl").write_text(
+        adopt_source, encoding="utf-8"
     )
     shutil.copy2(GPL_SOURCE_ROOT / "Alchemist_Stun_Serum.gpl", gpl_dir)
     shutil.copy2(GPL_SOURCE_ROOT / "Alchemist_Flash_Flask.gpl", gpl_dir)

@@ -16,6 +16,10 @@ import approved_sprite_bundle as sprite_bundle
 
 
 class AlchemistGuildTests(unittest.TestCase):
+    def test_reagent_ready_glow_uses_reviewed_pool_position(self) -> None:
+        self.assertEqual(art_package.REAGENT_READY_ART_BOX, (121, 133, 201, 178))
+        self.assertEqual(art_package.REAGENT_READY_SOURCE_CROP_TOP, 0.62)
+
     def test_brewing_header_keeps_stock_ornament_and_private_backing(self) -> None:
         class StockTileFixture:
             @staticmethod
@@ -377,6 +381,21 @@ class AlchemistGuildTests(unittest.TestCase):
             struct.unpack_from("<I", stone_impact, stone_set_offset + 28)[0],
             art_package.PHILOSOPHERS_STONE_DELAY_MS,
         )
+        stone_indices = stock.animation_tile_indices(
+            stone_impact,
+            len(output_tiles),
+        )
+        self.assertEqual(
+            len(stone_indices), art_package.PHILOSOPHERS_STONE_FRAMES
+        )
+        self.assertEqual(
+            len(set(stone_indices)), art_package.PHILOSOPHERS_STONE_FRAMES
+        )
+        for tile_index in stone_indices:
+            self.assertEqual(
+                struct.unpack_from("<8H", output_tiles[tile_index].data, 0),
+                art_package.PHILOSOPHERS_STONE_HEADER,
+            )
         lifecycle_sets = stock.single_direction_imag_animation_sets(
             phoenix_lifecycle_imag
         )
@@ -722,6 +741,46 @@ class AlchemistGuildTests(unittest.TestCase):
         self.assertEqual(source.count('return "AlchemistsLaboratory";'), 1)
         self.assertNotIn("Mausoleum_Resurrect_Finish", source)
 
+    def test_vigor_adoption_cleanup_is_literal_stock_rage_clone(self) -> None:
+        game = Path(r"C:\Program Files (x86)\Steam\steamapps\common\Majesty HD")
+        stock_path = (
+            game
+            / "SDK"
+            / "OriginalQuests"
+            / "GPLMx"
+            / "mx_Building_Births.gpl"
+        )
+        source = builder.build_alchemist_adopt(stock_path)
+        stock = stock_path.read_text(encoding="cp1252")
+        stock_function = builder.extract_gpl_function(stock, "adopt")
+        private_cleanup = (
+            '\n\tIf ( $CheckEffector ( Stray, '
+            '"alchemist_invigorating_elixer_icon" ))\n'
+            "\t\tbegin\n"
+            "\n"
+            '\t\t\t$DeleteEffector ( Stray, '
+            '"alchemist_invigorating_elixer_icon" );\n'
+            "\n"
+            "\t\tend\n"
+        )
+        infusion_reapply = (
+            '\tif ( stray\'s "title" == "Alchemist" )\n'
+            "\t\t$Alchemist_Apply_Arcane_Infusion ( stray );\n"
+        )
+        self.assertEqual(source.count("function adopt"), 1)
+        self.assertEqual(source.count(private_cleanup), 1)
+        self.assertEqual(source.count(infusion_reapply), 1)
+        self.assertEqual(
+            source.replace(private_cleanup, "", 1).replace(
+                infusion_reapply, "", 1
+            ),
+            stock_function + "\n",
+        )
+        self.assertLess(
+            source.index(private_cleanup),
+            source.index('thisguild\'s "members" << stray;'),
+        )
+
     def test_haunt_compatibility_selector_retains_haunt_paladin_rule(self) -> None:
         repo = Path(__file__).resolve().parents[1]
         game = Path(r"C:\Program Files (x86)\Steam\steamapps\common\Majesty HD")
@@ -858,8 +917,10 @@ class AlchemistGuildTests(unittest.TestCase):
             '$createeffector(thisagent,"thought_bubble_think",#think_bubble_time)',
             "$SpecifyIntent (ThisAgent, #Intent_Thinking)",
             "$check_nearby(thisagent)",
+            "$Alchemist_Return_Full_Reagent_Load(thisagent)",
             "$Alchemist_Purchase_Nearby_Equipment(thisagent)",
             "$Alchemist_Purchase_Nearby_Bazaar(thisagent, 75)",
+            "$Alchemist_Funded_Resupply(thisagent)",
             "$Check_rewards(thisagent,FALSE)",
             "$Alchemist_Purchase_Bazaar(thisagent, 75)",
             "$Defend_home(thisagent)",
@@ -894,12 +955,21 @@ class AlchemistGuildTests(unittest.TestCase):
         self.assertEqual(
             source.count("$Alchemist_Purchase_Nearby_Bazaar(thisagent, 75)"), 1
         )
+        self.assertEqual(source.count("$Alchemist_Funded_Resupply(thisagent)"), 1)
+        self.assertLess(
+            source.index("$Alchemist_Return_Full_Reagent_Load(thisagent)"),
+            source.index("$Check_rewards(thisagent,FALSE)"),
+        )
         self.assertLess(
             source.index("$Alchemist_Purchase_Nearby_Equipment(thisagent)"),
             source.index("$Check_rewards(thisagent,FALSE)"),
         )
         self.assertLess(
             source.index("$Alchemist_Purchase_Nearby_Bazaar(thisagent, 75)"),
+            source.index("$Check_rewards(thisagent,FALSE)"),
+        )
+        self.assertLess(
+            source.index("$Alchemist_Funded_Resupply(thisagent)"),
             source.index("$Check_rewards(thisagent,FALSE)"),
         )
         self.assertLess(
@@ -920,6 +990,7 @@ class AlchemistGuildTests(unittest.TestCase):
         self.assertIn("expression #Alchemist_Base_Movement_Bonus -45", source)
         self.assertIn("expression #Alchemist_Hire_Grant 100", source)
         self.assertIn("expression #Alchemist_Town_Shopping_Range 500", source)
+        self.assertIn("expression #Alchemist_Funded_Resupply_Gold 2000", source)
         self.assertIn("expression #Alchemist_Flash_Flask_Confidence 60", source)
         self.assertIn("expression #Alchemist_Stun_Serum_Confidence 100", source)
         self.assertIn("expression #Alchemist_Miasma_Mist_Confidence 30", source)
@@ -929,6 +1000,7 @@ class AlchemistGuildTests(unittest.TestCase):
         self.assertIn("$SetAttribute(ThisAgent, #ATTRIB_Speed, 2)", source)
         self.assertIn("Function Alchemist_birth", source)
         self.assertIn("$hero_birth(ThisAgent)", source)
+        self.assertIn("$Alchemist_Apply_Arcane_Infusion(ThisAgent)", source)
         self.assertIn(
             "$AdjustAttribute(\n\t\tThisAgent,\n\t\t#ATTRIB_StoredGold,\n"
             "\t\t#Alchemist_Hire_Grant\n\t);",
@@ -995,17 +1067,28 @@ class AlchemistGuildTests(unittest.TestCase):
         )
         source = builder.build_alchemist_nearby_equipment(stock)
         self.assertIn("Function Alchemist_Purchase_Nearby_Equipment", source)
+        self.assertIn("Function Alchemist_Funded_Resupply", source)
         self.assertIn("Function Alchemist_Nearby_Poison_Check", source)
         self.assertNotIn("Function Purchase_Equipment", source)
         self.assertNotIn("Function Poison_Check", source)
+        nearby = source.split("Function Alchemist_Funded_Resupply", 1)[0]
+        funded = source.split("Function Alchemist_Funded_Resupply", 1)[1].split(
+            "Function Alchemist_Nearby_Poison_Check", 1
+        )[0]
         self.assertEqual(
-            source.count(
-                "Search_Dist = #Alchemist_Town_Shopping_Range;"
-            ),
-            2,
+            nearby.count("Search_Dist = #Alchemist_Town_Shopping_Range;"),
+            1,
         )
-        self.assertNotIn("#ATTRIB_Intelligence) / 2", source)
-        self.assertNotIn("#ATTRIB_Artifice) / 2", source)
+        self.assertNotIn("#ATTRIB_Intelligence) / 2", nearby)
+        self.assertIn("#ATTRIB_Intelligence) / 2", funded)
+        self.assertIn(
+            "$Total_Gold (ThisAgent) < #Alchemist_Funded_Resupply_Gold",
+            funded,
+        )
+        self.assertIn(
+            "$GetAttribute (ThisAgent, #ATTRIB_NumHealingPotions) == 0",
+            funded,
+        )
         for stock_dispatch in (
             "$BlackSmith_Check",
             "$WizGuild_Check",
@@ -1016,6 +1099,8 @@ class AlchemistGuildTests(unittest.TestCase):
         ):
             self.assertIn(stock_dispatch, source)
         self.assertIn("$Alchemist_Nearby_Poison_Check", source)
+        self.assertEqual(source.count("$Alchemy_Oil_Check"), 2)
+        self.assertEqual(source.count("$Phoenix_Phial_Check"), 2)
 
     def test_alchemist_potion_dispatch_is_private_and_stock_shaped(self) -> None:
         game = Path(r"C:\Program Files (x86)\Steam\steamapps\common\Majesty HD")
@@ -1232,6 +1317,9 @@ end
         self.assertIn(
             "$SetAttribute ( alchemyLab, #ATTRIB_ReturnAmount, 20 )", fixture
         )
+        self.assertIn(
+            "$Alchemist_Update_Reagent_Ready_Effector ( alchemyLab )", fixture
+        )
         self.assertEqual(
             fixture.count('$SpawnUnit ( palace, "Warrior"'),
             2,
@@ -1275,6 +1363,7 @@ end
             'source="Alchemist_Rogue.gpl"\n'
             'source="Alchemist_Embassy.gpl"\n'
             'source="Alchemist_Guild_Title.gpl"\n'
+            'source="Alchemist_Adopt.gpl"\n'
             'source="Alchemist_Magic_Bazaar.gpl"\n'
             'source="Alchemist_Nearby_Equipment.gpl"\n'
             'source="Alchemist_Inventory.gpl"\n'
@@ -1373,6 +1462,14 @@ end
             generated,
         )
         self.assertIn("$Phoenix_Phial_Check (ThisAgent,phoenixLabs)", generated)
+        self.assertLess(
+            generated.index("$Ring_Check"),
+            generated.index("$Phoenix_Phial_Check"),
+        )
+        self.assertLess(
+            generated.index("$Phoenix_Phial_Check"),
+            generated.index("$Market3_Check"),
+        )
         self.assertLess(
             generated.index("$Alchemy_Oil_Check"), generated.index("$Poison_Check")
         )
@@ -1584,6 +1681,12 @@ end
         self.assertIn("#ATTRIB_MovementRateModifier, 200", source)
         self.assertIn("30000", source)
         self.assertIn('$AdjustPlayerData(Palace, "Gold", -1500)', source)
+        reagent_charge = "$Alchemist_Consume_Reagent_Stock(ThisAgent, 1)"
+        self.assertIn(reagent_charge, source)
+        self.assertLess(
+            source.index(reagent_charge),
+            source.index('$AdjustPlayerData(Palace, "Gold", -1500)'),
+        )
         self.assertIn("#ATTRIB_MaxHP, 20", source)
         self.assertIn("#ATTRIB_HP, 20", source)
         self.assertIn('Hero\'s "Self_Estimation" += 1', source)
@@ -1600,7 +1703,7 @@ end
         )
 
     def test_brewing_overlay_has_a_private_callback(self) -> None:
-        stock = """<Majesty><Description type="Unit" subType="Overlay" ID="QRa1" Name="Rage_icon" Description="Rage of Krolm"><Engine><Info value="Directionless"/><Info value="DontBlock"/><ImageIDBase value="QRa1"/><Script type="0" cProc="0" GPLFunction="rage_end"/></Engine><Game><StackPriority value="1"/></Game></Description><Description type="Unit" subType="Overlay" ID="QRd0" Name="ring_icon" Description="This hero has the Magic Ring."><Engine><Info value="Static"/><Info value="Directionless"/><Info value="DontBlock"/><Menu value="11"/><ImageIDBase value="QRd0"/><DefaultSound value="0"/></Engine><Game><DialogID value="0"/><StackPriority value="0"/></Game></Description><Description type="Unit" subType="Overlay" ID="HRC1" Name="resurrection_effector" Description="Resurrection"><Engine><Info value="Directionless"/><Info value="DontBlock"/><Menu value="11"/><ImageIDBase value="HRC1"/><DefaultSound value="Resurrection"/><Script type="0" cProc="0" GPLFunction="Resurrection_End"/></Engine><Game><StackPriority value="0"/><Flags value="TransparentToMouse"/></Game></Description><Description type="Unit" subType="Overlay" ID="ARB2" Name="Got_Gold" Description="Got gold"><Engine><Info value="Directionless"/><Info value="DontBlock"/><CanUse value="HumanPlayer"/><Menu value="11"/><ImageIDBase value="ARB2"/><DefaultSound value="Got_Gold"/></Engine><Game><DialogID value="0"/><StackPriority value="0"/></Game></Description></Majesty>"""
+        stock = """<Majesty><Description type="Unit" subType="Overlay" ID="QRa1" Name="Rage_icon" Description="Rage of Krolm"><Engine><Info value="Directionless"/><Info value="DontBlock"/><ImageIDBase value="QRa1"/><Script type="0" cProc="0" GPLFunction="rage_end"/></Engine><Game><StackPriority value="1"/></Game></Description><Description type="Unit" subType="Overlay" ID="QRd0" Name="ring_icon" Description="This hero has the Magic Ring."><Engine><Info value="Static"/><Info value="Directionless"/><Info value="DontBlock"/><Menu value="11"/><ImageIDBase value="QRd0"/><DefaultSound value="0"/></Engine><Game><DialogID value="0"/><StackPriority value="0"/></Game></Description><Description type="Unit" subType="Overlay" ID="HRC1" Name="resurrection_effector" Description="Resurrection"><Engine><Info value="Directionless"/><Info value="DontBlock"/><Menu value="11"/><ImageIDBase value="HRC1"/><DefaultSound value="Resurrection"/><Script type="0" cProc="0" GPLFunction="Resurrection_End"/></Engine><Game><StackPriority value="0"/><Flags value="TransparentToMouse"/></Game></Description><Description type="Unit" subType="Overlay" ID="ARB2" Name="Got_Gold" Description="Got gold"><Engine><Info value="Directionless"/><Info value="DontBlock"/><CanUse value="HumanPlayer"/><Menu value="11"/><ImageIDBase value="ARB2"/><DefaultSound value="Got_Gold"/></Engine><Game><DialogID value="0"/><StackPriority value="0"/></Game></Description><Description type="Unit" subType="Overlay" ID="ARM1" Name="wiztower_enchantment" Description="Tower enchantment"><Engine><Info value="DontBlock"/><CanUse value="HumanPlayer"/><Menu value="11"/><ImageIDBase value="ARM1"/><AttachmentPointID value="2"/><DefaultSound value="Wizard_Tower_Enchant"/></Engine><Game><DialogID value="0"/><StackPriority value="1"/></Game></Description></Majesty>"""
         mx_stock = '<Majesty><Description type="Unit" subType="Overlay" ID="XR01" Name="Speed_Tonic_Icon" Description="Speed Tonic"><Engine><Info value="Directionless"/><Info value="DontBlock"/><Menu value="11"/><ImageIDBase value="XR01"/><Script type="0" cProc="0" GPLFunction="Speed_Tonic_End"/><DefaultSound value="0"/></Engine><Game><DialogID value="0"/><StackPriority value="1"/></Game></Description><Description type="Unit" subType="Overlay" ID="XR30" Name="Frost_Field_Hit_Effector" Description="Frost Field"><Engine><Info value="Directionless"/><Info value="DontBlock"/><Menu value="11"/><ImageIDBase value="XR30"/><AttachmentPointID value="2"/><DefaultSound value="Frost_Field_hit"/></Engine><Game><DialogID value="0"/><StackPriority value="0"/><Flags value="TransparentToMouse"/></Game></Description></Majesty>'
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "M_Overlays.xml"
@@ -1637,7 +1740,15 @@ end
         self.assertEqual(stone.find("./Engine/DefaultSound").get("value"), "0")
         self.assertIsNone(stone.find("./Engine/AttachmentPointID"))
         self.assertEqual(stone.find("./Engine/CanUse").get("value"), "HumanPlayer")
-        statuses = output.findall("Description")[3:]
+        ready = output.findall("Description")[3]
+        self.assertEqual(ready.get("ID"), "ARR1")
+        self.assertEqual(ready.get("Name"), "alchemist_reagent_ready_effector")
+        self.assertEqual(ready.find("./Engine/ImageIDBase").get("value"), "ALR1")
+        self.assertEqual(ready.find("./Engine/DefaultSound").get("value"), "0")
+        self.assertIsNone(ready.find("./Engine/AttachmentPointID"))
+        self.assertIsNotNone(ready.find('./Engine/Info[@value="Directionless"]'))
+        self.assertEqual(ready.find("./Game/StackPriority").get("value"), "1")
+        statuses = output.findall("Description")[4:]
         self.assertEqual(len(statuses), 3)
         self.assertEqual(
             [
@@ -1675,7 +1786,7 @@ end
             self.assertEqual(
                 status.find("./Game/StackPriority").get("value"), "0"
             )
-        self.assertEqual(len(output.findall("Description")), 6)
+        self.assertEqual(len(output.findall("Description")), 7)
         self.assertIsNone(
             output.find('./Description[@Name="phoenix_phial_visual_effector"]')
         )
@@ -1845,13 +1956,6 @@ end
             "miasma_mist_cloud_effector": ("AMm1", None),
             "miasma_mist_debuff_icon": ("AMm5", None),
             "miasma_mist_cloud_attachment": ("AMm4", None),
-            "alchemical_tempest_missile": (
-                "ATm2",
-                "Alchemical_Tempest_Missile_Hit",
-            ),
-            "alchemical_tempest_cloud_effector": ("ATm1", None),
-            "alchemical_tempest_impact": ("ATm7", None),
-            "alchemical_tempest_cloud_attachment": ("ATm4", None),
         }
         for name, (image, callback) in expected.items():
             description = output.find(f'./Description[@Name="{name}"]')
@@ -1906,16 +2010,34 @@ end
         reagent_source = (
             builder.GPL_SOURCE_ROOT / "Alchemist_Reagents.gpl"
         ).read_text(encoding="utf-8")
-        for stock_tempest_contract in (
-            '$CreateEffector ( thisagent, "alchemical_tempest_cloud_effector", 2300 )',
-            '$CreateMissile ( "alchemical_tempest_missile", thisagent, target )',
-            '$CreateEffector ( target, "alchemical_tempest_impact", 0 )',
-            '$NewThread ( thisagent\'s "activeScript", 1600, thisagent )',
+        for stock_resource_contract in (
+            "function Alchemist_Arcane_Infusion",
+            "function Alchemist_Apply_Arcane_Infusion",
+            "#ATTRIB_ResearchArrows",
+            "#ATTRIB_MagicResistance, 25",
+            '"AlchemistArcaneInfusionApplied"',
+            '"resist_magic_effector"',
+            '$ListObjects ( laboratory, "hero", -1, Heroes, #MyPlayer,',
             'alchemist\'s "num_picked_goodies" += 1',
             '$Drop_Off_Goodies ( ThisAgent, ThisBuilding )',
             "#Alchemist_Reagent_Carry_Limit 3",
+            "$Alchemist_Update_Reagent_Ready_Effector ( ThisBuilding )",
+            "$Alchemist_Update_Reagent_Ready_Effector ( laboratory )",
+            'laboratory\'s "num_resources" >= 10',
+            '"alchemist_reagent_ready_effector"',
+            '"Infinite"',
         ):
-            self.assertIn(stock_tempest_contract, reagent_source)
+            self.assertIn(stock_resource_contract, reagent_source)
+        ready_source = reagent_source.split(
+            "function Alchemist_Update_Reagent_Ready_Effector", 1
+        )[1].split(
+            "function Alchemist_Consume_Reagent_Stock", 1
+        )[0]
+        self.assertEqual(ready_source.count("$CheckEffector"), 1)
+        self.assertEqual(ready_source.count("$CreateEffector"), 1)
+        self.assertEqual(ready_source.count("$DeleteEffector"), 1)
+        self.assertNotIn("$NewThread", ready_source)
+        self.assertNotIn("$RunThread", ready_source)
         for nonstock_inventory_contract in (
             "AlchemistReagent",
             "$CreateNewInventoryItem",
@@ -1933,7 +2055,7 @@ end
             'target\'s "type" != "monster" && target\'s "type" != "hero"',
             reagent_source,
         )
-        self.assertIn("$compile_enemies ( thisagent, 150 )", reagent_source)
+        self.assertNotIn("Alchemical_Tempest", reagent_source)
         self.assertIn("$compile_enemies ( thisagent, 45 )", reagent_source)
         stone_source = reagent_source.split(
             "function Philosophers_Stone_Hit", 1
@@ -1951,7 +2073,7 @@ end
         source = (builder.GPL_SOURCE_ROOT / "Alchemist_Phoenix_Phial.gpl").read_text(
             encoding="utf-8"
         )
-        self.assertIn("expression #Phoenix_Phial_Price 1000", source)
+        self.assertIn("expression #Phoenix_Phial_Price 750", source)
         self.assertIn("expression #Phoenix_Phial_Revive_Chance 75", source)
         self.assertIn("$AgentHasInventoryItem (#PhoenixPhial, ThisAgent)", source)
         self.assertIn("$CreateNewInventoryItem (#PhoenixPhial", source)
@@ -1993,17 +2115,6 @@ end
         self.assertEqual(
             sound.find('./Engine/Phase[@ID="Effector Begin"]/Wave').get("value"),
             "DP01",
-        )
-        tempest = output.find(
-            f'./Description[@Name="{builder.ALCHEMIST_TEMPEST_SOUND}"]'
-        )
-        self.assertEqual(
-            tempest.find('./Engine/Phase[@ID="Effector Begin"]/Wave').get("value"),
-            "SL27",
-        )
-        self.assertEqual(
-            tempest.find('./Engine/Phase[@ID="Effector Begin"]/Group').get("value"),
-            "Guild_Spell_Group",
         )
         bottle = output.find(
             f'./Description[@Name="{builder.ALCHEMIST_BOTTLE_BREAK_SOUND}"]'
@@ -2091,8 +2202,6 @@ end
             + builder.ALCHEMIST_CAST_VOICE_SOUND.encode("ascii"),
             builder.ALCHEMIST_HIRED_VOICE_SOUND_ID
             + builder.ALCHEMIST_HIRED_VOICE_SOUND.encode("ascii"),
-            builder.ALCHEMIST_TEMPEST_SOUND_ID
-            + builder.ALCHEMIST_TEMPEST_SOUND.encode("ascii"),
         }
         self.assertEqual(set(by_name), expected_names)
         bottle = by_name[
@@ -2115,10 +2224,6 @@ end
             builder.ALCHEMIST_HIRED_VOICE_SOUND_ID
             + builder.ALCHEMIST_HIRED_VOICE_SOUND.encode("ascii")
         ]
-        tempest = by_name[
-            builder.ALCHEMIST_TEMPEST_SOUND_ID
-            + builder.ALCHEMIST_TEMPEST_SOUND.encode("ascii")
-        ]
         self.assertEqual(bottle.count(builder.ALCHEMIST_BOTTLE_BREAK_WAVE_ID), 1)
         self.assertEqual(laboratory.count(builder.ALCHEMIST_LAB_WAVE_ID), 1)
         self.assertEqual(hero.count(b"WU03"), 1)
@@ -2132,8 +2237,6 @@ end
         self.assertNotIn(b"AHC2", hero)
         self.assertEqual(cast.count(b"AHC2"), 1)
         self.assertEqual(hired.count(b"AHS1"), 1)
-        self.assertEqual(tempest.count(b"SL27"), 1)
-        self.assertNotIn(b"SL06", tempest)
         self.assertIn(b"SG21", cast)
         self.assertIn(b"SG14", hired)
 

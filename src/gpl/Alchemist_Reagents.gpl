@@ -203,6 +203,7 @@ begin
 	$Drop_Off_Goodies ( ThisAgent, ThisBuilding );
 	$SetAttribute ( ThisBuilding, #ATTRIB_ReturnAmount,
 		ThisBuilding's "num_resources" );
+	$Alchemist_Update_Reagent_Ready_Effector ( ThisBuilding );
 
 	HP = $GetAttribute ( ThisAgent, #ATTRIB_HP );
 	MaxHP = $GetAttribute ( ThisAgent, #ATTRIB_MaxHP );
@@ -210,6 +211,36 @@ begin
 
 	$SetThreadInterval ( ThisAgent's "ActiveScript", #Normal_Cycle );
 	ThisAgent's "ActiveScript" = $Done_Resting_Guild;
+end
+
+///////////////////////////////////////////////////////////////////////////////
+function Alchemist_Update_Reagent_Ready_Effector ( agent laboratory )
+///////////////////////////////////////////////////////////////////////////////
+// Literal Wizard Tower enchantment ownership: an Infinite building effector
+// is created when its authoritative state turns on and explicitly deleted
+// when that state turns off. Calls come only from Reagent balance mutations.
+declare
+	boolean Has_Ready_Effector;
+begin
+	if ( $IsValidGamePiece ( laboratory ) == FALSE )
+		return;
+
+	Has_Ready_Effector = $CheckEffector (
+		laboratory,
+		"alchemist_reagent_ready_effector"
+	);
+	if ( laboratory's "num_resources" >= 10 )
+		begin
+			if ( Has_Ready_Effector == FALSE )
+				$CreateEffector (
+					laboratory,
+					"alchemist_reagent_ready_effector",
+					1,
+					"Infinite"
+				);
+		end
+	else if ( Has_Ready_Effector )
+		$DeleteEffector ( laboratory, "alchemist_reagent_ready_effector" );
 end
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -224,6 +255,7 @@ begin
 	laboratory's "num_resources" -= amount;
 	$SetAttribute ( laboratory, #ATTRIB_ReturnAmount,
 		laboratory's "num_resources" );
+	$Alchemist_Update_Reagent_Ready_Effector ( laboratory );
 	return TRUE;
 end
 
@@ -245,61 +277,67 @@ begin
 end
 
 ///////////////////////////////////////////////////////////////////////////////
-function Alchemical_Tempest_Hit ( agent thisagent, agent laboratory )
+function Alchemist_Apply_Arcane_Infusion ( agent alchemist )
 ///////////////////////////////////////////////////////////////////////////////
-// Literal Lightning Storm birth/active lifecycle. The private command route
-// carries the selected Laboratory as target, and the successful birth is the
-// first stock commit point at which reagent stock is spent. Stock
-// compile_enemies supplies both hostile monsters and enemy heroes.
+// Gnome Champion's stock level transition permanently adds 25 Magic
+// Resistance. The one-time marker makes that same permanent adjustment safe
+// across birth, resurrection adoption, and movement between Laboratories.
 declare
+	agent Palace;
+begin
+	if ( $IsValidGamePiece ( alchemist ) == FALSE )
+		return;
+	if ( alchemist's "title" != "Alchemist" )
+		return;
+	if ( $HasAttribute ( "AlchemistArcaneInfusionApplied", alchemist ) )
+		return;
+	Palace = $GetTruePalace ( alchemist );
+	if ( $IsValidGamePiece ( Palace ) == FALSE )
+		return;
+	if ( $GetAttribute ( Palace, #ATTRIB_ResearchArrows ) == 0 )
+		return;
+
+	$AddAttribute (
+		alchemist,
+		"AlchemistArcaneInfusionApplied",
+		"boolean",
+		TRUE
+	);
+	$AdjustAttribute ( alchemist, #ATTRIB_MagicResistance, 25 );
+	$CreateEffector ( alchemist, "resist_magic_effector", 0 );
+end
+
+///////////////////////////////////////////////////////////////////////////////
+function Alchemist_Arcane_Infusion ( agent laboratory )
+///////////////////////////////////////////////////////////////////////////////
+// The Palace's otherwise-unused stock ResearchArrows completion bit owns the
+// one-per-kingdom state. Rage of Krolm supplies the exact all-hero query, and
+// Gnome Champion supplies the permanent +25 attribute operation.
+declare
+	agent Palace;
+	list Heroes;
+	agent Hero;
 begin
 	if ( $IsValidGamePiece ( laboratory ) == FALSE )
-		begin
-			$SetSpellUnitTimeout ( thisagent, 1 );
-			return;
-		end
+		return;
 	if ( laboratory's "title" != "AlchemistsLaboratory" ||
 		laboratory's "Level" < 3 )
-		begin
-			$SetSpellUnitTimeout ( thisagent, 1 );
-			return;
-		end
+		return;
+
+	Palace = $GetTruePalace ( laboratory );
+	if ( $IsValidGamePiece ( Palace ) == FALSE )
+		return;
+	if ( $GetAttribute ( Palace, #ATTRIB_ResearchArrows ) != 0 )
+		return;
 	if ( $Alchemist_Consume_Reagent_Stock ( laboratory, 10 ) == FALSE )
-		begin
-			$SetSpellUnitTimeout ( thisagent, 1 );
-			return;
-		end
+		return;
 
-	$CreateEffector ( thisagent, "alchemical_tempest_cloud_effector", 2300 );
-	// Preserve Meteor Storm's native periodic cadence. The former 500 ms
-	// interval multiplied missile and impact work three times faster than stock.
-	$NewThread ( thisagent's "activeScript", 1600, thisagent );
-	$SetSpellUnitTimeout ( thisagent, 2300 );
-	$Alchemical_Tempest_Active ( thisagent );
-end
-
-///////////////////////////////////////////////////////////////////////////////
-function Alchemical_Tempest_Active ( agent thisagent )
-declare
-	list targets;
-	agent target;
-begin
-	targets = $compile_enemies ( thisagent, 150 );
-	foreach target in targets do
-		if ( $Alchemist_Is_Protected_Transmutation_Target ( target ) == FALSE )
-			begin
-				$CreateMissile ( "alchemical_tempest_missile", thisagent, target );
-			end
-end
-
-///////////////////////////////////////////////////////////////////////////////
-function Alchemical_Tempest_Missile_Hit ( agent thisagent, agent target )
-///////////////////////////////////////////////////////////////////////////////
-// Literal Meteor_Missile_Hit order: target impact first, spell attack second.
-declare
-begin
-	$CreateEffector ( target, "alchemical_tempest_impact", 0 );
-	$player_spell_attack ( target, 100000, 100000 );
+	$SetAttribute ( Palace, #ATTRIB_ResearchArrows, 1 );
+	$ListObjects ( laboratory, "hero", -1, Heroes, #MyPlayer,
+		#InsideOtherUnits, #NoHiddenMap, #CheckSubtypes, "Hero" );
+	foreach Hero in Heroes do
+		$Alchemist_Apply_Arcane_Infusion ( Hero );
+	$PlaySound ( laboratory, "Resist_Magic", "Begin" );
 end
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -345,7 +383,7 @@ begin
 	// Stock revenue callbacks grant gold, then create their numeric Got_Gold
 	// effector with the amount as argument 4. The selected monster dies in this
 	// callback, so Lightning Storm's surviving spell unit owns both that stock
-	// presentation and the private six-frame transmutation impact at the target
+	// presentation and the private stock-29-frame transmutation impact at the target
 	// location.
 	$CreateEffector ( thisagent, "Got_Gold", 0, 3000 );
 	$CreateEffector ( thisagent, "philosophers_stone_hit_effector", 0 );
@@ -353,5 +391,5 @@ begin
 	// already excludes protected targets, so enter the stock spelldamage path
 	// directly to preserve normal HP-zero death callbacks without that roll.
 	$spelldamage ( $nullagent(), target, 100000, 100000 );
-	$SetSpellUnitTimeout ( thisagent, 2300 );
+	$SetSpellUnitTimeout ( thisagent, 3500 );
 end

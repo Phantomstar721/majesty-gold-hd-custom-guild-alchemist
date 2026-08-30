@@ -10,6 +10,9 @@ expression #Alchemist_Base_Movement_Bonus -45
 expression #Alchemist_Hire_Grant 100
 // Match Call to Grave's accepted 500-unit minimum meaningful travel segment.
 expression #Alchemist_Town_Shopping_Range 500
+// A field Alchemist waits for a substantial purse before abandoning an
+// expedition for the stock full-range equipment-shopping lifecycle.
+expression #Alchemist_Funded_Resupply_Gold 2000
 expression #Alchemist_Flash_Flask_Confidence 60
 expression #Alchemist_Stun_Serum_Confidence 100
 expression #Alchemist_Miasma_Mist_Confidence 30
@@ -77,6 +80,7 @@ Function Alchemist_birth(agent ThisAgent)
 
 Declare
 	agent Home;
+	agent Palace;
 
 Begin
 	$hero_birth(ThisAgent);
@@ -110,6 +114,12 @@ Begin
 						ThisAgent
 					);
 			end
+	Palace = $GetTruePalace(ThisAgent);
+	If (
+		$IsValidGamePiece(Palace) &&
+		$GetAttribute(Palace, #ATTRIB_ResearchArrows) != 0
+	)
+		$Alchemist_Apply_Arcane_Infusion(ThisAgent);
 	$Alchemist_Sync_Speed_Profile(ThisAgent);
 End
 
@@ -210,19 +220,23 @@ begin
 
 	if ($check_nearby(thisagent) == False)
 
+	// A full stock of three Reagents must be deposited before another bounty is
+	// accepted. Stock Go_home still owns the 95% decision, travel, intent,
+	// building entry, and reset lifecycle; an active combat or bounty is never
+	// interrupted because this runs only when the ordinary tree is re-entered.
+	if ($Alchemist_Return_Full_Reagent_Load(thisagent) == False)
+
 	// Literal stock purchase clones restricted to the Call-to-Grave-derived
 	// 500-unit town spacing let genuinely nearby shopping preempt a new flag.
-	// The original broad purchase calls retain their stock positions below
-	// reward handling.
+	// The funded stock clone below permits one deliberate field resupply when a
+	// wealthy Alchemist has an actual purchase available.
 	if ($Alchemist_Purchase_Nearby_Equipment(thisagent) == False)
 
 	if ($Alchemist_Purchase_Nearby_Bazaar(thisagent, 75) == False)
 
-	if ($Check_rewards(thisagent,FALSE) == False)
+	if ($Alchemist_Funded_Resupply(thisagent) == False)
 
-	// A complete reagent load uses Rogue's unchanged stock Go_home action, but
-	// immediately after reward handling so an accepted flag keeps priority.
-	if ($Alchemist_Return_Full_Reagent_Load(thisagent) == False)
+	if ($Check_rewards(thisagent,FALSE) == False)
 
 	if ($Alchemist_Purchase_Bazaar(thisagent, 75) == False)
 

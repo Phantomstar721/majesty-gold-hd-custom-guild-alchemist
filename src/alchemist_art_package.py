@@ -49,7 +49,6 @@ NAVIGATION_CUSTOM = b"ALINrecipe icons"
 TACTICAL_CURSOR_SOURCE = b"CUR1Tactical Cursor"
 TACTICAL_CURSOR_CUSTOM = TACTICAL_CURSOR_SOURCE
 TACTICAL_CURSOR_TEMPLATE_SET_ID = 1014
-ALCHEMICAL_TEMPEST_CURSOR_SET_ID = 1038
 PHILOSOPHERS_STONE_CURSOR_SET_ID = 1039
 TACTICAL_CURSOR_TEMPLATE_TILE = 38
 TACTICAL_CURSOR_SOURCE_SHA256 = (
@@ -90,7 +89,13 @@ STUN_SERUM_RESTRAINT_CUSTOM = b"ASS2Stun Serum Bind"
 STUN_SERUM_DEBUFF_CUSTOM = b"ASS3Stun Serum Icon"
 PARALYTIC_OIL_RESTRAINT_CUSTOM = b"ASO3Oil Restraint"
 PHILOSOPHERS_STONE_HIT_CUSTOM = b"AST1Stone Hit"
-PHILOSOPHERS_STONE_DELAY_MS = 200
+# Agrela resurrection supplies a stock 29-frame, default-100-ms one-shot
+# lifecycle. Stone keeps that complete table and expands only its private art
+# canvas so the transmutation reads as a major sovereign event.
+PHILOSOPHERS_STONE_ANIMATION_SET = 64
+PHILOSOPHERS_STONE_FRAMES = 29
+PHILOSOPHERS_STONE_DELAY_MS = 0
+PHILOSOPHERS_STONE_HEADER = (3, 184, 192, 0, 32, 96, 92, 8)
 MIASMA_STORM_SOURCE = b"WRg1meteor_swarm_E1"
 MIASMA_MISSILE_SOURCE = b"WPg3meteor_missile"
 MIASMA_PARTICLE_SOURCE = b"XL20MeteorStrmEffct"
@@ -105,23 +110,30 @@ MIASMA_ANCHOR_CUSTOM = b"AMm6Miasma Anchor"
 # dark orange.  Tempest and the approved overhead drop remain on 505.
 MIASMA_CLOUD_PALETTE = 577
 MIASMA_DEBUFF_PALETTE = 505
-TEMPEST_PALETTE = 505
 MIASMA_CLOUD_BRIGHTNESS = 1.15
 MIASMA_CLOUD_SATURATION = 1.40
 MIASMA_PARTICLE_BRIGHTNESS = 0.95
 MIASMA_PARTICLE_SATURATION = 1.40
 MIASMA_PARTICLE_ALPHA_SCALE = 0.72
-TEMPEST_STORM_CUSTOM = b"ATm1Tempest Cloud"
-TEMPEST_MISSILE_CUSTOM = b"ATm2Tempest Missile"
-TEMPEST_PARTICLE_CUSTOM = b"ATm4Tempest Vapor"
-TEMPEST_IMPACT_SOURCE = b"WRg2meteor_blast"
-TEMPEST_IMPACT_CUSTOM = b"ATm7Tempest Impact"
-TEMPEST_RADIUS = 150
+REAGENT_READY_SOURCE = b"ARM1WizardTower"
+REAGENT_READY_CUSTOM = b"ALR1Reagent Ready"
+REAGENT_READY_SOURCE_SHA256 = (
+    "eafcd91a5f8f63da85bc7f692e4dc75737ed71cc2d388dd9341f912815f1bb7c"
+)
+REAGENT_READY_SOURCE_TILES = tuple(range(2349, 2365))
+REAGENT_READY_PALETTE = 577
+REAGENT_READY_CANVAS = (269, 213)
+REAGENT_READY_HOTSPOT = (140, 65)
+# The accepted level-3 sprite's round green potion pool occupies the lower
+# center of the object canvas. The first live build fitted the full portrait
+# effect into a narrow box, leaving only a tiny off-center wisp. Use the broad
+# bubbling lower half of that art and cover the actual pool surface instead.
+REAGENT_READY_ART_BOX = (121, 133, 201, 178)
+REAGENT_READY_SOURCE_CROP_TOP = 0.62
 METEOR_STORM_RADIUS = 175
 # Keep Tempest's private Meteor field on the complete stock field footprint.
 # The previous second scale-down made its visible boundary too small to
 # communicate which units were inside the 150-unit gameplay radius.
-TEMPEST_VISUAL_FIT_RATIO = 0.96
 BUFF_ICON_PALETTE = 560
 OVERHEAD_EFFECT_FIT_RATIO = 0.80
 FLASH_FLASK_ACTIVATION_PALETTE = 505
@@ -377,6 +389,109 @@ def generated_miasma_particle_tile(
         canvas,
         palettes,
         palette_index,
+        tuple(header),
+    )
+
+
+def generated_reagent_ready_tile(
+    stock,
+    template_tile: bytes,
+    palettes,
+    source_png: Path,
+    frame_index: int,
+    frame_count: int,
+) -> bytes:
+    """Paint a clear bubbling pulse over the level-3 Lab's potion pool."""
+    from PIL import ImageEnhance
+
+    header = list(struct.unpack_from("<8H", template_tile, 0))
+    height, width = header[1], header[2]
+    if (width, height) != REAGENT_READY_CANVAS:
+        raise ValueError(
+            f"Level-3 Reagent overlay canvas changed: {(width, height)}"
+        )
+    if tuple(header[5:7]) != REAGENT_READY_HOTSPOT:
+        raise ValueError(
+            f"Level-3 Reagent overlay hotspot changed: {tuple(header[5:7])}"
+        )
+
+    with Image.open(source_png) as loaded:
+        source = loaded.convert("RGBA")
+    bbox = source.getchannel("A").getbbox()
+    if bbox is None:
+        raise ValueError("Reagent-ready source has no visible alpha")
+    source = source.crop(bbox)
+    crop_top = round(source.height * REAGENT_READY_SOURCE_CROP_TOP)
+    source = source.crop((0, crop_top, source.width, source.height))
+
+    left, top, right, bottom = REAGENT_READY_ART_BOX
+    target_width = right - left
+    target_height = bottom - top
+    fit = min(
+        target_width / max(1, source.width),
+        target_height / max(1, source.height),
+    )
+    source = source.resize(
+        (
+            max(2, round(source.width * fit)),
+            max(2, round(source.height * fit)),
+        ),
+        Image.Resampling.LANCZOS,
+    )
+    phase = 2.0 * math.pi * frame_index / max(1, frame_count)
+    pulse = 0.95 + 0.25 * (0.5 + 0.5 * math.sin(phase))
+    source = ImageEnhance.Brightness(source).enhance(pulse)
+    alpha = source.getchannel("A").point(lambda value: round(value * 0.92))
+    source.putalpha(alpha)
+
+    canvas = Image.new("RGBA", (width, height), (0, 0, 0, 0))
+    canvas.alpha_composite(
+        source,
+        (
+            left + (target_width - source.width) // 2,
+            bottom - source.height + round(math.sin(phase)),
+        ),
+    )
+    # The source contributes the bubbling plume. A broad, crisp pool ring makes
+    # the readiness state legible at Majesty's native zoom and fixes the live
+    # presentation's previous resemblance to a stray yellow particle.
+    ring = Image.new("RGBA", (width, height), (0, 0, 0, 0))
+    draw = ImageDraw.Draw(ring)
+    ring_brightness = 0.82 + 0.18 * (0.5 + 0.5 * math.sin(phase))
+    outer_color = (
+        round(205 * ring_brightness),
+        round(242 * ring_brightness),
+        round(72 * ring_brightness),
+        235,
+    )
+    inner_color = (
+        250,
+        round(218 * ring_brightness),
+        round(70 * ring_brightness),
+        245,
+    )
+    draw.ellipse((129, 150, 194, 180), outline=outer_color, width=2)
+    arc_start = round(frame_index * 360 / max(1, frame_count))
+    draw.arc(
+        (135, 154, 188, 176),
+        start=arc_start,
+        end=arc_start + 150,
+        fill=inner_color,
+        width=2,
+    )
+    draw.arc(
+        (135, 154, 188, 176),
+        start=arc_start + 180,
+        end=arc_start + 270,
+        fill=inner_color,
+        width=1,
+    )
+    canvas.alpha_composite(ring)
+    header[4] = 32
+    return stock.rgba_to_indexed_tile(
+        canvas,
+        palettes,
+        REAGENT_READY_PALETTE,
         tuple(header),
     )
 
@@ -1030,13 +1145,12 @@ def private_tactical_cursor_tile(
 
 def append_private_tactical_cursor_sets(
     imag: bytes,
-    tempest_cursor_tile: int,
     stone_cursor_tile: int,
 ) -> bytes:
-    """Append two private cursor presenters to the complete expansion CUR1."""
+    """Append Stone's private cursor presenter to the complete expansion CUR1."""
     if sha256_bytes(imag) != TACTICAL_CURSOR_SOURCE_SHA256:
         raise ValueError("Expansion CUR1 tactical cursor record changed")
-    if tempest_cursor_tile > 0xFFFF or stone_cursor_tile > 0xFFFF:
+    if stone_cursor_tile > 0xFFFF:
         raise ValueError("Private cursor TILE exceeds CUR1's low16 reference field")
     original_count = struct.unpack_from("<I", imag, 20)[0]
     original_table_start = 24
@@ -1069,33 +1183,26 @@ def append_private_tactical_cursor_sets(
     ):
         raise ValueError("Expansion CUR1 Lightning cursor TILE references changed")
 
-    table_growth = 16
-    first_private_offset = len(imag) + table_growth
-    second_private_offset = first_private_offset + len(source_body)
+    table_growth = 8
+    private_offset = len(imag) + table_growth
     output = bytearray(imag[:20])
-    output += struct.pack("<I", original_count + 2)
+    output += struct.pack("<I", original_count + 1)
     for set_id, offset in original_entries:
         output += struct.pack("<II", set_id, offset + table_growth)
     output += struct.pack(
         "<II",
-        ALCHEMICAL_TEMPEST_CURSOR_SET_ID,
-        first_private_offset,
-    )
-    output += struct.pack(
-        "<II",
         PHILOSOPHERS_STONE_CURSOR_SET_ID,
-        second_private_offset,
+        private_offset,
     )
     output += imag[original_table_end:]
-    for cursor_tile in (tempest_cursor_tile, stone_cursor_tile):
-        clone = bytearray(source_body)
-        for offset in lightning_glyph_offsets:
-            original_ref = struct.unpack_from("<I", clone, offset)[0]
-            struct.pack_into(
-                "<I", clone, offset, (original_ref & 0xFFFF0000) | cursor_tile
-            )
-        output += clone
-    if len(output) != 8600:
+    clone = bytearray(source_body)
+    for offset in lightning_glyph_offsets:
+        original_ref = struct.unpack_from("<I", clone, offset)[0]
+        struct.pack_into(
+            "<I", clone, offset, (original_ref & 0xFFFF0000) | stone_cursor_tile
+        )
+    output += clone
+    if len(output) != 8312:
         raise ValueError("Private CUR1 output length changed")
     return bytes(output)
 
@@ -1397,7 +1504,9 @@ def write_maindata(
     flash_flask_buff_imag = buff_icon_template_imag
     flash_flask_activation_imag = phoenix_effect_template_imag
     stun_serum_impact_imag = phoenix_effect_template_imag
-    philosophers_stone_hit_imag = phoenix_effect_template_imag
+    philosophers_stone_hit_imag = stock.read_cam_entry(
+        source, b"IMAG", PHOENIX_LIFECYCLE_SOURCE
+    ).data
     stun_serum_restraint_imag = stock.read_cam_entry(
         source, b"IMAG", b"CRB1vines_e"
     ).data
@@ -1432,28 +1541,11 @@ def write_maindata(
         source, b"IMAG", MIASMA_PARTICLE_SOURCE
     ).data
     miasma_debuff_imag = buff_icon_template_imag
-    tempest_storm_source_imag = stock.read_cam_entry(
-        source, b"IMAG", MIASMA_STORM_SOURCE
+    reagent_ready_imag = stock.read_cam_entry(
+        source, b"IMAG", REAGENT_READY_SOURCE
     ).data
-    tempest_storm_imag = stock.replace_embedded_attachment_id(
-        tempest_storm_source_imag,
-        b"XL20",
-        b"ATm4",
-    )
-    tempest_missile_imag = stock.read_cam_entry(
-        source, b"IMAG", MIASMA_MISSILE_SOURCE
-    ).data
-    tempest_missile_imag = stock.replace_embedded_attachment_id(
-        tempest_missile_imag,
-        b"XL21",
-        b"\x00\x00\x00\x00",
-    )
-    tempest_particle_imag = stock.read_cam_entry(
-        source, b"IMAG", MIASMA_PARTICLE_SOURCE
-    ).data
-    tempest_impact_imag = stock.read_cam_entry(
-        source, b"IMAG", TEMPEST_IMPACT_SOURCE
-    ).data
+    if sha256_bytes(reagent_ready_imag) != REAGENT_READY_SOURCE_SHA256:
+        raise ValueError("Stock Wizard Tower enchantment IMAG changed")
 
     approved_bundle = (
         load_approved_sprite_bundle(
@@ -1724,18 +1816,16 @@ def write_maindata(
     miasma_cloud_source_png = (
         repo / "assets/source/spells/miasma-mist/cloud-mist-sheet.png"
     )
-    tempest_area_source_png = (
-        repo / "assets/source/spells/alchemical-tempest/tempest-area-sheet.png"
-    )
-    tempest_impact_source_png = (
-        repo / "assets/source/spells/alchemical-tempest/acid-impact-strip.png"
-    )
     miasma_debuff_source_png = (
         repo / "assets/source/spells/miasma-mist/debuff-strip.png"
     )
     philosophers_stone_hit_source_png = (
         repo
         / "assets/source/spells/philosophers-stone/transmutation-impact-sheet.png"
+    )
+    reagent_ready_source_png = (
+        repo
+        / "assets/source/effects/reagent-ready/alchemist-reagent-ready-source.png"
     )
     for source_png in (
         vigor_source_png,
@@ -1746,10 +1836,9 @@ def write_maindata(
         stun_debuff_source_png,
         paralytic_oil_restraint_source_png,
         miasma_cloud_source_png,
-        tempest_area_source_png,
-        tempest_impact_source_png,
         miasma_debuff_source_png,
         philosophers_stone_hit_source_png,
+        reagent_ready_source_png,
     ):
         if not source_png.is_file():
             raise FileNotFoundError(source_png)
@@ -1852,20 +1941,18 @@ def write_maindata(
         stun_serum_impact_imag, stun_impact_replacements
     )
 
-    # Philosopher's Stone uses Haunt Gravechill's exact XR30 one-shot impact
-    # topology. Preserve all six stock frames and hotspots, floor the first two
-    # tiny Frost Field canvases at the readable third-frame size, and replace
-    # only their art with the approved transmutation phases.
+    # Philosopher's Stone uses Agrela resurrection's complete 29-frame
+    # one-shot topology. Its stock default 100-ms cadence gives the approved
+    # six-phase transmutation enough time to read, while one fixed, centered
+    # private canvas makes the result roughly twice the old XR30 footprint.
     philosophers_stone_hit_indices = stock.animation_tile_indices(
-        philosophers_stone_hit_imag, len(mx_tiles)
+        philosophers_stone_hit_imag, len(tiles)
     )
-    if len(philosophers_stone_hit_indices) != 6:
-        raise ValueError("Stock XR30 Philosopher's Stone scaffold changed")
+    if len(philosophers_stone_hit_indices) != PHILOSOPHERS_STONE_FRAMES:
+        raise ValueError("Stock HRC1 Philosopher's Stone scaffold changed")
     philosophers_stone_hit_replacements: dict[int, int] = {}
     for frame, source_index in enumerate(philosophers_stone_hit_indices):
-        template_tile = mx_tiles[
-            philosophers_stone_hit_indices[max(2, frame)]
-        ].data
+        template_tile = tiles[source_index].data
         philosophers_stone_hit_replacements[source_index] = append(
             f"AST1StoneHit{frame:02d}".encode("ascii"),
             generated_approved_strip_tile(
@@ -1877,8 +1964,8 @@ def write_maindata(
                 frame,
                 len(philosophers_stone_hit_indices),
                 PHOENIX_EFFECT_PALETTE,
-                fixed_header=struct.unpack_from("<8H", template_tile, 0),
-                fit_ratio=0.92,
+                fixed_header=PHILOSOPHERS_STONE_HEADER,
+                fit_ratio=0.94,
             ),
         )
     philosophers_stone_hit_imag = stock.remap_imag_animation_tiles(
@@ -1887,8 +1974,8 @@ def write_maindata(
     )
     philosophers_stone_hit_imag = set_single_overlay_animation_delay(
         philosophers_stone_hit_imag,
-        PHOENIX_EFFECT_TEMPLATE_ANIMATION_SET,
-        (FLASH_FLASK_ACTIVATION_SOURCE_DELAY_MS,),
+        PHILOSOPHERS_STONE_ANIMATION_SET,
+        (0,),
         PHILOSOPHERS_STONE_DELAY_MS,
     )
 
@@ -2062,108 +2149,6 @@ def write_maindata(
         miasma_particle_replacements,
     )
 
-    # Alchemical Tempest keeps Meteor Storm's complete field, attachment,
-    # missile, and impact topology under separate private identities. Its
-    # 150-unit field occupies exactly 150/175 of Meteor Storm's stock radius.
-    tempest_storm_indices = sorted(
-        index
-        for index in stock.referenced_tile_indices(
-            tempest_storm_source_imag, len(tiles)
-        )
-        if index >= 8000
-    )
-    if tempest_storm_indices != miasma_storm_indices:
-        raise ValueError("Tempest lost Meteor Storm's field TILE topology")
-    tempest_storm_replacements: dict[int, int] = {}
-    for frame, source_index in enumerate(tempest_storm_indices):
-        tempest_storm_replacements[source_index] = append(
-            f"ATm1Cloud{frame:02d}".encode("ascii"),
-            generated_area_effect_tile(
-                stock,
-                miasma_storm_template,
-                palettes,
-                tempest_area_source_png,
-                frame,
-                len(tempest_storm_indices),
-                TEMPEST_VISUAL_FIT_RATIO,
-                0.78,
-                1.0,
-                TEMPEST_PALETTE,
-            ),
-        )
-    tempest_storm_imag = stock.remap_imag_tile_indices(
-        tempest_storm_imag,
-        tempest_storm_replacements,
-    )
-
-    tempest_missile_indices = stock.animation_tile_indices(
-        tempest_missile_imag, len(tiles)
-    )
-    if tempest_missile_indices != miasma_missile_indices:
-        raise ValueError("Tempest lost Meteor Storm's missile TILE topology")
-    tempest_missile_blank = append(
-        b"ATm2Missile00",
-        stock.blank_indexed_v3_tile(miasma_missile_template),
-    )
-    tempest_missile_imag = stock.remap_imag_tile_indices(
-        tempest_missile_imag,
-        {index: tempest_missile_blank for index in tempest_missile_indices},
-    )
-
-    tempest_particle_indices = stock.animation_tile_indices(
-        tempest_particle_imag, len(tiles)
-    )
-    if tempest_particle_indices != miasma_particle_indices:
-        raise ValueError("Tempest lost Meteor Storm's particle TILE topology")
-    tempest_particle_replacements: dict[int, int] = {}
-    for frame, source_index in enumerate(tempest_particle_indices):
-        tempest_particle_replacements[source_index] = append(
-            f"ATm4Vapor{frame:02d}".encode("ascii"),
-            generated_miasma_particle_tile(
-                stock,
-                tiles[source_index].data,
-                palettes,
-                tempest_area_source_png,
-                frame,
-                len(tempest_particle_indices),
-                TEMPEST_PALETTE,
-            ),
-        )
-    tempest_particle_imag = stock.remap_imag_animation_tiles(
-        tempest_particle_imag,
-        tempest_particle_replacements,
-    )
-
-    tempest_impact_indices = sorted(
-        index
-        for index in stock.referenced_tile_indices(
-            tempest_impact_imag, len(tiles)
-        )
-        if index >= 8000
-    )
-    if len(tempest_impact_indices) != 8:
-        raise ValueError("Stock Meteor Storm impact is not an eight-TILE lifecycle")
-    tempest_impact_replacements: dict[int, int] = {}
-    tempest_impact_phase_indices = (0, 0, 1, 2, 3, 4, 5, 6)
-    for frame, source_index in enumerate(tempest_impact_indices):
-        template_tile = tiles[source_index].data
-        tempest_impact_replacements[source_index] = append(
-            f"ATm7Impact{frame:02d}".encode("ascii"),
-            generated_discrete_strip_tile(
-                stock,
-                palettes,
-                tempest_impact_source_png,
-                7,
-                tempest_impact_phase_indices[frame],
-                TEMPEST_PALETTE,
-                struct.unpack_from("<8H", template_tile, 0),
-            ),
-        )
-    tempest_impact_imag = stock.remap_imag_tile_indices(
-        tempest_impact_imag,
-        tempest_impact_replacements,
-    )
-
     miasma_debuff_replacements: dict[int, int] = {}
     for frame, source_index in enumerate(buff_template_indices):
         miasma_debuff_replacements[source_index] = append(
@@ -2204,6 +2189,7 @@ def write_maindata(
 
     approved_building_records: list[dict] = []
     approved_building_private_indices: list[dict[int, int]] = []
+    reagent_ready_template: bytes | None = None
     for level in (1, 2, 3):
         states = approved_building_bundle.states_by_level[level - 1]
         private_indices: dict[int, int] = {}
@@ -2221,6 +2207,8 @@ def write_maindata(
                 payload,
             )
             private_indices[state.source_tile_index] = private_index
+            if level == 3 and state.source_tile_index == 1027:
+                reagent_ready_template = payload
             source_hotspot = struct.unpack_from(
                 "<hh", tiles[state.source_tile_index].data, 10
             )
@@ -2255,6 +2243,28 @@ def write_maindata(
             icon_index,
         )
         approved_building_private_indices.append(private_indices)
+
+    if reagent_ready_template is None:
+        raise ValueError("Approved level-3 active Lab state is missing")
+    reagent_ready_replacements: dict[int, int] = {}
+    for frame, source_index in enumerate(REAGENT_READY_SOURCE_TILES):
+        if source_index >= len(tiles):
+            raise ValueError(f"Wizard Tower enchantment TILE {source_index} is missing")
+        reagent_ready_replacements[source_index] = append(
+            f"ALR1Ready{frame:02d}".encode("ascii"),
+            generated_reagent_ready_tile(
+                stock,
+                reagent_ready_template,
+                palettes,
+                reagent_ready_source_png,
+                frame,
+                len(REAGENT_READY_SOURCE_TILES),
+            ),
+        )
+    reagent_ready_imag = stock.remap_imag_tile_indices(
+        reagent_ready_imag,
+        reagent_ready_replacements,
+    )
 
     if approved_bundle is not None:
         # ALC1's cloned Interface-00/01/02 records still point at retail TILE
@@ -2390,10 +2400,7 @@ def write_maindata(
         stock.CamEntry(stock.pad_name(MIASMA_PARTICLE_CUSTOM), miasma_particle_imag),
         stock.CamEntry(stock.pad_name(MIASMA_DEBUFF_CUSTOM), miasma_debuff_imag),
         stock.CamEntry(stock.pad_name(MIASMA_ANCHOR_CUSTOM), miasma_anchor_imag),
-        stock.CamEntry(stock.pad_name(TEMPEST_STORM_CUSTOM), tempest_storm_imag),
-        stock.CamEntry(stock.pad_name(TEMPEST_MISSILE_CUSTOM), tempest_missile_imag),
-        stock.CamEntry(stock.pad_name(TEMPEST_PARTICLE_CUSTOM), tempest_particle_imag),
-        stock.CamEntry(stock.pad_name(TEMPEST_IMPACT_CUSTOM), tempest_impact_imag),
+        stock.CamEntry(stock.pad_name(REAGENT_READY_CUSTOM), reagent_ready_imag),
     )
     stock.write_cam(
         (
@@ -2585,14 +2592,6 @@ def write_interfacedata(repo: Path, game_data: Path, art_dir: Path, output: Path
         append,
         brewing_progress_frames(stock, tiles),
     )
-    tempest_cursor_tile = append(
-        b"ALCTTempestCursor",
-        private_tactical_cursor_tile(
-            stock,
-            expansion_tiles[TACTICAL_CURSOR_TEMPLATE_TILE].data,
-            art_dir / "interface/alchemical-tempest-icon-25.png",
-        ),
-    )
     stone_cursor_tile = append(
         b"ALCSStoneCursor",
         private_tactical_cursor_tile(
@@ -2603,7 +2602,6 @@ def write_interfacedata(repo: Path, game_data: Path, art_dir: Path, output: Path
     )
     tactical_cursor_imag = append_private_tactical_cursor_sets(
         tactical_cursor_imag,
-        tempest_cursor_tile,
         stone_cursor_tile,
     )
 

@@ -7,7 +7,7 @@
 ///////////////////////////////////////////////////////////////////////////////
 
 expression #Intent_Purchasing_Phoenix_Phial 310
-expression #Phoenix_Phial_Price 1000
+expression #Phoenix_Phial_Price 750
 expression #Phoenix_Phial_Revive_Chance 75
 // Private QITM index used by the native inventory-list renderer.
 expression #PhoenixPhial 113

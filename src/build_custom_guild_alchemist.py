@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 from dataclasses import dataclass
+import hashlib
 import io
 import json
 from pathlib import Path
@@ -14,6 +15,7 @@ import wave
 import xml.etree.ElementTree as ET
 
 from alchemist_art_package import (
+    ARCANE_INFUSION_EFFECT_CUSTOM,
     FLASH_FLASK_ACTIVATION_CUSTOM,
     FLASH_FLASK_ACTIVATION_DELAY_MS,
     FLASH_FLASK_ACTIVATION_HEADER,
@@ -462,6 +464,27 @@ APPROVED_SPRITE_PIPELINE_ROOT = (
 APPROVED_SPRITE_PROVENANCE_NAME = "ApprovedSpriteTestSet.json"
 
 
+def current_alchemist_art_input_sha256() -> str:
+    """Fingerprint every input whose output can be reused as an art package."""
+    repo = SOURCE_ROOT.parent
+    inputs = [
+        *(repo / "assets" / "source").rglob("*"),
+        repo / "scripts" / "generate_alchemist_art.py",
+        repo / "src" / "alchemist_art_package.py",
+    ]
+    files = sorted(
+        (path for path in inputs if path.is_file()),
+        key=lambda path: path.relative_to(repo).as_posix().casefold(),
+    )
+    digest = hashlib.sha256()
+    for path in files:
+        relative = path.relative_to(repo).as_posix().encode("utf-8")
+        digest.update(len(relative).to_bytes(4, "little"))
+        digest.update(relative)
+        digest.update(bytes.fromhex(sha256_file(path)))
+    return digest.hexdigest()
+
+
 def require_verified_approved_art_package(reuse_root: Path) -> Path:
     """Fail closed unless reusable CAMs carry the approved sprite provenance."""
     resolved = reuse_root.resolve()
@@ -486,6 +509,14 @@ def require_verified_approved_art_package(reuse_root: Path) -> Path:
         raise ValueError("Reusable art package does not match the approved handoff manifest")
     if handoff.get("payload_aggregate_sha256") != COMPLETED_HANDOFF_AGGREGATE_SHA256:
         raise ValueError("Reusable art package does not match the approved sprite payload")
+    if (
+        provenance.get("art_inputs", {}).get("aggregate_sha256")
+        != current_alchemist_art_input_sha256()
+    ):
+        raise ValueError(
+            "Reusable approved art package is stale for the current Alchemist art inputs; "
+            "rebuild -ApprovedSpriteTestSet first"
+        )
     package_hashes = provenance.get("output", {}).get("package_file_sha256", {})
     for relative_name in (
         "Data/alchemist_maindata.cam",
@@ -2024,6 +2055,23 @@ def build_brewing_overlays_xml(
     )
     stone.find("./Engine/DefaultSound").set("value", "0")
     output.append(stone)
+
+    # Arcane Infusion is a successful one-shot event on the selected
+    # Laboratory. Stock building income creates got_gold_bldg directly on its
+    # exact building owner, so clone that literal presenter and replace only
+    # identity/art/sound. Its private IMAG owns HRC1's 29-frame lifetime.
+    infusion_source = stock_root.find('.//Description[@Name="got_gold_bldg"]')
+    if infusion_source is None:
+        raise ValueError("Stock got_gold_bldg position overlay is missing")
+    infusion = ET.fromstring(ET.tostring(infusion_source, encoding="utf-8"))
+    infusion.set("ID", "AIF1")
+    infusion.set("Name", "alchemist_arcane_infusion_effector")
+    infusion.set("Description", "Arcane Infusion")
+    infusion.find("./Engine/ImageIDBase").set(
+        "value", ARCANE_INFUSION_EFFECT_CUSTOM[:4].decode("ascii")
+    )
+    infusion.find("./Engine/DefaultSound").set("value", "0")
+    output.append(infusion)
 
     # Wizard Tower enchantment is Majesty's stock persistent building-owned
     # presentation. Keep its Infinite CreateEffector/DeleteEffector lifecycle
@@ -4332,6 +4380,30 @@ def validate_output(
         raise ValueError(
             "Philosopher's Stone impact diverged from stock Got_Gold presenter"
         )
+    infusion_overlay = overlays.find(
+        './Description[@Name="alchemist_arcane_infusion_effector"]'
+    )
+    if infusion_overlay is None:
+        raise ValueError("Private Arcane Infusion building effector is missing")
+    stock_infusion_overlay = stock_stone_root.find(
+        './/Description[@Name="got_gold_bldg"]'
+    )
+    if stock_infusion_overlay is None:
+        raise ValueError("Stock got_gold_bldg is missing during validation")
+    expected_infusion_overlay = ET.fromstring(
+        ET.tostring(stock_infusion_overlay, encoding="utf-8")
+    )
+    expected_infusion_overlay.set("ID", "AIF1")
+    expected_infusion_overlay.set("Name", "alchemist_arcane_infusion_effector")
+    expected_infusion_overlay.set("Description", "Arcane Infusion")
+    expected_infusion_overlay.find("./Engine/ImageIDBase").set("value", "AIF1")
+    expected_infusion_overlay.find("./Engine/DefaultSound").set("value", "0")
+    if normalized_xml_node(infusion_overlay) != normalized_xml_node(
+        expected_infusion_overlay
+    ):
+        raise ValueError(
+            "Arcane Infusion diverged from stock got_gold_bldg presenter"
+        )
     ready_overlay = overlays.find(
         './Description[@Name="alchemist_reagent_ready_effector"]'
     )
@@ -4671,6 +4743,7 @@ def validate_output(
         STUN_SERUM_RESTRAINT_CUSTOM,
         STUN_SERUM_DEBUFF_CUSTOM,
         PHILOSOPHERS_STONE_HIT_CUSTOM,
+        ARCANE_INFUSION_EFFECT_CUSTOM,
         REAGENT_READY_CUSTOM,
     ):
         if not read_cam_entry(main_art, b"IMAG", name).data:
@@ -4877,6 +4950,7 @@ def validate_output(
         b"AFF1",
         b"AFF2",
         b"AST1",
+        b"AIF1",
         b"AMm",
         b"ATm",
     )
@@ -5443,6 +5517,7 @@ def validate_output(
         "#ATTRIB_MagicResistance, 25",
         '"AlchemistArcaneInfusionApplied"',
         '"resist_magic_effector"',
+        '"alchemist_arcane_infusion_effector"',
         '$ListObjects ( laboratory, "hero", -1, Heroes, #MyPlayer,',
     ):
         if infusion_contract not in reagent_source:
@@ -5904,6 +5979,9 @@ def build(
     )
     if approved_sprite_test_set:
         assert approved_art_provenance is not None
+        approved_art_provenance["art_inputs"] = {
+            "aggregate_sha256": current_alchemist_art_input_sha256(),
+        }
         approved_art_provenance["compiler"] = {
             "path": "SDK/Gplbcc.exe",
             "sha256": sha256_file(compiler),

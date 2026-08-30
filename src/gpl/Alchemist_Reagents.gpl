@@ -332,6 +332,10 @@ begin
 	if ( $Alchemist_Consume_Reagent_Stock ( laboratory, 10 ) == FALSE )
 		return;
 
+	// The runtime's stock Rage command passes the exact selected Laboratory as
+	// this function's argument. Keep the one-shot presentation on that owner so
+	// multiple Labs cannot redirect the visual to an arbitrary building.
+	$CreateEffector ( laboratory, "alchemist_arcane_infusion_effector", 0 );
 	$SetAttribute ( Palace, #ATTRIB_ResearchArrows, 1 );
 	$ListObjects ( laboratory, "hero", -1, Heroes, #MyPlayer,
 		#InsideOtherUnits, #NoHiddenMap, #CheckSubtypes, "Hero" );

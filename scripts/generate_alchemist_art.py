@@ -546,7 +546,7 @@ def generate_interface(repo: Path, out_dir: Path) -> None:
         out_dir / "phoenix-phial-item-100.png"
     )
     for source_name, output_name in (
-        ("alchemical-tempest-icon.png", "alchemical-tempest-icon-25.png"),
+        ("arcane-infusion-icon.png", "arcane-infusion-icon-25.png"),
         ("philosophers-stone-icon.png", "philosophers-stone-icon-25.png"),
     ):
         recipe_icon = Image.open(

@@ -98,6 +98,8 @@ ordinary carried guild resources. They do not add an entry to the hero Items
 panel. The normal guild rest path transfers the carried count to the Lab and
 resets the hero's count to zero.
 Arcane Infusion and Philosopher's Stone each consume 10 stored Reagents.
+Successful Arcane Infusion now plays a long purple alchemical ritual directly
+over the specific Laboratory whose Brewing button issued the command.
 At 10 or more stored Reagents, the Lab's potion pool displays a bright,
 amber-green bubbling readiness glow. It uses the stock Wizard Tower enchantment's
 persistent building-effector lifecycle and disappears immediately when a cast

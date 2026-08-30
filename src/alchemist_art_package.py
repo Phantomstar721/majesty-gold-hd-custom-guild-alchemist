@@ -89,6 +89,7 @@ STUN_SERUM_RESTRAINT_CUSTOM = b"ASS2Stun Serum Bind"
 STUN_SERUM_DEBUFF_CUSTOM = b"ASS3Stun Serum Icon"
 PARALYTIC_OIL_RESTRAINT_CUSTOM = b"ASO3Oil Restraint"
 PHILOSOPHERS_STONE_HIT_CUSTOM = b"AST1Stone Hit"
+ARCANE_INFUSION_EFFECT_CUSTOM = b"AIF1Arcane Infuse"
 # Agrela resurrection supplies a stock 29-frame, default-100-ms one-shot
 # lifecycle. Stone keeps that complete table and expands only its private art
 # canvas so the transmutation reads as a major sovereign event.
@@ -96,6 +97,15 @@ PHILOSOPHERS_STONE_ANIMATION_SET = 64
 PHILOSOPHERS_STONE_FRAMES = 29
 PHILOSOPHERS_STONE_DELAY_MS = 0
 PHILOSOPHERS_STONE_HEADER = (3, 184, 192, 0, 32, 96, 92, 8)
+# Arcane Infusion uses the same stock HRC1 29-frame one-shot as Stone. Its
+# private TILE canvas instead matches the proven level-3 Laboratory object
+# canvas/hotspot so an effector created on the selected building remains
+# centered over that exact Laboratory rather than over a generic unit box.
+ARCANE_INFUSION_ANIMATION_SET = PHILOSOPHERS_STONE_ANIMATION_SET
+ARCANE_INFUSION_FRAMES = PHILOSOPHERS_STONE_FRAMES
+ARCANE_INFUSION_DELAY_MS = PHILOSOPHERS_STONE_DELAY_MS
+ARCANE_INFUSION_PALETTE = 560
+ARCANE_INFUSION_HEADER = (3, 269, 213, 0, 32, 140, 65, 8)
 MIASMA_STORM_SOURCE = b"WRg1meteor_swarm_E1"
 MIASMA_MISSILE_SOURCE = b"WPg3meteor_missile"
 MIASMA_PARTICLE_SOURCE = b"XL20MeteorStrmEffct"
@@ -1507,6 +1517,9 @@ def write_maindata(
     philosophers_stone_hit_imag = stock.read_cam_entry(
         source, b"IMAG", PHOENIX_LIFECYCLE_SOURCE
     ).data
+    arcane_infusion_effect_imag = stock.read_cam_entry(
+        source, b"IMAG", PHOENIX_LIFECYCLE_SOURCE
+    ).data
     stun_serum_restraint_imag = stock.read_cam_entry(
         source, b"IMAG", b"CRB1vines_e"
     ).data
@@ -1823,6 +1836,10 @@ def write_maindata(
         repo
         / "assets/source/spells/philosophers-stone/transmutation-impact-sheet.png"
     )
+    arcane_infusion_effect_source_png = (
+        repo
+        / "assets/source/spells/arcane-infusion/laboratory-enchantment-sheet.png"
+    )
     reagent_ready_source_png = (
         repo
         / "assets/source/effects/reagent-ready/alchemist-reagent-ready-source.png"
@@ -1838,6 +1855,7 @@ def write_maindata(
         miasma_cloud_source_png,
         miasma_debuff_source_png,
         philosophers_stone_hit_source_png,
+        arcane_infusion_effect_source_png,
         reagent_ready_source_png,
     ):
         if not source_png.is_file():
@@ -1977,6 +1995,43 @@ def write_maindata(
         PHILOSOPHERS_STONE_ANIMATION_SET,
         (0,),
         PHILOSOPHERS_STONE_DELAY_MS,
+    )
+
+    # Arcane Infusion clones Stone's proven HRC1 one-shot topology and default
+    # 100-ms cadence. Only the private purple ritual artwork and Laboratory-
+    # sized canvas differ; no timer, callback, or persistent effect is added.
+    arcane_infusion_effect_indices = stock.animation_tile_indices(
+        arcane_infusion_effect_imag, len(tiles)
+    )
+    if len(arcane_infusion_effect_indices) != ARCANE_INFUSION_FRAMES:
+        raise ValueError("Stock HRC1 Arcane Infusion scaffold changed")
+    arcane_infusion_effect_replacements: dict[int, int] = {}
+    for frame, source_index in enumerate(arcane_infusion_effect_indices):
+        template_tile = tiles[source_index].data
+        arcane_infusion_effect_replacements[source_index] = append(
+            f"AIF1Infuse{frame:02d}".encode("ascii"),
+            generated_approved_strip_tile(
+                stock,
+                template_tile,
+                palettes,
+                arcane_infusion_effect_source_png,
+                6,
+                frame,
+                len(arcane_infusion_effect_indices),
+                ARCANE_INFUSION_PALETTE,
+                fixed_header=ARCANE_INFUSION_HEADER,
+                fit_ratio=0.96,
+            ),
+        )
+    arcane_infusion_effect_imag = stock.remap_imag_animation_tiles(
+        arcane_infusion_effect_imag,
+        arcane_infusion_effect_replacements,
+    )
+    arcane_infusion_effect_imag = set_single_overlay_animation_delay(
+        arcane_infusion_effect_imag,
+        ARCANE_INFUSION_ANIMATION_SET,
+        (0,),
+        ARCANE_INFUSION_DELAY_MS,
     )
 
     # CRB1 is Vines' literal 30-TILE restraint presentation. Preserve its
@@ -2395,6 +2450,10 @@ def write_maindata(
             stock.pad_name(PHILOSOPHERS_STONE_HIT_CUSTOM),
             philosophers_stone_hit_imag,
         ),
+        stock.CamEntry(
+            stock.pad_name(ARCANE_INFUSION_EFFECT_CUSTOM),
+            arcane_infusion_effect_imag,
+        ),
         stock.CamEntry(stock.pad_name(MIASMA_STORM_CUSTOM), miasma_storm_imag),
         stock.CamEntry(stock.pad_name(MIASMA_MISSILE_CUSTOM), miasma_missile_imag),
         stock.CamEntry(stock.pad_name(MIASMA_PARTICLE_CUSTOM), miasma_particle_imag),
@@ -2541,8 +2600,8 @@ def write_interfacedata(repo: Path, game_data: Path, art_dir: Path, output: Path
             (
                 (
                     0x3F6,
-                    art_dir / "interface/alchemical-tempest-icon-25.png",
-                    "alchemical-tempest",
+                    art_dir / "interface/arcane-infusion-icon-25.png",
+                    "arcane-infusion",
                 ),
                 (
                     0x3F7,

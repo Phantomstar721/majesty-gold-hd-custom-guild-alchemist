@@ -283,6 +283,7 @@ class AlchemistGuildTests(unittest.TestCase):
                     art_package.FLASH_FLASK_ACTIVATION_CUSTOM,
                     art_package.MIASMA_DEBUFF_CUSTOM,
                     art_package.PHILOSOPHERS_STONE_HIT_CUSTOM,
+                    art_package.ARCANE_INFUSION_EFFECT_CUSTOM,
                 )
             }
             stock_imag = stock.read_cam_entry(
@@ -395,6 +396,33 @@ class AlchemistGuildTests(unittest.TestCase):
             self.assertEqual(
                 struct.unpack_from("<8H", output_tiles[tile_index].data, 0),
                 art_package.PHILOSOPHERS_STONE_HEADER,
+            )
+        infusion_effect = packaged_effects[
+            art_package.ARCANE_INFUSION_EFFECT_CUSTOM
+        ]
+        infusion_set_offset = struct.unpack_from("<I", infusion_effect, 28)[0]
+        self.assertEqual(
+            struct.unpack_from("<I", infusion_effect, infusion_set_offset + 28)[0],
+            art_package.ARCANE_INFUSION_DELAY_MS,
+        )
+        infusion_indices = stock.animation_tile_indices(
+            infusion_effect,
+            len(output_tiles),
+        )
+        self.assertEqual(
+            len(infusion_indices), art_package.ARCANE_INFUSION_FRAMES
+        )
+        self.assertEqual(
+            len(set(infusion_indices)), art_package.ARCANE_INFUSION_FRAMES
+        )
+        for tile_index in infusion_indices:
+            self.assertEqual(
+                struct.unpack_from("<8H", output_tiles[tile_index].data, 0),
+                art_package.ARCANE_INFUSION_HEADER,
+            )
+            self.assertEqual(
+                stock.tile_palette_index(output_tiles[tile_index].data),
+                art_package.ARCANE_INFUSION_PALETTE,
             )
         lifecycle_sets = stock.single_direction_imag_animation_sets(
             phoenix_lifecycle_imag
@@ -1704,6 +1732,16 @@ end
 
     def test_brewing_overlay_has_a_private_callback(self) -> None:
         stock = """<Majesty><Description type="Unit" subType="Overlay" ID="QRa1" Name="Rage_icon" Description="Rage of Krolm"><Engine><Info value="Directionless"/><Info value="DontBlock"/><ImageIDBase value="QRa1"/><Script type="0" cProc="0" GPLFunction="rage_end"/></Engine><Game><StackPriority value="1"/></Game></Description><Description type="Unit" subType="Overlay" ID="QRd0" Name="ring_icon" Description="This hero has the Magic Ring."><Engine><Info value="Static"/><Info value="Directionless"/><Info value="DontBlock"/><Menu value="11"/><ImageIDBase value="QRd0"/><DefaultSound value="0"/></Engine><Game><DialogID value="0"/><StackPriority value="0"/></Game></Description><Description type="Unit" subType="Overlay" ID="HRC1" Name="resurrection_effector" Description="Resurrection"><Engine><Info value="Directionless"/><Info value="DontBlock"/><Menu value="11"/><ImageIDBase value="HRC1"/><DefaultSound value="Resurrection"/><Script type="0" cProc="0" GPLFunction="Resurrection_End"/></Engine><Game><StackPriority value="0"/><Flags value="TransparentToMouse"/></Game></Description><Description type="Unit" subType="Overlay" ID="ARB2" Name="Got_Gold" Description="Got gold"><Engine><Info value="Directionless"/><Info value="DontBlock"/><CanUse value="HumanPlayer"/><Menu value="11"/><ImageIDBase value="ARB2"/><DefaultSound value="Got_Gold"/></Engine><Game><DialogID value="0"/><StackPriority value="0"/></Game></Description><Description type="Unit" subType="Overlay" ID="ARM1" Name="wiztower_enchantment" Description="Tower enchantment"><Engine><Info value="DontBlock"/><CanUse value="HumanPlayer"/><Menu value="11"/><ImageIDBase value="ARM1"/><AttachmentPointID value="2"/><DefaultSound value="Wizard_Tower_Enchant"/></Engine><Game><DialogID value="0"/><StackPriority value="1"/></Game></Description></Majesty>"""
+        stock = stock.replace(
+            "</Majesty>",
+            '<Description type="Unit" subType="Overlay" ID="ARD1" '
+            'Name="got_gold_bldg" Description="Building getting gold">'
+            '<Engine><Info value="Directionless"/><Info value="DontBlock"/>'
+            '<CanUse value="HumanPlayer"/><Menu value="11"/>'
+            '<ImageIDBase value="ARD1"/><DefaultSound value="Got_Gold"/>'
+            '</Engine><Game><DialogID value="0"/><StackPriority value="0"/>'
+            '</Game></Description></Majesty>',
+        )
         mx_stock = '<Majesty><Description type="Unit" subType="Overlay" ID="XR01" Name="Speed_Tonic_Icon" Description="Speed Tonic"><Engine><Info value="Directionless"/><Info value="DontBlock"/><Menu value="11"/><ImageIDBase value="XR01"/><Script type="0" cProc="0" GPLFunction="Speed_Tonic_End"/><DefaultSound value="0"/></Engine><Game><DialogID value="0"/><StackPriority value="1"/></Game></Description><Description type="Unit" subType="Overlay" ID="XR30" Name="Frost_Field_Hit_Effector" Description="Frost Field"><Engine><Info value="Directionless"/><Info value="DontBlock"/><Menu value="11"/><ImageIDBase value="XR30"/><AttachmentPointID value="2"/><DefaultSound value="Frost_Field_hit"/></Engine><Game><DialogID value="0"/><StackPriority value="0"/><Flags value="TransparentToMouse"/></Game></Description></Majesty>'
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "M_Overlays.xml"
@@ -1740,7 +1778,20 @@ end
         self.assertEqual(stone.find("./Engine/DefaultSound").get("value"), "0")
         self.assertIsNone(stone.find("./Engine/AttachmentPointID"))
         self.assertEqual(stone.find("./Engine/CanUse").get("value"), "HumanPlayer")
-        ready = output.findall("Description")[3]
+        infusion = output.findall("Description")[3]
+        self.assertEqual(infusion.get("ID"), "AIF1")
+        self.assertEqual(
+            infusion.get("Name"), "alchemist_arcane_infusion_effector"
+        )
+        self.assertEqual(
+            infusion.find("./Engine/ImageIDBase").get("value"), "AIF1"
+        )
+        self.assertEqual(infusion.find("./Engine/DefaultSound").get("value"), "0")
+        self.assertIsNone(infusion.find("./Engine/AttachmentPointID"))
+        self.assertEqual(
+            infusion.find("./Engine/CanUse").get("value"), "HumanPlayer"
+        )
+        ready = output.findall("Description")[4]
         self.assertEqual(ready.get("ID"), "ARR1")
         self.assertEqual(ready.get("Name"), "alchemist_reagent_ready_effector")
         self.assertEqual(ready.find("./Engine/ImageIDBase").get("value"), "ALR1")
@@ -1748,7 +1799,7 @@ end
         self.assertIsNone(ready.find("./Engine/AttachmentPointID"))
         self.assertIsNotNone(ready.find('./Engine/Info[@value="Directionless"]'))
         self.assertEqual(ready.find("./Game/StackPriority").get("value"), "1")
-        statuses = output.findall("Description")[4:]
+        statuses = output.findall("Description")[5:]
         self.assertEqual(len(statuses), 3)
         self.assertEqual(
             [
@@ -1786,7 +1837,7 @@ end
             self.assertEqual(
                 status.find("./Game/StackPriority").get("value"), "0"
             )
-        self.assertEqual(len(output.findall("Description")), 7)
+        self.assertEqual(len(output.findall("Description")), 8)
         self.assertIsNone(
             output.find('./Description[@Name="phoenix_phial_visual_effector"]')
         )
@@ -2017,6 +2068,7 @@ end
             "#ATTRIB_MagicResistance, 25",
             '"AlchemistArcaneInfusionApplied"',
             '"resist_magic_effector"',
+            '"alchemist_arcane_infusion_effector"',
             '$ListObjects ( laboratory, "hero", -1, Heroes, #MyPlayer,',
             'alchemist\'s "num_picked_goodies" += 1',
             '$Drop_Off_Goodies ( ThisAgent, ThisBuilding )',
@@ -2028,6 +2080,22 @@ end
             '"Infinite"',
         ):
             self.assertIn(stock_resource_contract, reagent_source)
+        infusion_source = reagent_source.split(
+            "function Alchemist_Arcane_Infusion", 1
+        )[1].split(
+            "function Philosophers_Stone_Hit", 1
+        )[0]
+        consume = "$Alchemist_Consume_Reagent_Stock ( laboratory, 10 )"
+        visual = (
+            '$CreateEffector ( laboratory, '
+            '"alchemist_arcane_infusion_effector", 0 )'
+        )
+        self.assertIn(visual, infusion_source)
+        self.assertLess(infusion_source.index(consume), infusion_source.index(visual))
+        self.assertLess(
+            infusion_source.index(visual),
+            infusion_source.index("#ATTRIB_ResearchArrows, 1"),
+        )
         ready_source = reagent_source.split(
             "function Alchemist_Update_Reagent_Ready_Effector", 1
         )[1].split(

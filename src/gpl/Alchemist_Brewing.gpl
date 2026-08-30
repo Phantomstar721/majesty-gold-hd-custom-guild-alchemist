@@ -42,6 +42,9 @@ begin
 			if ($Alchemist_Consume_Reagent_Stock(ThisAgent, 1) == FALSE)
 				return;
 			$AdjustPlayerData(Palace, "Gold", -1500);
+			// Stock sovereign building effects create their one-shot presenter on
+			// the exact command owner after the transaction succeeds.
+			$CreateEffector(ThisAgent, "alchemist_vigor_activation_effector", 0);
 			// Exact stock Rage target query, with only the private effector,
 			// values, duration, and sound substituted for the Alchemist brew.
 			$ListObjects(ThisAgent, "hero", -1, Heroes, #MyPlayer, #InsideOtherUnits, #NoHiddenMap, #CheckSubtypes, "Hero");

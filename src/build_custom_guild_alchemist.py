@@ -15,7 +15,12 @@ import wave
 import xml.etree.ElementTree as ET
 
 from alchemist_art_package import (
+    ARCANE_INFUSION_ANIMATION_SET,
+    ARCANE_INFUSION_DELAY_MS,
     ARCANE_INFUSION_EFFECT_CUSTOM,
+    ARCANE_INFUSION_FRAMES,
+    ARCANE_INFUSION_HEADER,
+    ARCANE_INFUSION_PALETTE,
     FLASH_FLASK_ACTIVATION_CUSTOM,
     FLASH_FLASK_ACTIVATION_DELAY_MS,
     FLASH_FLASK_ACTIVATION_HEADER,
@@ -49,6 +54,12 @@ from alchemist_art_package import (
     TACTICAL_CURSOR_CUSTOM,
     TACTICAL_CURSOR_SOURCE,
     TACTICAL_CURSOR_TEMPLATE_SET_ID,
+    VIGOR_ACTIVATION_ANIMATION_SET,
+    VIGOR_ACTIVATION_DELAY_MS,
+    VIGOR_ACTIVATION_EFFECT_CUSTOM,
+    VIGOR_ACTIVATION_FRAMES,
+    VIGOR_ACTIVATION_HEADER,
+    VIGOR_ACTIVATION_PALETTE,
     VIGOR_EFFECT_CUSTOM,
     generated_discrete_strip_tile,
     generated_frost_armor_hold_tile,
@@ -2072,6 +2083,21 @@ def build_brewing_overlays_xml(
     )
     infusion.find("./Engine/DefaultSound").set("value", "0")
     output.append(infusion)
+
+    # Vigor is issued by the selected Laboratory through the same stock Rage
+    # command owner. Present its successful activation with the same literal
+    # got_gold_bldg building-owned one-shot and distinct private artwork.
+    vigor_activation = ET.fromstring(
+        ET.tostring(infusion_source, encoding="utf-8")
+    )
+    vigor_activation.set("ID", "AIV1")
+    vigor_activation.set("Name", "alchemist_vigor_activation_effector")
+    vigor_activation.set("Description", "Vigor Elixir Activation")
+    vigor_activation.find("./Engine/ImageIDBase").set(
+        "value", VIGOR_ACTIVATION_EFFECT_CUSTOM[:4].decode("ascii")
+    )
+    vigor_activation.find("./Engine/DefaultSound").set("value", "0")
+    output.append(vigor_activation)
 
     # Wizard Tower enchantment is Majesty's stock persistent building-owned
     # presentation. Keep its Infinite CreateEffector/DeleteEffector lifecycle
@@ -4404,6 +4430,27 @@ def validate_output(
         raise ValueError(
             "Arcane Infusion diverged from stock got_gold_bldg presenter"
         )
+    vigor_activation_overlay = overlays.find(
+        './Description[@Name="alchemist_vigor_activation_effector"]'
+    )
+    if vigor_activation_overlay is None:
+        raise ValueError("Private Vigor activation building effector is missing")
+    expected_vigor_activation = ET.fromstring(
+        ET.tostring(stock_infusion_overlay, encoding="utf-8")
+    )
+    expected_vigor_activation.set("ID", "AIV1")
+    expected_vigor_activation.set(
+        "Name", "alchemist_vigor_activation_effector"
+    )
+    expected_vigor_activation.set("Description", "Vigor Elixir Activation")
+    expected_vigor_activation.find("./Engine/ImageIDBase").set("value", "AIV1")
+    expected_vigor_activation.find("./Engine/DefaultSound").set("value", "0")
+    if normalized_xml_node(vigor_activation_overlay) != normalized_xml_node(
+        expected_vigor_activation
+    ):
+        raise ValueError(
+            "Vigor activation diverged from stock got_gold_bldg presenter"
+        )
     ready_overlay = overlays.find(
         './Description[@Name="alchemist_reagent_ready_effector"]'
     )
@@ -4744,6 +4791,7 @@ def validate_output(
         STUN_SERUM_DEBUFF_CUSTOM,
         PHILOSOPHERS_STONE_HIT_CUSTOM,
         ARCANE_INFUSION_EFFECT_CUSTOM,
+        VIGOR_ACTIVATION_EFFECT_CUSTOM,
         REAGENT_READY_CUSTOM,
     ):
         if not read_cam_entry(main_art, b"IMAG", name).data:
@@ -4926,6 +4974,66 @@ def validate_output(
         ):
             raise ValueError("Philosopher's Stone lost its enlarged centered canvas")
 
+    for (
+        effect_label,
+        effect_name,
+        expected_set,
+        expected_frames,
+        expected_delay,
+        expected_header,
+        expected_palette,
+    ) in (
+        (
+            "Arcane Infusion",
+            ARCANE_INFUSION_EFFECT_CUSTOM,
+            ARCANE_INFUSION_ANIMATION_SET,
+            ARCANE_INFUSION_FRAMES,
+            ARCANE_INFUSION_DELAY_MS,
+            ARCANE_INFUSION_HEADER,
+            ARCANE_INFUSION_PALETTE,
+        ),
+        (
+            "Vigor activation",
+            VIGOR_ACTIVATION_EFFECT_CUSTOM,
+            VIGOR_ACTIVATION_ANIMATION_SET,
+            VIGOR_ACTIVATION_FRAMES,
+            VIGOR_ACTIVATION_DELAY_MS,
+            VIGOR_ACTIVATION_HEADER,
+            VIGOR_ACTIVATION_PALETTE,
+        ),
+    ):
+        effect_image = art_stock.read_cam_entry(
+            main_art, b"IMAG", effect_name
+        ).data
+        effect_set_id, effect_set_offset = struct.unpack_from(
+            "<II", effect_image, 24
+        )
+        if (
+            effect_set_id != expected_set
+            or struct.unpack_from("<I", effect_image, effect_set_offset + 28)[0]
+            != expected_delay
+        ):
+            raise ValueError(f"{effect_label} lost HRC1's stock cadence")
+        effect_indices = art_stock.animation_tile_indices(
+            effect_image, len(phoenix_tiles)
+        )
+        if (
+            len(effect_indices) != expected_frames
+            or len(set(effect_indices)) != expected_frames
+        ):
+            raise ValueError(f"{effect_label} lost its 29 private frames")
+        for tile_index in effect_indices:
+            tile = phoenix_tiles[tile_index].data
+            if struct.unpack_from("<8H", tile, 0) != expected_header:
+                raise ValueError(f"{effect_label} lost its fixed Laboratory canvas")
+            if art_stock.tile_palette_index(tile) != expected_palette:
+                raise ValueError(f"{effect_label} lost its private effect palette")
+            decoded = art_stock.decode_indexed_v3_tile(tile)
+            if decoded is None or not any(
+                pixel != 0 for row in decoded[2] for pixel in row
+            ):
+                raise ValueError(f"{effect_label} has a blank or invalid frame")
+
     for name in (
         b"ALTIraw textures",
         b"ALBBbuilding frame",
@@ -4951,6 +5059,7 @@ def validate_output(
         b"AFF2",
         b"AST1",
         b"AIF1",
+        b"AIV1",
         b"AMm",
         b"ATm",
     )
@@ -5423,6 +5532,28 @@ def validate_output(
             raise ValueError(
                 "Alchemist mausoleum support replaced more than stock Guild_Title"
             )
+    brewing_source = (
+        output_root / "GPL" / "Alchemist_Brewing.gpl"
+    ).read_text(encoding="utf-8")
+    vigor_charge = '$AdjustPlayerData(Palace, "Gold", -1500)'
+    vigor_visual = (
+        '$CreateEffector(ThisAgent, '
+        '"alchemist_vigor_activation_effector", 0)'
+    )
+    vigor_targets = "$ListObjects(ThisAgent, \"hero\", -1, Heroes"
+    if (
+        brewing_source.count(vigor_visual) != 1
+        or vigor_charge not in brewing_source
+        or vigor_targets not in brewing_source
+        or not (
+            brewing_source.index(vigor_charge)
+            < brewing_source.index(vigor_visual)
+            < brewing_source.index(vigor_targets)
+        )
+    ):
+        raise ValueError(
+            "Vigor activation lost its stock selected-building one-shot order"
+        )
     adopt_source = (output_root / "GPL" / "Alchemist_Adopt.gpl").read_text(
         encoding="utf-8"
     )

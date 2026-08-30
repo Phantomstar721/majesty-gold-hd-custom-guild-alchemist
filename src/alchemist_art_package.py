@@ -90,6 +90,7 @@ STUN_SERUM_DEBUFF_CUSTOM = b"ASS3Stun Serum Icon"
 PARALYTIC_OIL_RESTRAINT_CUSTOM = b"ASO3Oil Restraint"
 PHILOSOPHERS_STONE_HIT_CUSTOM = b"AST1Stone Hit"
 ARCANE_INFUSION_EFFECT_CUSTOM = b"AIF1Arcane Infuse"
+VIGOR_ACTIVATION_EFFECT_CUSTOM = b"AIV1Vigor Ritual"
 # Agrela resurrection supplies a stock 29-frame, default-100-ms one-shot
 # lifecycle. Stone keeps that complete table and expands only its private art
 # canvas so the transmutation reads as a major sovereign event.
@@ -106,6 +107,32 @@ ARCANE_INFUSION_FRAMES = PHILOSOPHERS_STONE_FRAMES
 ARCANE_INFUSION_DELAY_MS = PHILOSOPHERS_STONE_DELAY_MS
 ARCANE_INFUSION_PALETTE = 560
 ARCANE_INFUSION_HEADER = (3, 269, 213, 0, 32, 140, 65, 8)
+# The generated source cells do not share a common crop origin. These are the
+# centers of the persistent alchemical ring/cardinal motif in each authored
+# phase, measured in the original 362x724 cells. Registering that landmark—
+# rather than each phase's changing visible bounds—keeps the ritual fixed to
+# one world-space pixel while flames, sparks, and fragments grow around it.
+ARCANE_INFUSION_SOURCE_ANCHORS = (
+    (168, 439),
+    (160, 427),
+    (177, 427),
+    (188, 427),
+    (183, 427),
+    (193, 446),
+)
+VIGOR_ACTIVATION_ANIMATION_SET = PHILOSOPHERS_STONE_ANIMATION_SET
+VIGOR_ACTIVATION_FRAMES = PHILOSOPHERS_STONE_FRAMES
+VIGOR_ACTIVATION_DELAY_MS = PHILOSOPHERS_STONE_DELAY_MS
+VIGOR_ACTIVATION_PALETTE = ARCANE_INFUSION_PALETTE
+VIGOR_ACTIVATION_HEADER = ARCANE_INFUSION_HEADER
+VIGOR_ACTIVATION_SOURCE_ANCHORS = (
+    (168, 441),
+    (158, 439),
+    (173, 438),
+    (194, 437),
+    (201, 439),
+    (193, 441),
+)
 MIASMA_STORM_SOURCE = b"WRg1meteor_swarm_E1"
 MIASMA_MISSILE_SOURCE = b"WPg3meteor_missile"
 MIASMA_PARTICLE_SOURCE = b"XL20MeteorStrmEffct"
@@ -237,6 +264,27 @@ def keyed_strip_frames(source_png: Path, frame_count: int) -> list[Image.Image]:
         )
         normalized.append(canvas)
     return normalized
+
+
+def keyed_strip_cells(source_png: Path, frame_count: int) -> list[Image.Image]:
+    """Split a black-backed strip while preserving each authored cell origin."""
+    with Image.open(source_png) as loaded:
+        strip = loaded.convert("RGB")
+    frames: list[Image.Image] = []
+    for frame_index in range(frame_count):
+        left = round(strip.width * frame_index / frame_count)
+        right = round(strip.width * (frame_index + 1) / frame_count)
+        rgb = strip.crop((left, 0, right, strip.height))
+        red, green, blue = rgb.split()
+        alpha = ImageChops.lighter(ImageChops.lighter(red, green), blue).point(
+            lambda value: 0 if value <= 4 else min(255, round((value - 4) * 1.45))
+        )
+        if alpha.getbbox() is None:
+            raise ValueError(f"Approved strip frame {frame_index} has no visible art")
+        rgba = rgb.convert("RGBA")
+        rgba.putalpha(alpha)
+        frames.append(rgba)
+    return frames
 
 
 def black_key_grid_frames(
@@ -563,6 +611,103 @@ def generated_approved_strip_tile(
         palettes,
         palette_index,
         tuple(header),
+    )
+
+
+def generated_registered_strip_tile(
+    stock,
+    palettes,
+    source_png: Path,
+    source_frame_count: int,
+    frame_index: int,
+    output_frame_count: int,
+    palette_index: int,
+    fixed_header: tuple[int, int, int, int, int, int, int, int],
+    source_anchors: tuple[tuple[int, int], ...],
+    fit_ratio: float = 0.94,
+) -> bytes:
+    """Interpolate phases around one fixed authored landmark and no wrap.
+
+    The source art's changing flames and fragments make alpha-bound centering
+    drift. Each phase is therefore registered on the center of its persistent
+    alchemical ring before interpolation. The shared landmark is then placed
+    at the exact center of every output TILE.
+    """
+    source_frames = keyed_strip_cells(source_png, source_frame_count)
+    if len(source_anchors) != source_frame_count:
+        raise ValueError("Registered strip must provide one anchor per source phase")
+    boxes = [frame.getchannel("A").getbbox() for frame in source_frames]
+    if any(box is None for box in boxes):
+        raise ValueError("Registered strip contains a transparent source phase")
+    left_extent = max(
+        anchor[0] - box[0]
+        for anchor, box in zip(source_anchors, boxes)
+        if box is not None
+    )
+    top_extent = max(
+        anchor[1] - box[1]
+        for anchor, box in zip(source_anchors, boxes)
+        if box is not None
+    )
+    right_extent = max(
+        box[2] - anchor[0]
+        for anchor, box in zip(source_anchors, boxes)
+        if box is not None
+    )
+    bottom_extent = max(
+        box[3] - anchor[1]
+        for anchor, box in zip(source_anchors, boxes)
+        if box is not None
+    )
+    registered_width = left_extent + right_extent
+    registered_height = top_extent + bottom_extent
+    registered: list[Image.Image] = []
+    for frame, box, anchor in zip(source_frames, boxes, source_anchors):
+        assert box is not None
+        content = frame.crop(box)
+        registered_frame = Image.new(
+            "RGBA", (registered_width, registered_height), (0, 0, 0, 0)
+        )
+        registered_frame.alpha_composite(
+            content,
+            (
+                left_extent + box[0] - anchor[0],
+                top_extent + box[1] - anchor[1],
+            ),
+        )
+        registered.append(registered_frame)
+
+    progress = frame_index / max(1, output_frame_count - 1)
+    position = progress * (source_frame_count - 1)
+    source_index = min(source_frame_count - 1, math.floor(position))
+    next_index = min(source_frame_count - 1, source_index + 1)
+    blend = position - source_index
+    source = Image.blend(registered[source_index], registered[next_index], blend)
+
+    width = fixed_header[2]
+    height = fixed_header[1]
+    fit = min(
+        width * fit_ratio / max(1, 2 * max(left_extent, right_extent)),
+        height * fit_ratio / max(1, 2 * max(top_extent, bottom_extent)),
+    )
+    resized_width = max(2, round(source.width * fit))
+    resized_height = max(2, round(source.height * fit))
+    source = source.resize((resized_width, resized_height), Image.Resampling.LANCZOS)
+    scaled_anchor_x = left_extent * resized_width / registered_width
+    scaled_anchor_y = top_extent * resized_height / registered_height
+    canvas = Image.new("RGBA", (width, height), (0, 0, 0, 0))
+    canvas.alpha_composite(
+        source,
+        (
+            round(width / 2 - scaled_anchor_x),
+            round(height / 2 - scaled_anchor_y),
+        ),
+    )
+    return stock.rgba_to_indexed_tile(
+        canvas,
+        palettes,
+        palette_index,
+        fixed_header,
     )
 
 
@@ -1520,6 +1665,9 @@ def write_maindata(
     arcane_infusion_effect_imag = stock.read_cam_entry(
         source, b"IMAG", PHOENIX_LIFECYCLE_SOURCE
     ).data
+    vigor_activation_effect_imag = stock.read_cam_entry(
+        source, b"IMAG", PHOENIX_LIFECYCLE_SOURCE
+    ).data
     stun_serum_restraint_imag = stock.read_cam_entry(
         source, b"IMAG", b"CRB1vines_e"
     ).data
@@ -1840,6 +1988,9 @@ def write_maindata(
         repo
         / "assets/source/spells/arcane-infusion/laboratory-enchantment-sheet.png"
     )
+    vigor_activation_effect_source_png = (
+        repo / "assets/source/spells/vigor-elixir/laboratory-vigor-sheet.png"
+    )
     reagent_ready_source_png = (
         repo
         / "assets/source/effects/reagent-ready/alchemist-reagent-ready-source.png"
@@ -1856,6 +2007,7 @@ def write_maindata(
         miasma_debuff_source_png,
         philosophers_stone_hit_source_png,
         arcane_infusion_effect_source_png,
+        vigor_activation_effect_source_png,
         reagent_ready_source_png,
     ):
         if not source_png.is_file():
@@ -2007,12 +2159,10 @@ def write_maindata(
         raise ValueError("Stock HRC1 Arcane Infusion scaffold changed")
     arcane_infusion_effect_replacements: dict[int, int] = {}
     for frame, source_index in enumerate(arcane_infusion_effect_indices):
-        template_tile = tiles[source_index].data
         arcane_infusion_effect_replacements[source_index] = append(
             f"AIF1Infuse{frame:02d}".encode("ascii"),
-            generated_approved_strip_tile(
+            generated_registered_strip_tile(
                 stock,
-                template_tile,
                 palettes,
                 arcane_infusion_effect_source_png,
                 6,
@@ -2020,6 +2170,7 @@ def write_maindata(
                 len(arcane_infusion_effect_indices),
                 ARCANE_INFUSION_PALETTE,
                 fixed_header=ARCANE_INFUSION_HEADER,
+                source_anchors=ARCANE_INFUSION_SOURCE_ANCHORS,
                 fit_ratio=0.96,
             ),
         )
@@ -2032,6 +2183,42 @@ def write_maindata(
         ARCANE_INFUSION_ANIMATION_SET,
         (0,),
         ARCANE_INFUSION_DELAY_MS,
+    )
+
+    # Vigor uses the same stock building-owned one-shot topology and the same
+    # fixed registration path as Arcane Infusion. Its distinct green/gold
+    # ritual communicates the successful brew before Rage's hero effects run.
+    vigor_activation_effect_indices = stock.animation_tile_indices(
+        vigor_activation_effect_imag, len(tiles)
+    )
+    if len(vigor_activation_effect_indices) != VIGOR_ACTIVATION_FRAMES:
+        raise ValueError("Stock HRC1 Vigor activation scaffold changed")
+    vigor_activation_effect_replacements: dict[int, int] = {}
+    for frame, source_index in enumerate(vigor_activation_effect_indices):
+        vigor_activation_effect_replacements[source_index] = append(
+            f"AIV1Vigor{frame:02d}".encode("ascii"),
+            generated_registered_strip_tile(
+                stock,
+                palettes,
+                vigor_activation_effect_source_png,
+                6,
+                frame,
+                len(vigor_activation_effect_indices),
+                VIGOR_ACTIVATION_PALETTE,
+                fixed_header=VIGOR_ACTIVATION_HEADER,
+                source_anchors=VIGOR_ACTIVATION_SOURCE_ANCHORS,
+                fit_ratio=0.96,
+            ),
+        )
+    vigor_activation_effect_imag = stock.remap_imag_animation_tiles(
+        vigor_activation_effect_imag,
+        vigor_activation_effect_replacements,
+    )
+    vigor_activation_effect_imag = set_single_overlay_animation_delay(
+        vigor_activation_effect_imag,
+        VIGOR_ACTIVATION_ANIMATION_SET,
+        (0,),
+        VIGOR_ACTIVATION_DELAY_MS,
     )
 
     # CRB1 is Vines' literal 30-TILE restraint presentation. Preserve its
@@ -2453,6 +2640,10 @@ def write_maindata(
         stock.CamEntry(
             stock.pad_name(ARCANE_INFUSION_EFFECT_CUSTOM),
             arcane_infusion_effect_imag,
+        ),
+        stock.CamEntry(
+            stock.pad_name(VIGOR_ACTIVATION_EFFECT_CUSTOM),
+            vigor_activation_effect_imag,
         ),
         stock.CamEntry(stock.pad_name(MIASMA_STORM_CUSTOM), miasma_storm_imag),
         stock.CamEntry(stock.pad_name(MIASMA_MISSILE_CUSTOM), miasma_missile_imag),

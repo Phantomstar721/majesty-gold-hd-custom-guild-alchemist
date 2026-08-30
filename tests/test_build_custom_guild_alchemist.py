@@ -284,6 +284,7 @@ class AlchemistGuildTests(unittest.TestCase):
                     art_package.MIASMA_DEBUFF_CUSTOM,
                     art_package.PHILOSOPHERS_STONE_HIT_CUSTOM,
                     art_package.ARCANE_INFUSION_EFFECT_CUSTOM,
+                    art_package.VIGOR_ACTIVATION_EFFECT_CUSTOM,
                 )
             }
             stock_imag = stock.read_cam_entry(
@@ -415,6 +416,7 @@ class AlchemistGuildTests(unittest.TestCase):
         self.assertEqual(
             len(set(infusion_indices)), art_package.ARCANE_INFUSION_FRAMES
         )
+        infusion_visible_counts = []
         for tile_index in infusion_indices:
             self.assertEqual(
                 struct.unpack_from("<8H", output_tiles[tile_index].data, 0),
@@ -424,6 +426,86 @@ class AlchemistGuildTests(unittest.TestCase):
                 stock.tile_palette_index(output_tiles[tile_index].data),
                 art_package.ARCANE_INFUSION_PALETTE,
             )
+            infusion_rows = stock.decode_indexed_v3_tile(
+                output_tiles[tile_index].data
+            )[2]
+            infusion_visible_counts.append(
+                sum(pixel != 0 for row in infusion_rows for pixel in row)
+            )
+        infusion_peak = infusion_visible_counts.index(max(infusion_visible_counts))
+        self.assertIn(infusion_peak, range(14, 19))
+        self.assertTrue(
+            all(
+                current >= previous * 0.96
+                for previous, current in zip(
+                    infusion_visible_counts[:infusion_peak],
+                    infusion_visible_counts[1 : infusion_peak + 1],
+                )
+            )
+        )
+        self.assertTrue(
+            all(
+                current <= previous * 1.04
+                for previous, current in zip(
+                    infusion_visible_counts[infusion_peak:-1],
+                    infusion_visible_counts[infusion_peak + 1 :],
+                )
+            )
+        )
+        vigor_activation = packaged_effects[
+            art_package.VIGOR_ACTIVATION_EFFECT_CUSTOM
+        ]
+        vigor_set_offset = struct.unpack_from("<I", vigor_activation, 28)[0]
+        self.assertEqual(
+            struct.unpack_from("<I", vigor_activation, vigor_set_offset + 28)[0],
+            art_package.VIGOR_ACTIVATION_DELAY_MS,
+        )
+        vigor_indices = stock.animation_tile_indices(
+            vigor_activation,
+            len(output_tiles),
+        )
+        self.assertEqual(
+            len(vigor_indices), art_package.VIGOR_ACTIVATION_FRAMES
+        )
+        self.assertEqual(
+            len(set(vigor_indices)), art_package.VIGOR_ACTIVATION_FRAMES
+        )
+        vigor_visible_counts = []
+        for tile_index in vigor_indices:
+            self.assertEqual(
+                struct.unpack_from("<8H", output_tiles[tile_index].data, 0),
+                art_package.VIGOR_ACTIVATION_HEADER,
+            )
+            self.assertEqual(
+                stock.tile_palette_index(output_tiles[tile_index].data),
+                art_package.VIGOR_ACTIVATION_PALETTE,
+            )
+            vigor_rows = stock.decode_indexed_v3_tile(
+                output_tiles[tile_index].data
+            )[2]
+            vigor_visible_counts.append(
+                sum(pixel != 0 for row in vigor_rows for pixel in row)
+            )
+        vigor_peak = vigor_visible_counts.index(max(vigor_visible_counts))
+        self.assertIn(vigor_peak, range(14, 19))
+        self.assertTrue(
+            all(
+                current >= previous * 0.96
+                for previous, current in zip(
+                    vigor_visible_counts[:vigor_peak],
+                    vigor_visible_counts[1 : vigor_peak + 1],
+                )
+            )
+        )
+        self.assertTrue(
+            all(
+                current <= previous * 1.04
+                for previous, current in zip(
+                    vigor_visible_counts[vigor_peak:-1],
+                    vigor_visible_counts[vigor_peak + 1 :],
+                )
+            )
+        )
         lifecycle_sets = stock.single_direction_imag_animation_sets(
             phoenix_lifecycle_imag
         )
@@ -1715,6 +1797,16 @@ end
             source.index(reagent_charge),
             source.index('$AdjustPlayerData(Palace, "Gold", -1500)'),
         )
+        vigor_visual = (
+            '$CreateEffector(ThisAgent, '
+            '"alchemist_vigor_activation_effector", 0)'
+        )
+        self.assertIn(vigor_visual, source)
+        self.assertLess(
+            source.index('$AdjustPlayerData(Palace, "Gold", -1500)'),
+            source.index(vigor_visual),
+        )
+        self.assertLess(source.index(vigor_visual), source.index("$ListObjects"))
         self.assertIn("#ATTRIB_MaxHP, 20", source)
         self.assertIn("#ATTRIB_HP, 20", source)
         self.assertIn('Hero\'s "Self_Estimation" += 1', source)
@@ -1791,7 +1883,25 @@ end
         self.assertEqual(
             infusion.find("./Engine/CanUse").get("value"), "HumanPlayer"
         )
-        ready = output.findall("Description")[4]
+        vigor_activation = output.findall("Description")[4]
+        self.assertEqual(vigor_activation.get("ID"), "AIV1")
+        self.assertEqual(
+            vigor_activation.get("Name"),
+            "alchemist_vigor_activation_effector",
+        )
+        self.assertEqual(
+            vigor_activation.find("./Engine/ImageIDBase").get("value"),
+            "AIV1",
+        )
+        self.assertEqual(
+            vigor_activation.find("./Engine/DefaultSound").get("value"), "0"
+        )
+        self.assertIsNone(vigor_activation.find("./Engine/AttachmentPointID"))
+        self.assertEqual(
+            vigor_activation.find("./Engine/CanUse").get("value"),
+            "HumanPlayer",
+        )
+        ready = output.findall("Description")[5]
         self.assertEqual(ready.get("ID"), "ARR1")
         self.assertEqual(ready.get("Name"), "alchemist_reagent_ready_effector")
         self.assertEqual(ready.find("./Engine/ImageIDBase").get("value"), "ALR1")
@@ -1799,7 +1909,7 @@ end
         self.assertIsNone(ready.find("./Engine/AttachmentPointID"))
         self.assertIsNotNone(ready.find('./Engine/Info[@value="Directionless"]'))
         self.assertEqual(ready.find("./Game/StackPriority").get("value"), "1")
-        statuses = output.findall("Description")[5:]
+        statuses = output.findall("Description")[6:]
         self.assertEqual(len(statuses), 3)
         self.assertEqual(
             [
@@ -1837,7 +1947,7 @@ end
             self.assertEqual(
                 status.find("./Game/StackPriority").get("value"), "0"
             )
-        self.assertEqual(len(output.findall("Description")), 8)
+        self.assertEqual(len(output.findall("Description")), 9)
         self.assertIsNone(
             output.find('./Description[@Name="phoenix_phial_visual_effector"]')
         )

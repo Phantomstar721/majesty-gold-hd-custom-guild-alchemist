@@ -493,6 +493,7 @@ def current_alchemist_art_input_sha256() -> str:
         *(repo / "assets" / "source").rglob("*"),
         repo / "scripts" / "generate_alchemist_art.py",
         repo / "src" / "alchemist_art_package.py",
+        repo / "src" / "approved_building_bundle.py",
     ]
     files = sorted(
         (path for path in inputs if path.is_file()),
@@ -5998,6 +5999,7 @@ def build(
         *(SOURCE_ROOT.parent / "assets" / "source").rglob("*"),
         SOURCE_ROOT.parent / "scripts" / "generate_alchemist_art.py",
         SOURCE_ROOT.parent / "src" / "alchemist_art_package.py",
+        SOURCE_ROOT.parent / "src" / "approved_building_bundle.py",
     ]
     newest_input = max(path.stat().st_mtime for path in art_inputs if path.is_file())
     # The accepted Walk/Stand bundle has independent, hash-pinned source

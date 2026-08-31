@@ -101,9 +101,26 @@ SOURCE_INTERFACE_OCCURRENCES = (
     (0, 1000, 0, 0, 990),
     (2, 1002, 0, 0, 991),
 )
-SOURCE_HOTSPOT_TILES = (989, 1006, 1023)
 HOTSPOT_SET_ID = 400
 INACTIVE_SET_ID = 208
+# Stock buildings keep their placement/blocking envelope in IMAG Hotspot-1
+# (set 400), independently from the TILE hotspot that seats visible art in the
+# world.  The Laboratory's art lifecycle remains the Marketplace clone, but
+# the user explicitly selected Temple to Krypta's larger stock footprint.  Its
+# three level records carry the same logical Hotspot-1 geometry and alias the
+# current inactive building TILE, so clone that stock mechanism literally.
+KRYPTA_FOOTPRINT_AUTHORITY_IMAGS = (
+    b"ABT1Temple, Krypta1",
+    b"ABT2Temple, Krypta2",
+    b"ABT3Temple, Krypta3",
+)
+KRYPTA_FOOTPRINT_AUTHORITY_IMAG_SHA256 = (
+    "1204ba0e7e44b6900fde45b5ee87311e2e3f64d6696a570521370345df88311f",
+    "5a8b540d2803121c2ec49e8755edb304a39ee3a9d2a0ce40739bdfeb6b47f98e",
+    "ac922bdd60cea7320935dd2d8d8728b6cc808ddf23bce4c121c627ae2056d7c9",
+)
+KRYPTA_HOTSPOT_GEOMETRY = (35, 8, 11, 97)
+KRYPTA_HOTSPOT_CHUNK_SIZE = 124
 READY_SOURCE_TILES = tuple(range(2349, 2365))
 READY_PALETTE_INDEX = 577
 READY_CANVAS = (269, 213)
@@ -408,6 +425,7 @@ class ApprovedReadyPhase:
 class ApprovedBuildingBundle:
     root: Path
     source_imags: tuple[bytes, bytes, bytes]
+    krypta_footprint_imags: tuple[bytes, bytes, bytes]
     states_by_level: tuple[
         tuple[ApprovedBuildingState, ...],
         tuple[ApprovedBuildingState, ...],
@@ -741,6 +759,7 @@ def load_approved_building_bundle(
     concepts_by_key: dict[str, dict[str, Any]] = {}
     contracts_by_level: dict[int, dict[int, dict[str, Any]]] = {}
     source_imags: list[bytes] = []
+    krypta_footprint_imags: list[bytes] = []
     for level, expected_name, expected_hash, expected_sets, authority_level in zip(
         (1, 2, 3),
         SOURCE_IMAG_NAMES,
@@ -765,6 +784,29 @@ def load_approved_building_bundle(
         }
         for concept in authority_level.get("concept_keys", []):
             concepts_by_key[concept["key"]] = concept
+
+    for level, (expected_name, expected_hash) in enumerate(
+        zip(
+            KRYPTA_FOOTPRINT_AUTHORITY_IMAGS,
+            KRYPTA_FOOTPRINT_AUTHORITY_IMAG_SHA256,
+        ),
+        start=1,
+    ):
+        imag = stock.read_cam_entry(source_cam, b"IMAG", expected_name).data
+        if sha256_bytes(imag) != expected_hash:
+            raise ValueError(
+                f"Stock Temple to Krypta footprint authority changed for level {level}"
+            )
+        hotspot = _imag_set_chunk(imag, HOTSPOT_SET_ID)
+        if (
+            len(hotspot) != KRYPTA_HOTSPOT_CHUNK_SIZE
+            or struct.unpack_from("<hhhh", hotspot, 88)
+            != KRYPTA_HOTSPOT_GEOMETRY
+        ):
+            raise ValueError(
+                f"Stock Temple to Krypta Hotspot-1 geometry changed for level {level}"
+            )
+        krypta_footprint_imags.append(imag)
 
     states: list[list[ApprovedBuildingState]] = [[], [], []]
     seen_keys: set[str] = set()
@@ -940,6 +982,11 @@ def load_approved_building_bundle(
     return ApprovedBuildingBundle(
         root=root,
         source_imags=(source_imags[0], source_imags[1], source_imags[2]),
+        krypta_footprint_imags=(
+            krypta_footprint_imags[0],
+            krypta_footprint_imags[1],
+            krypta_footprint_imags[2],
+        ),
         states_by_level=(tuple(states[0]), tuple(states[1]), tuple(states[2])),
         ready_phases=tuple(ready_phases),
         ready_frame_to_key_phase=frame_mapping,
@@ -1922,6 +1969,79 @@ def _single_frame_reference_for_set(imag: bytes, expected_set_id: int) -> int:
     return _u32(imag, offset)
 
 
+def apply_krypta_building_footprint(
+    imag: bytes,
+    krypta_imag: bytes,
+    inactive_tile_index: int,
+) -> bytes:
+    """Clone stock Krypta Hotspot-1 and bind it to the Lab's inactive TILE.
+
+    Hotspot-1 has no timing or callback lifecycle: the building IMAG owns one
+    direction, one stream, and one frame for the lifetime of that level.  Like
+    stock Krypta, its sole frame aliases the same TILE as Inactive (set 208).
+    The 124-byte chunk replacement therefore changes only the logical stock
+    footprint while preserving Marketplace set order and every visual state.
+    """
+
+    if not 0 <= inactive_tile_index <= 0xFFFF:
+        raise ValueError("Laboratory inactive TILE does not fit an IMAG reference")
+    source_count = _u32(imag, 20)
+    source_orders = [
+        order
+        for order in range(source_count)
+        if _u32(imag, 24 + order * 8) == HOTSPOT_SET_ID
+    ]
+    authority_count = _u32(krypta_imag, 20)
+    authority_orders = [
+        order
+        for order in range(authority_count)
+        if _u32(krypta_imag, 24 + order * 8) == HOTSPOT_SET_ID
+    ]
+    if len(source_orders) != 1 or len(authority_orders) != 1:
+        raise ValueError("Building Hotspot-1 set is missing or ambiguous")
+    source_order = source_orders[0]
+    source_start = _u32(imag, 28 + source_order * 8)
+    source_end = (
+        _u32(imag, 28 + (source_order + 1) * 8)
+        if source_order + 1 < source_count
+        else len(imag)
+    )
+    source_chunk = imag[source_start:source_end]
+    authority_chunk = _imag_set_chunk(krypta_imag, HOTSPOT_SET_ID)
+    if (
+        len(source_chunk) != KRYPTA_HOTSPOT_CHUNK_SIZE
+        or len(authority_chunk) != KRYPTA_HOTSPOT_CHUNK_SIZE
+        or struct.unpack_from("<hhhh", authority_chunk, 88)
+        != KRYPTA_HOTSPOT_GEOMETRY
+    ):
+        raise ValueError("Building Hotspot-1 topology changed")
+
+    patched = bytearray(imag)
+    patched[source_start:source_end] = authority_chunk
+    result = bytes(patched)
+    reference_offset = _frame_reference_offset(
+        result,
+        source_order,
+        HOTSPOT_SET_ID,
+        0,
+        0,
+    )
+    reference = _u32(result, reference_offset)
+    struct.pack_into(
+        "<I",
+        patched,
+        reference_offset,
+        (reference & 0xFFFF0000) | inactive_tile_index,
+    )
+    result = bytes(patched)
+    if (
+        _single_frame_reference_for_set(result, HOTSPOT_SET_ID) & 0xFFFF
+        != inactive_tile_index
+    ):
+        raise AssertionError("Laboratory Krypta footprint lost inactive TILE ownership")
+    return result
+
+
 def patch_approved_building_imag(
     source_imag: bytes,
     states: Sequence[ApprovedBuildingState],
@@ -2287,31 +2407,35 @@ def validate_packaged_approved_building_cam(
                         "active_frame_private_indices"
                     ],
                 )
-        actual = stock.read_cam_entry(output_cam, b"IMAG", output_name).data
-        if actual != expected:
-            raise ValueError(
-                f"Approved building level {level} changed its Marketplace/Haunt topology"
-            )
-        if _imag_set_chunk(actual, HOTSPOT_SET_ID) != _imag_set_chunk(
-            source_imag,
-            HOTSPOT_SET_ID,
-        ):
-            raise ValueError("Approved Lab privatized Marketplace set 400")
-        hotspot_tile = (
-            _single_frame_reference_for_set(actual, HOTSPOT_SET_ID) & 0xFFFF
-        )
-        if hotspot_tile != SOURCE_HOTSPOT_TILES[level - 1]:
-            raise ValueError("Approved Lab changed Marketplace Hotspot TILE ownership")
         inactive_states = [state for state in states if state.role == "inactive"]
         if len(inactive_states) != 1:
             raise ValueError("Approved Lab lost its unique inactive state")
-        inactive_tile = (
-            _single_frame_reference_for_set(actual, INACTIVE_SET_ID) & 0xFFFF
-        )
         expected_inactive_tile = private_indices[
             inactive_states[0].source_tile_index
         ]
-        if inactive_tile != expected_inactive_tile or inactive_tile == hotspot_tile:
+        expected = apply_krypta_building_footprint(
+            expected,
+            bundle.krypta_footprint_imags[level - 1],
+            expected_inactive_tile,
+        )
+        actual = stock.read_cam_entry(output_cam, b"IMAG", output_name).data
+        if actual != expected:
             raise ValueError(
-                "Approved Lab no longer separates stock Hotspot and private inactive TILEs"
+                f"Approved building level {level} changed its stock-cloned topology"
+            )
+        expected_hotspot_chunk = _imag_set_chunk(expected, HOTSPOT_SET_ID)
+        if _imag_set_chunk(actual, HOTSPOT_SET_ID) != expected_hotspot_chunk:
+            raise ValueError("Approved Lab lost its stock Krypta Hotspot-1 clone")
+        hotspot_tile = (
+            _single_frame_reference_for_set(actual, HOTSPOT_SET_ID) & 0xFFFF
+        )
+        inactive_tile = (
+            _single_frame_reference_for_set(actual, INACTIVE_SET_ID) & 0xFFFF
+        )
+        if (
+            inactive_tile != expected_inactive_tile
+            or hotspot_tile != expected_inactive_tile
+        ):
+            raise ValueError(
+                "Approved Lab no longer uses Krypta's Hotspot/Inactive TILE alias"
             )

@@ -33,6 +33,18 @@ class AlchemistGuildTests(unittest.TestCase):
             art_package.REAGENT_READY_SOURCE_PALETTES,
             (*(175 for _ in range(5)), *(176 for _ in range(24)), 177),
         )
+        self.assertEqual(
+            building_bundle.KRYPTA_FOOTPRINT_AUTHORITY_IMAGS,
+            (
+                b"ABT1Temple, Krypta1",
+                b"ABT2Temple, Krypta2",
+                b"ABT3Temple, Krypta3",
+            ),
+        )
+        self.assertEqual(
+            building_bundle.KRYPTA_HOTSPOT_GEOMETRY,
+            (35, 8, 11, 97),
+        )
         self.assertEqual(art_package.REAGENT_READY_FRAME_COUNT, 30)
         self.assertEqual(
             art_package.REAGENT_READY_PALETTE,
@@ -481,32 +493,52 @@ class AlchemistGuildTests(unittest.TestCase):
             ],
             building_bundle.WIZARD_GUILD_GROUND_BASE_OFFSET,
         )
+        footprint_policy = building_provenance["building_footprint_policy"]
+        self.assertEqual(footprint_policy["set_id"], building_bundle.HOTSPOT_SET_ID)
         self.assertEqual(
-            building_provenance["marketplace_hotspot_set_policy"],
-            {
-                "set_id": building_bundle.HOTSPOT_SET_ID,
-                "ownership": "stock-retail-reference-preserved",
-                "source_tile_indices": list(
-                    building_bundle.SOURCE_HOTSPOT_TILES
-                ),
-            },
+            footprint_policy["stock_analogue"],
+            "ABT1/2/3 Temple to Krypta",
         )
-        for level, (packaged_building_imag, source_name) in enumerate(
-            zip(packaged_building_imags, building_bundle.SOURCE_IMAG_NAMES),
-            start=1,
+        self.assertEqual(
+            footprint_policy["ownership"],
+            "private-inactive-tile-alias",
+        )
+        self.assertEqual(
+            footprint_policy["geometry"],
+            list(building_bundle.KRYPTA_HOTSPOT_GEOMETRY),
+        )
+        self.assertEqual(
+            footprint_policy["authority_imag_sha256"],
+            list(building_bundle.KRYPTA_FOOTPRINT_AUTHORITY_IMAG_SHA256),
+        )
+        for packaged_building_imag, authority_name in zip(
+            packaged_building_imags,
+            building_bundle.KRYPTA_FOOTPRINT_AUTHORITY_IMAGS,
         ):
-            source_building_imag = stock.read_cam_entry(
+            authority_imag = stock.read_cam_entry(
                 game_data / "maindata.cam",
                 b"IMAG",
-                source_name,
+                authority_name,
             ).data
+            inactive_tile = (
+                building_bundle._single_frame_reference_for_set(
+                    packaged_building_imag,
+                    building_bundle.INACTIVE_SET_ID,
+                )
+                & 0xFFFF
+            )
+            expected_hotspot = building_bundle.apply_krypta_building_footprint(
+                packaged_building_imag,
+                authority_imag,
+                inactive_tile,
+            )
             self.assertEqual(
                 building_bundle._imag_set_chunk(
                     packaged_building_imag,
                     building_bundle.HOTSPOT_SET_ID,
                 ),
                 building_bundle._imag_set_chunk(
-                    source_building_imag,
+                    expected_hotspot,
                     building_bundle.HOTSPOT_SET_ID,
                 ),
             )
@@ -516,7 +548,7 @@ class AlchemistGuildTests(unittest.TestCase):
                     building_bundle.HOTSPOT_SET_ID,
                 )
                 & 0xFFFF,
-                building_bundle.SOURCE_HOTSPOT_TILES[level - 1],
+                inactive_tile,
             )
         self.assertEqual(
             building_provenance["runtime_shadow_mechanism"],

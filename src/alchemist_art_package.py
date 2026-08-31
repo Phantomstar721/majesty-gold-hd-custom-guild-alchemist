@@ -31,6 +31,7 @@ from approved_building_bundle import (
     SOURCE_PALETTE_INDEX,
     SOURCE_IMAG_NAMES as APPROVED_BUILDING_SOURCE_IMAGS,
     active_glow_palette_data,
+    apply_krypta_building_footprint,
     expand_marketplace_active_animation,
     load_approved_building_bundle,
     marketplace_ground_aligned_hotspot,
@@ -2845,6 +2846,11 @@ def write_maindata(
                         active_frames[state.source_tile_index],
                     )
                 )
+        building_imags[level - 1] = apply_krypta_building_footprint(
+            building_imags[level - 1],
+            approved_building_bundle.krypta_footprint_imags[level - 1],
+            private_indices[inactive_state.source_tile_index],
+        )
         approved_building_private_indices.append(private_indices)
 
     if reagent_ready_owner_tile is None:
@@ -3167,10 +3173,15 @@ def write_maindata(
                 LAB_OWNER_TO_POOL_DISPLACEMENT
             ),
             "wizard_ground_comparison": wizard_ground_authority,
-            "marketplace_hotspot_set_policy": {
+            "building_footprint_policy": {
                 "set_id": 400,
-                "ownership": "stock-retail-reference-preserved",
-                "source_tile_indices": [989, 1006, 1023],
+                "stock_analogue": "ABT1/2/3 Temple to Krypta",
+                "ownership": "private-inactive-tile-alias",
+                "geometry": [35, 8, 11, 97],
+                "authority_imag_sha256": [
+                    sha256_bytes(imag)
+                    for imag in approved_building_bundle.krypta_footprint_imags
+                ],
             },
             "runtime_shadow_mechanism": "literal-haunt-add_cast_shadow",
             "runtime_shadow_source_sha256": HAUNT_SHADOW_SOURCE_SHA256,

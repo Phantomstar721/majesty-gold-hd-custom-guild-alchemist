@@ -96,6 +96,14 @@ ENTRY_HEADER_SIZE = 28
 MOD_ID = "{42ba4603-2b13-446d-a2a4-6cf3a55ddac3}"
 PACKAGE_NAME = "CustomGuildAlchemist"
 MANIFEST_FILENAME = f"{PACKAGE_NAME}.mmxml"
+MOD_DEFINITION_FILENAME = "mod-definition.json"
+RUNTIME_CAPABILITIES = (
+    "expanded-building-slots.cg-prefix",
+    "freestyle-cam-rebind.v1",
+    "alchemist.cgbrewing-secondary-controller",
+    "alchemist.ap78-private-oil-rows",
+    "alchemist.nm18-name-generator",
+)
 DIALOG_ID = b"CGAL"
 SOURCE_DIALOG_ID = b"AP10"
 BREWING_DIALOG_ID = b"CGBR"
@@ -3935,6 +3943,7 @@ def validate_output(
 ) -> None:
     expected = {
         output_root / MANIFEST_FILENAME,
+        output_root / MOD_DEFINITION_FILENAME,
         output_root / "Data" / "alchemist_units.xml",
         output_root / "Data" / "alchemist_brewing_overlays.xml",
         output_root / "Data" / "alchemist_brewing_sounds.xml",
@@ -3982,6 +3991,28 @@ def validate_output(
     actual = {path for path in output_root.rglob("*") if path.is_file()}
     if actual != expected:
         raise ValueError(f"Unexpected package files: {sorted(str(p) for p in actual ^ expected)}")
+    mod_definition = json.loads(
+        (output_root / MOD_DEFINITION_FILENAME).read_text(encoding="utf-8")
+    )
+    if mod_definition.get("schema_version") != 2:
+        raise ValueError("Mod Manager definition is not schema version 2")
+    if mod_definition.get("mod_id") != MOD_ID:
+        raise ValueError("Mod Manager definition UUID does not match the manifest")
+    if mod_definition.get("internal_name") != PACKAGE_NAME:
+        raise ValueError("Mod Manager definition internal name changed")
+    if mod_definition.get("display_name") != "Custom Guild: Alchemist Lab":
+        raise ValueError("Mod Manager definition display name changed")
+    if mod_definition.get("custom_buildings") != [
+        {
+            "local_name": "AlchemistsLaboratory",
+            "dialog_id": "CGAL",
+            "controller_base": "AP10",
+            "panel_resource_template": "AP10",
+        }
+    ]:
+        raise ValueError("Mod Manager custom-building contract changed")
+    if mod_definition.get("runtime_capabilities") != list(RUNTIME_CAPABILITIES):
+        raise ValueError("Mod Manager runtime capability contract changed")
     if approved_sprite_test_set:
         provenance_path = output_root / APPROVED_SPRITE_PROVENANCE_NAME
         provenance = json.loads(provenance_path.read_text(encoding="utf-8"))
@@ -6259,6 +6290,10 @@ def build(
     compiled.unlink()
     (output_root / MANIFEST_FILENAME).write_bytes(
         build_manifest(include_siege_test_fixture).encode("utf-8")
+    )
+    shutil.copy2(
+        SOURCE_ROOT.parent / MOD_DEFINITION_FILENAME,
+        output_root / MOD_DEFINITION_FILENAME,
     )
     if approved_sprite_test_set:
         assert approved_art_provenance is not None

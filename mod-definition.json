@@ -1,5 +1,5 @@
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "mod_id": "{42ba4603-2b13-446d-a2a4-6cf3a55ddac3}",
   "internal_name": "CustomGuildAlchemist",
   "display_name": "Custom Guild: Alchemist Lab",
@@ -10,5 +10,12 @@
       "controller_base": "AP10",
       "panel_resource_template": "AP10"
     }
+  ],
+  "runtime_capabilities": [
+    "expanded-building-slots.cg-prefix",
+    "freestyle-cam-rebind.v1",
+    "alchemist.cgbrewing-secondary-controller",
+    "alchemist.ap78-private-oil-rows",
+    "alchemist.nm18-name-generator"
   ]
 }

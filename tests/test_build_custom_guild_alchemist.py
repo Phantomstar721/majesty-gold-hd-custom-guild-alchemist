@@ -1,6 +1,7 @@
 import json
 import math
 import struct
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -16,6 +17,31 @@ import approved_sprite_bundle as sprite_bundle
 
 
 class AlchemistGuildTests(unittest.TestCase):
+    def test_mod_manager_definition_is_complete_v2_contract(self) -> None:
+        definition = json.loads(
+            (builder.SOURCE_ROOT.parent / builder.MOD_DEFINITION_FILENAME).read_text(
+                encoding="utf-8"
+            )
+        )
+        self.assertEqual(definition["schema_version"], 2)
+        self.assertEqual(definition["mod_id"], builder.MOD_ID)
+        self.assertEqual(definition["internal_name"], builder.PACKAGE_NAME)
+        self.assertEqual(
+            definition["custom_buildings"],
+            [
+                {
+                    "local_name": "AlchemistsLaboratory",
+                    "dialog_id": "CGAL",
+                    "controller_base": "AP10",
+                    "panel_resource_template": "AP10",
+                }
+            ],
+        )
+        self.assertEqual(
+            definition["runtime_capabilities"],
+            list(builder.RUNTIME_CAPABILITIES),
+        )
+
     def test_building_v2_and_ready_overlay_contract_is_frozen(self) -> None:
         self.assertEqual(
             art_package.APPROVED_BUILDING_ROOT,
@@ -374,12 +400,30 @@ class AlchemistGuildTests(unittest.TestCase):
             r"C:\Program Files (x86)\Steam\steamapps\common\Majesty HD\Data"
         )
         stock = art_package.load_stock_pipeline(repo)
-        with tempfile.TemporaryDirectory() as directory:
+        # write_maindata records source-art paths relative to the repository.
+        # Keep the disposable fixture under that root, then let the temporary
+        # directory remove it so the test never depends on artifacts/ residue.
+        with tempfile.TemporaryDirectory(
+            dir=repo,
+            prefix=".test-alchemist-art-",
+        ) as directory:
+            generated_art = Path(directory) / "generated-art"
+            subprocess.run(
+                (
+                    sys.executable,
+                    str(repo / "scripts" / "generate_alchemist_art.py"),
+                    "--repo",
+                    str(repo),
+                    "--out-dir",
+                    str(generated_art),
+                ),
+                check=True,
+            )
             output = Path(directory) / "alchemist_maindata.cam"
             provenance = art_package.write_maindata(
                 repo,
                 game_data,
-                repo / "artifacts" / "generated-art",
+                generated_art,
                 output,
                 builder.APPROVED_SPRITE_PIPELINE_ROOT,
             )

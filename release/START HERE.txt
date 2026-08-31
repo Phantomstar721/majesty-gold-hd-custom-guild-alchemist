@@ -1,0 +1,18 @@
+CUSTOM GUILD: ALCHEMIST LAB - REQUIRED LAUNCHER
+================================================
+
+This mod requires Majesty Mod Manager:
+https://steamcommunity.com/sharedfiles/filedetails/?id=3793024054
+
+1. Subscribe to Custom Guild: Alchemist Lab and Majesty Mod Manager.
+2. Open the Mod Manager's Workshop folder and run Majesty Mod Manager.exe.
+3. Select Custom Guild: Alchemist Lab.
+4. Choose Prepare Selected Mods.
+5. Use Launch Majesty inside the manager.
+
+Do not enable this package directly in Majesty's mod selector. Do not start a
+prepared Alchemist game with the ordinary Steam executable.
+
+To play with Custom Guild: Phantoms Haunt, select both mods in Majesty Mod
+Manager and let it create one compatible profile. Do not enable both raw
+Workshop packages together.

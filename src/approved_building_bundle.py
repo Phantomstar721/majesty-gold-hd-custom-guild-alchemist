@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import hashlib
+import importlib.util
 import json
 from pathlib import Path
 from pathlib import PurePosixPath
@@ -134,6 +135,35 @@ ACTIVE_PULSE_FACTORS = (
     0.9,
     0.9292893218813453,
 )
+# The Haunt brightens one stable authored light surface rather than swapping
+# highlight drawings between frames.  The Lab uses the same eight-frame pulse,
+# with the frozen inactive raster supplying the complete pool/vat mask.  Two
+# steps of lift make the liquids read as active before the restrained +/-10%
+# breathing cycle is applied.
+ACTIVE_GLOW_RAMP_LIFT_STEPS = 2
+LIQUID_MASK_EXPECTED_BY_LEVEL = {
+    1: {
+        "source_count": 1725,
+        "runtime_count": 989,
+        "runtime_bbox": (279, 208, 331, 233),
+    },
+    2: {
+        "source_count": 3512,
+        "runtime_count": 1667,
+        "runtime_bbox": (314, 185, 388, 299),
+    },
+    3: {
+        "source_count": 3922,
+        "runtime_count": 2811,
+        "runtime_bbox": (315, 148, 410, 313),
+    },
+}
+_RUNTIME_SHADOW_METRICS_CACHE: dict[str, dict[str, Any]] = {}
+_HAUNT_SHADOW_COMPOSITE_CACHE: dict[str, bytes] = {}
+HAUNT_SHADOW_SOURCE_SHA256 = (
+    "cf9985ecf6670886dff5970bad72b383c182ae685cb2d87ef84af34ac31bcd99"
+)
+_HAUNT_SHADOW_MODULE: Any | None = None
 
 
 def sha256_bytes(data: bytes) -> str:
@@ -858,87 +888,106 @@ def active_glow_palette_data(stock: Any, palettes: Sequence[Any]) -> bytes:
     )
 
 
-def _retained_active_light_masks(
-    active_objects: Sequence[Image.Image],
-    inactive_object: Image.Image,
-    colors: Sequence[tuple[int, int, int]],
-) -> tuple[Image.Image, Image.Image, Image.Image]:
-    """Return stable authored violet/amber light masks for one Lab level.
+def _registered_liquid_surface_mask(
+    inactive_state: ApprovedBuildingState,
+) -> Image.Image:
+    """Register the frozen pool/vat surface mask on the final Lab canvas.
 
-    The accepted active states differ from inactive by coherent authored light
-    components plus isolated spark pixels.  Union every active-state delta,
-    retain only 8-connected components of at least five pixels that contain
-    stock palette-68 bright seeds 227/228, and classify the retained surface by
-    hue.  All active sets therefore share one stable Haunt-style light layout.
+    This is the direct Alchemist adaptation of the Haunt's active-light rule:
+    one complete, stationary authored light surface breathes over eight frames.
+    The accepted active Lab rasters contain bubble drawings, not a lit master,
+    so they remain provenance/control authorities but do not define the light
+    mask.  Violet pixels to the right of the facade medallion are precisely the
+    liquid pools, vats and small chambers in all three frozen inactive sources.
     """
 
-    if not active_objects:
-        raise ValueError("Active Lab pulse has no authored active authority")
-    if any(
-        image.mode != "P" or image.size != inactive_object.size
-        for image in active_objects
-    ):
-        raise ValueError("Approved active Lab authorities changed geometry")
-    inactive_rgba = _palette_rgba_image(inactive_object, colors)
-    active_rgba = [
-        _palette_rgba_image(image, colors) for image in active_objects
-    ]
-    inactive_pixels = inactive_rgba.load()
-    active_pixels = [image.load() for image in active_rgba]
-    active_indices = [image.load() for image in active_objects]
-    width, height = inactive_object.size
-    candidates: set[tuple[int, int]] = set()
-    bright_seeds: set[tuple[int, int]] = set()
-    for y in range(height):
-        for x in range(width):
-            inactive_rgb = inactive_pixels[x, y][:3]
-            for rgba_pixels, index_pixels in zip(active_pixels, active_indices):
-                active_pixel = rgba_pixels[x, y]
-                if active_pixel[3] == 0:
-                    continue
-                if max(
-                    abs(active_pixel[channel] - inactive_rgb[channel])
-                    for channel in range(3)
-                ) >= 10:
-                    candidates.add((x, y))
-                    if index_pixels[x, y] in (227, 228):
-                        bright_seeds.add((x, y))
+    authority = inactive_state.high_resolution
+    with Image.open(authority.source_path) as opened:
+        if opened.mode != "RGBA":
+            raise ValueError(
+                "Approved high-resolution inactive Lab source is not RGBA"
+            )
+        source = opened.copy()
+    if source.getchannel("A").getbbox() != authority.source_alpha_bbox:
+        raise ValueError("Approved inactive Lab liquid authority bounds changed")
 
-    retained: set[tuple[int, int]] = set()
-    remaining = set(candidates)
-    while remaining:
-        first = remaining.pop()
-        component = {first}
-        frontier = [first]
-        while frontier:
-            point_x, point_y = frontier.pop()
-            for near_y in range(max(0, point_y - 1), min(height, point_y + 2)):
-                for near_x in range(max(0, point_x - 1), min(width, point_x + 2)):
-                    point = (near_x, near_y)
-                    if point in remaining:
-                        remaining.remove(point)
-                        component.add(point)
-                        frontier.append(point)
-        if len(component) >= 5 and component.intersection(bright_seeds):
-            retained.update(component)
+    facade_cutoff = authority.source_pool_center[0] - 50.0
+    values: list[int] = []
+    source_count = 0
+    for y in range(source.height):
+        for x in range(source.width):
+            red, green, blue, alpha = source.getpixel((x, y))
+            is_liquid = (
+                x >= facade_cutoff
+                and alpha >= 48
+                and blue >= 65
+                and red >= 30
+                and blue * 100 > green * 118
+                and red * 100 > green * 90
+                and blue * 100 > red * 103
+            )
+            values.append(255 if is_liquid else 0)
+            source_count += int(is_liquid)
 
-    authority = active_rgba[0]
-    authority_pixels = authority.load()
-    violet_values = [0] * (width * height)
-    amber_values = [0] * (width * height)
-    for x, y in retained:
-        red, green, blue, _alpha = authority_pixels[x, y]
-        target = (
-            violet_values
-            if blue >= red * 0.88 and blue > green * 1.10
-            else amber_values
+    source_mask = Image.new("L", source.size, 0)
+    source_mask.putdata(values)
+    registered_size = (
+        max(
+            1,
+            round(
+                source.width
+                * authority.fixed_group_scale
+                * RUNTIME_BUILDING_SCALE
+            ),
+        ),
+        max(
+            1,
+            round(
+                source.height
+                * authority.fixed_group_scale
+                * RUNTIME_BUILDING_SCALE
+            ),
+        ),
+    )
+    registered = source_mask.resize(
+        registered_size,
+        Image.Resampling.LANCZOS,
+    ).point([0 if value < 48 else 255 for value in range(256)])
+    canvas = Image.new(
+        "L",
+        (
+            round(inactive_state.object_canvas[0] * RUNTIME_BUILDING_SCALE),
+            round(inactive_state.object_canvas[1] * RUNTIME_BUILDING_SCALE),
+        ),
+        0,
+    )
+    canvas.paste(
+        registered,
+        (
+            round(authority.paste_offset[0] * RUNTIME_BUILDING_SCALE),
+            round(authority.paste_offset[1] * RUNTIME_BUILDING_SCALE),
+        ),
+    )
+
+    expected = LIQUID_MASK_EXPECTED_BY_LEVEL[inactive_state.level]
+    runtime_values = list(canvas.getdata())
+    runtime_count = sum(value != 0 for value in runtime_values)
+    if source_count != expected["source_count"]:
+        raise ValueError(
+            f"Level {inactive_state.level} liquid source mask changed: "
+            f"{source_count} != {expected['source_count']}"
         )
-        target[y * width + x] = 255
-    violet = Image.new("L", (width, height), 0)
-    violet.putdata(violet_values)
-    amber = Image.new("L", (width, height), 0)
-    amber.putdata(amber_values)
-    return authority, violet, amber
+    if runtime_count != expected["runtime_count"]:
+        raise ValueError(
+            f"Level {inactive_state.level} runtime liquid mask changed: "
+            f"{runtime_count} != {expected['runtime_count']}"
+        )
+    if canvas.getbbox() != expected["runtime_bbox"]:
+        raise ValueError(
+            f"Level {inactive_state.level} liquid mask bounds changed: "
+            f"{canvas.getbbox()} != {expected['runtime_bbox']}"
+        )
+    return canvas
 
 
 def _nearest_ramp_index(
@@ -954,6 +1003,479 @@ def _nearest_ramp_index(
     )[0]
 
 
+def _load_haunt_shadow_module() -> Any:
+    """Load the hash-pinned Haunt building-shadow implementation verbatim."""
+
+    global _HAUNT_SHADOW_MODULE
+    if _HAUNT_SHADOW_MODULE is not None:
+        return _HAUNT_SHADOW_MODULE
+    source_path = (
+        Path(__file__).resolve().parents[2]
+        / "majesty-gold-hd-custom-guild-phantoms-haunt"
+        / "scripts"
+        / "generate_phantom_building_sprites.py"
+    )
+    if not source_path.is_file() or sha256_file(source_path) != HAUNT_SHADOW_SOURCE_SHA256:
+        raise ValueError(
+            "The proven Phantoms Haunt building-shadow source is missing or changed"
+        )
+    spec = importlib.util.spec_from_file_location(
+        "alchemist_literal_haunt_building_shadow",
+        source_path,
+    )
+    if spec is None or spec.loader is None:
+        raise RuntimeError(f"Unable to load Haunt building-shadow source: {source_path}")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    _HAUNT_SHADOW_MODULE = module
+    return module
+
+
+def _haunt_shadow_parameters(
+    module: Any,
+    state: ApprovedBuildingState,
+) -> tuple[float, float, dict[str, int]]:
+    """Return the exact Haunt render-branch parameters for this lifecycle role."""
+
+    variant = "active_0" if state.role == "active" else state.role
+    shear, vertical_scale = module.shadow_profile(variant)
+    kwargs: dict[str, int] = {}
+    if state.role.startswith("build_"):
+        stage = int(state.role.rsplit("_", 1)[1])
+        kwargs = {
+            "bottom_gutter": 3,
+            "shadow_mask_open_size": (9, 7, 5)[stage],
+            "shadow_mask_close_size": (15, 11, 7)[stage],
+            "shadow_facing_depth": module.MAX_SHADOW_BODY_GAP,
+            "shadow_bottom_clearance": (
+                9
+                if state.level in (2, 3) and stage == 0
+                else (10, 0, 0)[stage]
+            ),
+        }
+    elif state.level in (2, 3) and state.role in {
+        "inactive",
+        "active",
+        "damaged",
+        "damaged_b",
+    }:
+        # This is the Haunt render_variant branch for its taller upgraded art.
+        shear *= 0.68
+    return shear, vertical_scale, kwargs
+
+
+def _literal_haunt_shadow_composite(
+    visible_rows: Sequence[Sequence[int]],
+    colors: Sequence[tuple[int, int, int]],
+    state: ApprovedBuildingState,
+) -> list[list[int]]:
+    """Apply Haunt add_cast_shadow to the final quantized body literally.
+
+    The proven Haunt function owns projection, contact repair, seam derivation,
+    directional normalization, dark-edge lifting, and its internal validation.
+    The validated body is requantized exactly once against the runtime palette;
+    its body pixels then retain precedence over the extracted 247-250 controls.
+    """
+
+    height = len(visible_rows)
+    width = len(visible_rows[0]) if visible_rows else 0
+    if not width or any(len(row) != width for row in visible_rows):
+        raise ValueError("Laboratory visible rows changed canvas")
+    cache_key = sha256_bytes(
+        struct.pack("<III", width, height, state.level)
+        + state.role.encode("ascii")
+        + b"\0"
+        + bytes(value for row in visible_rows for value in row)
+        + bytes(channel for color in colors[:247] for channel in color)
+    )
+    cached = _HAUNT_SHADOW_COMPOSITE_CACHE.get(cache_key)
+    if cached is not None:
+        return [
+            list(cached[y * width : (y + 1) * width])
+            for y in range(height)
+        ]
+    body = Image.new("RGBA", (width, height), (0, 0, 0, 0))
+    pixels = body.load()
+    for y, row in enumerate(visible_rows):
+        for x, value in enumerate(row):
+            if 1 <= value <= 246:
+                red, green, blue = colors[value]
+                pixels[x, y] = (red, green, blue, 255)
+
+    module = _load_haunt_shadow_module()
+    shear, vertical_scale, kwargs = _haunt_shadow_parameters(module, state)
+    projected = body.copy()
+    module.add_cast_shadow(
+        projected,
+        shear,
+        vertical_scale,
+        **kwargs,
+    )
+    projected_pixels = projected.load()
+    marker_to_index = {
+        tuple(module.SHADOW_MARKERS[index]): index
+        for index in sorted(CONTROL_INDICES)
+    }
+    flat_controls = [0] * (width * height)
+    validated_rows = [list(row) for row in visible_rows]
+    lit_indices = [
+        index
+        for index in range(1, 247)
+        if (
+            0.299 * colors[index][0]
+            + 0.587 * colors[index][1]
+            + 0.114 * colors[index][2]
+        )
+        >= 42
+    ]
+    if not lit_indices:
+        raise ValueError("Laboratory runtime palette has no valid Haunt edge colors")
+    for y, row in enumerate(visible_rows):
+        for x, value in enumerate(row):
+            if 1 <= value <= 246:
+                before = colors[value]
+                after = tuple(projected_pixels[x, y][:3])
+                if after != before:
+                    allowed_indices = lit_indices
+                    if value not in ACTIVE_GLOW_VIOLET_INDICES:
+                        allowed_indices = [
+                            index
+                            for index in lit_indices
+                            if index not in ACTIVE_GLOW_VIOLET_INDICES
+                            and index not in ACTIVE_GLOW_AMBER_INDICES
+                        ]
+                    validated_rows[y][x] = min(
+                        allowed_indices,
+                        key=lambda index: sum(
+                            (after[channel] - colors[index][channel]) ** 2
+                            for channel in range(3)
+                        ),
+                    )
+                continue
+            control = marker_to_index.get(tuple(projected_pixels[x, y]))
+            if control is not None:
+                flat_controls[y * width + x] = control
+    control_rows = [
+        flat_controls[y * width : (y + 1) * width]
+        for y in range(height)
+    ]
+    composite = [
+        [
+            value if value else control_rows[y][x]
+            for x, value in enumerate(row)
+        ]
+        for y, row in enumerate(validated_rows)
+    ]
+    runtime_shadow_contact_metrics(composite)
+    _HAUNT_SHADOW_COMPOSITE_CACHE[cache_key] = bytes(
+        value for row in composite for value in row
+    )
+    return composite
+
+
+def runtime_shadow_contact_metrics(
+    rows: Sequence[Sequence[int]],
+) -> dict[str, Any]:
+    """Validate the final Haunt-style shadow/body contact contract."""
+
+    height = len(rows)
+    width = len(rows[0]) if rows else 0
+    if not width or any(len(row) != width for row in rows):
+        raise ValueError("Laboratory runtime shadow rows changed canvas")
+    classified = bytes(
+        (
+            value
+            if value in CONTROL_INDICES
+            else 1
+            if 1 <= value <= 246
+            else 0
+        )
+        for row in rows
+        for value in row
+    )
+    cache_key = sha256_bytes(struct.pack("<II", width, height) + classified)
+    cached = _RUNTIME_SHADOW_METRICS_CACHE.get(cache_key)
+    if cached is not None:
+        return {
+            **cached,
+            "control_counts": dict(cached["control_counts"]),
+            "control_bbox": list(cached["control_bbox"]),
+            "body_bbox": list(cached["body_bbox"]),
+        }
+    body = {
+        (x, y)
+        for y, row in enumerate(rows)
+        for x, value in enumerate(row)
+        if 1 <= value <= 246
+    }
+    controls = {
+        (x, y): value
+        for y, row in enumerate(rows)
+        for x, value in enumerate(row)
+        if value in CONTROL_INDICES
+    }
+    if not body or not controls:
+        raise ValueError("Laboratory runtime TILE lost body or shadow controls")
+
+    def neighbors8(point: tuple[int, int]):
+        x, y = point
+        for near_y in range(max(0, y - 1), min(height, y + 2)):
+            for near_x in range(max(0, x - 1), min(width, x + 2)):
+                if (near_x, near_y) != point:
+                    yield near_x, near_y
+
+    seams = {point for point, value in controls.items() if value == 247}
+    bands = {
+        point for point, value in controls.items() if value in (248, 249, 250)
+    }
+    control_component_total = 0
+    connected_ground_components = 0
+    detached_control_components = 0
+    pending_controls = set(controls)
+    while pending_controls:
+        control_component_total += 1
+        component: set[tuple[int, int]] = set()
+        stack = [pending_controls.pop()]
+        while stack:
+            point = stack.pop()
+            component.add(point)
+            for near in neighbors8(point):
+                if near in pending_controls:
+                    pending_controls.remove(near)
+                    stack.append(near)
+        if component.intersection(seams) and component.intersection(bands):
+            connected_ground_components += 1
+        else:
+            # Haunt's literal feather pass can leave a secondary band island.
+            # Record it for provenance, but require the main grounded component
+            # to contain both the body-contact seam and its 248-250 shadow band.
+            detached_control_components += 1
+    direct_bands = {
+        point
+        for point in bands
+        if any(near in body for near in neighbors8(point))
+    }
+    edge_controls = {
+        point
+        for point in controls
+        if point[0] in (0, width - 1) or point[1] in (0, height - 1)
+    }
+    control_bbox = (
+        min(x for x, _y in controls),
+        min(y for _x, y in controls),
+        max(x for x, _y in controls) + 1,
+        max(y for _x, y in controls) + 1,
+    )
+    transparent_sandwiches = {
+        (x, y)
+        for y in range(max(0, control_bbox[1] - 1), min(height, control_bbox[3] + 1))
+        for x in range(max(0, control_bbox[0] - 1), min(width, control_bbox[2] + 1))
+        if rows[y][x] == 0
+        and any(near in body for near in neighbors8((x, y)))
+        and any(near in bands for near in neighbors8((x, y)))
+    }
+    row_left: list[int | None] = [None] * height
+    row_right: list[int | None] = [None] * height
+    column_top: list[int | None] = [None] * width
+    column_bottom: list[int | None] = [None] * width
+    for x, y in body:
+        row_left[y] = x if row_left[y] is None else min(row_left[y], x)
+        row_right[y] = x if row_right[y] is None else max(row_right[y], x)
+        column_top[x] = y if column_top[x] is None else min(column_top[x], y)
+        column_bottom[x] = (
+            y if column_bottom[x] is None else max(column_bottom[x], y)
+        )
+    body_envelope: set[tuple[int, int]] = set()
+    envelope_notches: set[tuple[int, int]] = set()
+    for y, left_edge in enumerate(row_left):
+        right_edge = row_right[y]
+        if left_edge is None or right_edge is None:
+            continue
+        for x in range(left_edge, right_edge + 1):
+            top_edge = column_top[x]
+            bottom_edge = column_bottom[x]
+            if (
+                top_edge is not None
+                and bottom_edge is not None
+                and top_edge <= y <= bottom_edge
+            ):
+                body_envelope.add((x, y))
+                if rows[y][x] == 0:
+                    envelope_notches.add((x, y))
+    orphan_seams = {
+        point
+        for point in seams
+        if point not in body_envelope
+        and not any(near in body_envelope for near in neighbors8(point))
+    }
+    band_envelope_notch_violations = {
+        point
+        for point in bands
+        if any(near in envelope_notches for near in neighbors8(point))
+    }
+
+    max_control_y = max(y for _x, y in controls)
+
+    def hole_neighbors8(point: tuple[int, int]):
+        x, y = point
+        for near_y in range(max(0, y - 1), min(max_control_y + 1, y + 2)):
+            for near_x in range(max(0, x - 1), min(width, x + 2)):
+                if (near_x, near_y) != point:
+                    yield near_x, near_y
+
+    transparent = {
+        (x, y)
+        for y, row in enumerate(rows[: max_control_y + 1])
+        for x, value in enumerate(row)
+        if value == 0
+    }
+    enclosed_control_hole_count = 0
+    enclosed_control_hole_pixels = 0
+    enclosed_control_hole_samples: list[list[tuple[int, int]]] = []
+    while transparent:
+        component: set[tuple[int, int]] = set()
+        stack = [transparent.pop()]
+        touches_edge = False
+        boundary_values: list[int] = []
+        while stack:
+            point = stack.pop()
+            component.add(point)
+            x, y = point
+            if x in (0, width - 1) or y in (0, max_control_y):
+                touches_edge = True
+            for near in hole_neighbors8(point):
+                if near in transparent:
+                    transparent.remove(near)
+                    stack.append(near)
+                elif near not in component:
+                    near_value = rows[near[1]][near[0]]
+                    if near_value != 0:
+                        boundary_values.append(near_value)
+        if (
+            not touches_edge
+            and boundary_values
+            and all(value in CONTROL_INDICES for value in boundary_values)
+        ):
+            enclosed_control_hole_count += 1
+            enclosed_control_hole_pixels += len(component)
+            enclosed_control_hole_samples.append(sorted(component)[:12])
+    if (
+        not seams
+        or not bands
+        or len(controls) < 100
+        or orphan_seams
+        or direct_bands
+        or transparent_sandwiches
+        or band_envelope_notch_violations
+    ):
+        raise ValueError(
+            "Laboratory runtime shadow violates the Haunt contact contract: "
+            f"seam={len(seams)} band={len(bands)} "
+            f"components={control_component_total} "
+            f"connected_ground={connected_ground_components} "
+            f"detached={detached_control_components} "
+            f"edge={len(edge_controls)} "
+            f"orphan={len(orphan_seams)} "
+            f"direct={len(direct_bands)} "
+            f"sandwich={len(transparent_sandwiches)} "
+            f"envelope_notch={len(band_envelope_notch_violations)} "
+            f"enclosed_holes={enclosed_control_hole_count} "
+            f"hole_points={enclosed_control_hole_samples[:2]}"
+        )
+    metrics = {
+        "control_counts": {
+            str(index): sum(value == index for value in controls.values())
+            for index in sorted(CONTROL_INDICES)
+        },
+        "control_total": len(controls),
+        "contact_seam_total": len(seams),
+        "shadow_band_total": len(bands),
+        "control_component_total": control_component_total,
+        "connected_ground_component_total": connected_ground_components,
+        "detached_control_component_total": detached_control_components,
+        "control_bbox": list(control_bbox),
+        "body_bbox": [
+            min(x for x, _y in body),
+            min(y for _x, y in body),
+            max(x for x, _y in body) + 1,
+            max(y for _x, y in body) + 1,
+        ],
+        "body_precedence": True,
+        "edge_control_total": len(edge_controls),
+        "direct_band_body_contact_total": len(direct_bands),
+        "transparent_band_body_gap_total": len(transparent_sandwiches),
+        "orphan_seam_total": len(orphan_seams),
+        "band_envelope_notch_violation_total": len(
+            band_envelope_notch_violations
+        ),
+        "enclosed_control_hole_total": enclosed_control_hole_count,
+        "enclosed_control_hole_pixel_total": enclosed_control_hole_pixels,
+    }
+    _RUNTIME_SHADOW_METRICS_CACHE[cache_key] = metrics
+    return {
+        **metrics,
+        "control_counts": dict(metrics["control_counts"]),
+        "control_bbox": list(metrics["control_bbox"]),
+        "body_bbox": list(metrics["body_bbox"]),
+    }
+
+
+def runtime_body_edge_metrics(
+    rows: Sequence[Sequence[int]],
+    colors: Sequence[tuple[int, int, int]],
+) -> dict[str, Any]:
+    """Enforce Haunt's opaque, luminance-42 final body-boundary rule."""
+
+    height = len(rows)
+    width = len(rows[0]) if rows else 0
+    if (
+        not width
+        or any(len(row) != width for row in rows)
+        or len(colors) < 247
+    ):
+        raise ValueError("Laboratory runtime body-edge inputs changed")
+    body = {
+        (x, y)
+        for y, row in enumerate(rows)
+        for x, value in enumerate(row)
+        if 1 <= value <= 246
+    }
+    if not body:
+        raise ValueError("Laboratory runtime TILE lost its visible body")
+    boundary: set[tuple[int, int]] = set()
+    for x, y in body:
+        if any(
+            (near_x, near_y) not in body
+            for near_y in range(max(0, y - 1), min(height, y + 2))
+            for near_x in range(max(0, x - 1), min(width, x + 2))
+            if (near_x, near_y) != (x, y)
+        ):
+            boundary.add((x, y))
+    luminances = {
+        point: (
+            0.299 * colors[rows[point[1]][point[0]]][0]
+            + 0.587 * colors[rows[point[1]][point[0]]][1]
+            + 0.114 * colors[rows[point[1]][point[0]]][2]
+        )
+        for point in boundary
+    }
+    violations = {
+        point: luminance
+        for point, luminance in luminances.items()
+        if luminance < 42
+    }
+    if violations:
+        raise ValueError(
+            "Laboratory runtime body lost Haunt's dark-edge lift: "
+            f"count={len(violations)} samples={list(violations.items())[:12]}"
+        )
+    return {
+        "boundary_pixel_total": len(boundary),
+        "minimum_boundary_luminance": min(luminances.values()),
+        "below_42_boundary_total": 0,
+    }
+
+
 def package_runtime_building_tile(
     stock: Any,
     palettes: Sequence[Any],
@@ -961,7 +1483,6 @@ def package_runtime_building_tile(
     state: ApprovedBuildingState,
     *,
     inactive_state: ApprovedBuildingState | None = None,
-    active_states: Sequence[ApprovedBuildingState] = (),
     pulse_factor: float | None = None,
 ) -> bytes:
     """Render approved r14 detail once at final size and preserve v2 controls."""
@@ -979,30 +1500,12 @@ def package_runtime_building_tile(
     if pulse_factor is not None:
         if inactive_state is None:
             raise ValueError("Active Lab pulse is missing its inactive authority")
-        with Image.open(inactive_state.indexed_object_path) as loaded:
-            inactive_indexed = loaded.copy()
-        active_objects: list[Image.Image] = []
-        for active_state in active_states:
-            with Image.open(active_state.indexed_object_path) as loaded:
-                active_objects.append(loaded.copy())
-        authority, violet_mask, amber_mask = _retained_active_light_masks(
-            active_objects,
-            inactive_indexed,
-            colors,
-        )
         baseline = _render_high_resolution_body(
             inactive_state.high_resolution,
             inactive_state.object_canvas,
             RUNTIME_BUILDING_SCALE,
         )
-        authority = _render_high_resolution_body(
-            active_states[0].high_resolution,
-            active_states[0].object_canvas,
-            RUNTIME_BUILDING_SCALE,
-            registration=inactive_state.high_resolution,
-        )
-        violet_mask = violet_mask.resize(target_size, Image.Resampling.NEAREST)
-        amber_mask = amber_mask.resize(target_size, Image.Resampling.NEAREST)
+        liquid_mask = _registered_liquid_surface_mask(inactive_state)
         rows = _quantize_visible_rows(
             baseline,
             colors,
@@ -1010,33 +1513,44 @@ def package_runtime_building_tile(
                 (*ACTIVE_GLOW_VIOLET_INDICES, *ACTIVE_GLOW_AMBER_INDICES)
             ),
         )
-        authority_pixels = authority.load()
-        violet_pixels = violet_mask.load()
-        amber_pixels = amber_mask.load()
+        baseline_pixels = baseline.load()
+        liquid_pixels = liquid_mask.load()
         for y in range(target_size[1]):
             for x in range(target_size[0]):
-                if not violet_pixels[x, y] and not amber_pixels[x, y]:
+                if not liquid_pixels[x, y]:
                     continue
-                red, green, blue, alpha = authority_pixels[x, y]
+                red, green, blue, alpha = baseline_pixels[x, y]
                 if alpha < 48:
                     continue
-                desired = (
-                    min(255, round(red * pulse_factor)),
-                    min(255, round(green * pulse_factor)),
-                    min(255, round(blue * pulse_factor)),
+                base_position = min(
+                    range(len(ACTIVE_GLOW_VIOLET_COLORS)),
+                    key=lambda position: sum(
+                        (
+                            (red, green, blue)[channel]
+                            - ACTIVE_GLOW_VIOLET_COLORS[position][channel]
+                        )
+                        ** 2
+                        for channel in range(3)
+                    ),
                 )
-                if violet_pixels[x, y]:
-                    rows[y][x] = _nearest_ramp_index(
-                        desired,
-                        ACTIVE_GLOW_VIOLET_INDICES,
-                        ACTIVE_GLOW_VIOLET_COLORS,
-                    )
-                else:
-                    rows[y][x] = _nearest_ramp_index(
-                        desired,
-                        ACTIVE_GLOW_AMBER_INDICES,
-                        ACTIVE_GLOW_AMBER_COLORS,
-                    )
+                lifted_position = min(
+                    len(ACTIVE_GLOW_VIOLET_COLORS) - 1,
+                    base_position + ACTIVE_GLOW_RAMP_LIFT_STEPS,
+                )
+                lifted = ACTIVE_GLOW_VIOLET_COLORS[lifted_position]
+                desired = (
+                    min(255, round(lifted[0] * pulse_factor)),
+                    min(255, round(lifted[1] * pulse_factor)),
+                    min(255, round(lifted[2] * pulse_factor)),
+                )
+                rows[y][x] = _nearest_ramp_index(
+                    desired,
+                    ACTIVE_GLOW_VIOLET_INDICES,
+                    ACTIVE_GLOW_VIOLET_COLORS,
+                )
+        runtime_colors = stock.splt_palette_colors(
+            active_glow_palette_data(stock, palettes)
+        )
     else:
         visible = _render_high_resolution_body(
             state.high_resolution,
@@ -1044,6 +1558,7 @@ def package_runtime_building_tile(
             RUNTIME_BUILDING_SCALE,
         )
         rows = _quantize_visible_rows(visible, colors)
+        runtime_colors = colors
 
     hotspot_x, hotspot_y = struct.unpack_from("<hh", template, 10)
     runtime_hotspot = (
@@ -1052,37 +1567,8 @@ def package_runtime_building_tile(
         round(hotspot_y * RUNTIME_BUILDING_SCALE)
         + RUNTIME_HOTSPOT_DELTA_BY_LEVEL[state.level][1],
     )
-    raw_indices = Image.frombytes("L", indexed.size, bytes(indexed.getdata()))
-    controls = raw_indices.point(
-        [value if value in CONTROL_INDICES else 0 for value in range(256)]
-    ).resize(target_size, Image.Resampling.NEAREST)
-    control_values = list(controls.getdata())
-    expected_control_multiplier = round(RUNTIME_BUILDING_SCALE) ** 2
-    for control_index in CONTROL_INDICES:
-        if control_values.count(control_index) != (
-            state.control_counts[control_index] * expected_control_multiplier
-        ):
-            raise AssertionError(
-                f"Scaled Lab control geometry changed: "
-                f"{state.concept_key}/{control_index}"
-            )
-    flat_rows = [value for row in rows for value in row]
-    flat_rows = [
-        control if control in CONTROL_INDICES else value
-        for value, control in zip(flat_rows, control_values)
-    ]
-    for control_index in CONTROL_INDICES:
-        if flat_rows.count(control_index) != (
-            state.control_counts[control_index] * expected_control_multiplier
-        ):
-            raise AssertionError(
-                f"Scaled Lab control pixels were obscured: "
-                f"{state.concept_key}/{control_index}"
-            )
-    rows = [
-        flat_rows[y * target_size[0] : (y + 1) * target_size[0]]
-        for y in range(target_size[1])
-    ]
+    rows = _literal_haunt_shadow_composite(rows, runtime_colors, state)
+    runtime_body_edge_metrics(rows, runtime_colors)
 
     encoded = (
         stock.encode_indexed_v3_tile_like_original(
@@ -1104,6 +1590,10 @@ def package_runtime_building_tile(
     )
     if stock.tile_palette_index(bytes(encoded)) != expected_palette:
         raise AssertionError("Scaled Lab TILE lost its private palette contract")
+    decoded = stock.decode_indexed_v3_tile(bytes(encoded))
+    if decoded is None:
+        raise AssertionError("Scaled Lab TILE no longer decodes")
+    runtime_shadow_contact_metrics(decoded[2])
     return bytes(encoded)
 
 
@@ -1378,18 +1868,6 @@ def validate_packaged_approved_building_cam(
         if len(inactive_states) != 1:
             raise ValueError("Approved Lab level lost its inactive pulse authority")
         inactive_state = inactive_states[0]
-        active_authority_states = tuple(
-            sorted(
-                (state for state in states if state.role == "active"),
-                key=lambda state: (
-                    not any(
-                        occurrence["set_id"] == 192
-                        for occurrence in state.occurrences
-                    ),
-                    state.source_tile_index,
-                ),
-            )
-        )
         if set(private_indices) != {state.source_tile_index for state in states}:
             raise ValueError("Approved building private TILE map is incomplete")
         for state in states:
@@ -1427,6 +1905,18 @@ def validate_packaged_approved_building_cam(
                 round(value * RUNTIME_BUILDING_SCALE)
                 for value in state.object_canvas
             )
+            active_mask_points: set[tuple[int, int]] = set()
+            active_outside_reference: tuple[int, ...] | None = None
+            active_shadow_reference: bytes | None = None
+            if state.role == "active":
+                liquid_mask = _registered_liquid_surface_mask(inactive_state)
+                liquid_pixels = liquid_mask.load()
+                active_mask_points = {
+                    (x, y)
+                    for y in range(liquid_mask.height)
+                    for x in range(liquid_mask.width)
+                    if liquid_pixels[x, y]
+                }
             for frame, (frame_index, pulse_factor) in enumerate(
                 zip(frame_indices, expected_factors)
             ):
@@ -1438,11 +1928,6 @@ def validate_packaged_approved_building_cam(
                     state,
                     inactive_state=(
                         inactive_state if pulse_factor is not None else None
-                    ),
-                    active_states=(
-                        active_authority_states
-                        if pulse_factor is not None
-                        else ()
                     ),
                     pulse_factor=pulse_factor,
                 )
@@ -1461,9 +1946,75 @@ def validate_packaged_approved_building_cam(
                 decoded = stock.decode_indexed_v3_tile(frame_entry.data)
                 if decoded is None or (decoded[1], decoded[0]) != expected_canvas:
                     raise ValueError("Approved building runtime canvas changed")
+                frame_colors = stock.splt_palette_colors(
+                    output_palettes[expected_palette].data
+                )
+                runtime_body_edge_metrics(decoded[2], frame_colors)
+                runtime_shadow = runtime_shadow_contact_metrics(decoded[2])
+                if runtime_shadow["shadow_band_total"] <= 0:
+                    raise ValueError("Approved building shadow lost its grounded band")
+                shadow_plane = bytes(
+                    value if value in CONTROL_INDICES else 0
+                    for row in decoded[2]
+                    for value in row
+                )
+                if sha256_bytes(shadow_plane) != record[
+                    "runtime_shadow_control_plane_sha256"
+                ]:
+                    raise ValueError("Approved building shadow plane changed across frames")
+                if pulse_factor is not None:
+                    violet_points = {
+                        (x, y)
+                        for y, row in enumerate(decoded[2])
+                        for x, value in enumerate(row)
+                        if value in ACTIVE_GLOW_VIOLET_INDICES
+                    }
+                    if not violet_points:
+                        raise ValueError("Approved Lab active liquid mask is empty")
+                    expected_liquid = LIQUID_MASK_EXPECTED_BY_LEVEL[state.level]
+                    violet_bbox = (
+                        min(x for x, _y in violet_points),
+                        min(y for _x, y in violet_points),
+                        max(x for x, _y in violet_points) + 1,
+                        max(y for _x, y in violet_points) + 1,
+                    )
+                    if (
+                        violet_points != active_mask_points
+                        or len(violet_points) != expected_liquid["runtime_count"]
+                        or violet_bbox != expected_liquid["runtime_bbox"]
+                        or any(
+                            value in ACTIVE_GLOW_AMBER_INDICES
+                            for row in decoded[2]
+                            for value in row
+                        )
+                    ):
+                        raise ValueError(
+                            "Approved Lab active frame escaped its complete liquid mask"
+                        )
+                    outside_mask = tuple(
+                        value
+                        for y, row in enumerate(decoded[2])
+                        for x, value in enumerate(row)
+                        if (x, y) not in active_mask_points
+                    )
+                    if active_outside_reference is None:
+                        active_outside_reference = outside_mask
+                        active_shadow_reference = shadow_plane
+                    elif (
+                        outside_mask != active_outside_reference
+                        or shadow_plane != active_shadow_reference
+                    ):
+                        raise ValueError(
+                            "Approved Lab active pulse moved art outside its liquid surfaces"
+                        )
                 if struct.unpack_from("<hh", frame_entry.data, 10) != expected_hotspot:
                     raise ValueError("Approved building runtime anchor changed")
                 validate_split_control_segments(frame_entry.data)
+            if state.role == "active":
+                frame_payloads = [output_tiles[index].data for index in frame_indices]
+                for first, second in ((0, 4), (1, 3), (5, 7)):
+                    if frame_payloads[first] != frame_payloads[second]:
+                        raise ValueError("Approved Lab active pulse lost Haunt cadence symmetry")
 
     if seen_private != set(records_by_private):
         raise ValueError("Approved building provenance contains an unbound TILE")

@@ -320,6 +320,7 @@ class AlchemistGuildTests(unittest.TestCase):
             )
             self.assertIsNotNone(provenance)
             output_tiles = stock.read_cam_entries(output, b"TILE")
+            output_palettes = stock.read_cam_entries(output, b"SPLT")
             stock_tiles = stock.read_cam_entries(game_data / "maindata.cam", b"TILE")
             packaged_imag = stock.read_cam_entry(
                 output, b"IMAG", art_package.HERO_CUSTOM
@@ -387,8 +388,20 @@ class AlchemistGuildTests(unittest.TestCase):
         )
         building_states = building_provenance["states"]
         self.assertEqual(
+            building_provenance["active_glow_mask"],
+            "registered-inactive-liquid-surfaces-v1",
+        )
+        self.assertEqual(
             building_provenance["runtime_body_manifest_sha256"],
             building_bundle.HIRES_AUTHORITY_MANIFEST_SHA256,
+        )
+        self.assertEqual(
+            building_provenance["runtime_shadow_mechanism"],
+            "literal-haunt-add_cast_shadow",
+        )
+        self.assertEqual(
+            building_provenance["runtime_shadow_source_sha256"],
+            building_bundle.HAUNT_SHADOW_SOURCE_SHA256,
         )
         for record in building_provenance["states"]:
             self.assertEqual(record["source_canvas"], record["object_canvas"])
@@ -442,12 +455,151 @@ class AlchemistGuildTests(unittest.TestCase):
             decoded = stock.decode_indexed_v3_tile(tile)
             self.assertIsNotNone(decoded)
             self.assertEqual([decoded[1], decoded[0]], record["packaged_canvas"])
-            flat_indices = [value for row in decoded[2] for value in row]
-            for index, count in record["accepted_control_counts"].items():
-                self.assertEqual(
-                    flat_indices.count(int(index)),
-                    count * round(building_bundle.RUNTIME_BUILDING_SCALE) ** 2,
+            runtime_body_edge = building_bundle.runtime_body_edge_metrics(
+                decoded[2],
+                stock.splt_palette_colors(
+                    output_palettes[stock.tile_palette_index(tile)].data
+                ),
+            )
+            self.assertEqual(runtime_body_edge, record["runtime_body_edge"])
+            self.assertEqual(runtime_body_edge["below_42_boundary_total"], 0)
+            runtime_shadow = building_bundle.runtime_shadow_contact_metrics(
+                decoded[2]
+            )
+            self.assertEqual(runtime_shadow, record["runtime_shadow"])
+            shadow_plane = bytes(
+                value if value in building_bundle.CONTROL_INDICES else 0
+                for row in decoded[2]
+                for value in row
+            )
+            self.assertEqual(
+                building_bundle.sha256_bytes(shadow_plane),
+                record["runtime_shadow_control_plane_sha256"],
+            )
+            self.assertEqual(
+                record["runtime_shadow_mechanism"],
+                "literal-haunt-add_cast_shadow",
+            )
+            self.assertEqual(
+                record["runtime_shadow_source_sha256"],
+                building_bundle.HAUNT_SHADOW_SOURCE_SHA256,
+            )
+            self.assertGreater(runtime_shadow["contact_seam_total"], 0)
+            self.assertGreater(runtime_shadow["shadow_band_total"], 0)
+            self.assertEqual(runtime_shadow["direct_band_body_contact_total"], 0)
+            self.assertEqual(runtime_shadow["transparent_band_body_gap_total"], 0)
+            self.assertEqual(runtime_shadow["orphan_seam_total"], 0)
+            self.assertEqual(
+                runtime_shadow["band_envelope_notch_violation_total"], 0
+            )
+            if record["role"] == "active":
+                inactive = next(
+                    candidate
+                    for candidate in building_states
+                    if candidate["level"] == record["level"]
+                    and candidate["role"] == "inactive"
                 )
+                self.assertEqual(
+                    record["runtime_body_source_state"],
+                    inactive["runtime_body_source_state"],
+                )
+                self.assertEqual(
+                    record["runtime_body_source_sha256"],
+                    inactive["runtime_body_source_sha256"],
+                )
+                self.assertEqual(
+                    record["runtime_body_authority_role"],
+                    "level-inactive-baseline",
+                )
+                self.assertEqual(
+                    record["active_liquid_mask"],
+                    building_bundle.LIQUID_MASK_EXPECTED_BY_LEVEL[record["level"]],
+                )
+                self.assertEqual(
+                    record["active_glow_ramp_lift_steps"],
+                    building_bundle.ACTIVE_GLOW_RAMP_LIFT_STEPS,
+                )
+                frame_indices = record["active_frame_private_indices"]
+                self.assertEqual(len(frame_indices), 8)
+                decoded_frames = []
+                frame_payloads = []
+                for frame_index in frame_indices:
+                    frame_tile = output_tiles[frame_index].data
+                    frame_payloads.append(frame_tile)
+                    self.assertEqual(
+                        stock.tile_palette_index(frame_tile),
+                        building_bundle.ACTIVE_GLOW_PALETTE_INDEX,
+                    )
+                    self.assertEqual(
+                        list(struct.unpack_from("<hh", frame_tile, 10)),
+                        record["packaged_hotspot"],
+                    )
+                    frame_decoded = stock.decode_indexed_v3_tile(frame_tile)
+                    self.assertIsNotNone(frame_decoded)
+                    self.assertEqual(
+                        [frame_decoded[1], frame_decoded[0]],
+                        record["packaged_canvas"],
+                    )
+                    decoded_frames.append(frame_decoded[2])
+                    sprite_bundle.validate_split_control_segments(frame_tile)
+
+                liquid_points = {
+                    (x, y)
+                    for y, row in enumerate(decoded_frames[0])
+                    for x, value in enumerate(row)
+                    if value in building_bundle.ACTIVE_GLOW_VIOLET_INDICES
+                }
+                expected_liquid = record["active_liquid_mask"]
+                self.assertEqual(len(liquid_points), expected_liquid["runtime_count"])
+                self.assertEqual(
+                    [
+                        min(x for x, _y in liquid_points),
+                        min(y for _x, y in liquid_points),
+                        max(x for x, _y in liquid_points) + 1,
+                        max(y for _x, y in liquid_points) + 1,
+                    ],
+                    list(expected_liquid["runtime_bbox"]),
+                )
+                outside_reference = None
+                shadow_reference = None
+                for rows in decoded_frames:
+                    current_liquid = {
+                        (x, y)
+                        for y, row in enumerate(rows)
+                        for x, value in enumerate(row)
+                        if value in building_bundle.ACTIVE_GLOW_VIOLET_INDICES
+                    }
+                    self.assertEqual(current_liquid, liquid_points)
+                    self.assertFalse(
+                        any(
+                            value in building_bundle.ACTIVE_GLOW_AMBER_INDICES
+                            for row in rows
+                            for value in row
+                        )
+                    )
+                    outside = tuple(
+                        value
+                        for y, row in enumerate(rows)
+                        for x, value in enumerate(row)
+                        if (x, y) not in liquid_points
+                    )
+                    current_shadow = bytes(
+                        value if value in building_bundle.CONTROL_INDICES else 0
+                        for row in rows
+                        for value in row
+                    )
+                    if outside_reference is None:
+                        outside_reference = outside
+                        shadow_reference = current_shadow
+                    else:
+                        self.assertEqual(outside, outside_reference)
+                        self.assertEqual(current_shadow, shadow_reference)
+                    self.assertEqual(
+                        building_bundle.sha256_bytes(current_shadow),
+                        record["runtime_shadow_control_plane_sha256"],
+                    )
+                for first, second in ((0, 4), (1, 3), (5, 7)):
+                    self.assertEqual(frame_payloads[first], frame_payloads[second])
             sprite_bundle.validate_split_control_segments(tile)
         ready = building_provenance["reagents_ready"]
         self.assertEqual(ready["stock_analogue"], "WRF1super_charge_e")

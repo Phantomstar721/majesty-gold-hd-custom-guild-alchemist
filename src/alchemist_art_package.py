@@ -18,19 +18,25 @@ from approved_sprite_bundle import (
     validate_packaged_approved_sprite_cam,
 )
 from approved_building_bundle import (
+    ACTIVE_GLOW_RAMP_LIFT_STEPS,
     ACTIVE_GLOW_PALETTE_INDEX,
     ACTIVE_GLOW_PALETTE_NAME,
     ACTIVE_PULSE_FACTORS,
+    HAUNT_SHADOW_SOURCE_SHA256,
     HIRES_AUTHORITY_MANIFEST_SHA256,
+    LIQUID_MASK_EXPECTED_BY_LEVEL,
     PAYLOAD_AGGREGATE_SHA256 as APPROVED_BUILDING_PAYLOAD_SHA256,
     RUNTIME_BUILDING_SCALE,
     RUNTIME_HOTSPOT_DELTA_BY_LEVEL,
+    SOURCE_PALETTE_INDEX,
     SOURCE_IMAG_NAMES as APPROVED_BUILDING_SOURCE_IMAGS,
     active_glow_palette_data,
     expand_marketplace_active_animation,
     load_approved_building_bundle,
     package_runtime_building_tile,
     patch_approved_building_imag,
+    runtime_body_edge_metrics,
+    runtime_shadow_contact_metrics,
     validate_packaged_approved_building_cam,
 )
 
@@ -2613,21 +2619,12 @@ def write_maindata(
         if len(inactive_states) != 1:
             raise ValueError(f"Approved Lab level {level} lost its inactive state")
         inactive_state = inactive_states[0]
-        active_authority_states = tuple(
-            sorted(
-                (state for state in states if state.role == "active"),
-                key=lambda state: (
-                    not any(
-                        occurrence["set_id"] == 192
-                        for occurrence in state.occurrences
-                    ),
-                    state.source_tile_index,
-                ),
-            )
-        )
         private_indices: dict[int, int] = {}
         active_frames: dict[int, list[int]] = {}
         for state in states:
+            runtime_body_state = (
+                inactive_state if state.role == "active" else state
+            )
             pulse_factors = (
                 ACTIVE_PULSE_FACTORS if state.role == "active" else (None,)
             )
@@ -2641,11 +2638,6 @@ def write_maindata(
                     state,
                     inactive_state=(
                         inactive_state if pulse_factor is not None else None
-                    ),
-                    active_states=(
-                        active_authority_states
-                        if pulse_factor is not None
-                        else ()
                     ),
                     pulse_factor=pulse_factor,
                 )
@@ -2661,6 +2653,24 @@ def write_maindata(
                 frame_payloads.append(payload)
             payload = frame_payloads[0]
             private_index = frame_indices[0]
+            decoded_payload = stock.decode_indexed_v3_tile(payload)
+            if decoded_payload is None:
+                raise ValueError("Approved Laboratory runtime TILE no longer decodes")
+            runtime_palette_data = (
+                active_glow_palette_data(stock, palettes)
+                if state.role == "active"
+                else palettes[SOURCE_PALETTE_INDEX].data
+            )
+            runtime_body_edge = runtime_body_edge_metrics(
+                decoded_payload[2],
+                stock.splt_palette_colors(runtime_palette_data),
+            )
+            runtime_shadow = runtime_shadow_contact_metrics(decoded_payload[2])
+            runtime_shadow_plane = bytes(
+                value if value in (247, 248, 249, 250) else 0
+                for row in decoded_payload[2]
+                for value in row
+            )
             if (
                 level == 3
                 and state.source_tile_index
@@ -2693,15 +2703,37 @@ def write_maindata(
                         str(index): count
                         for index, count in sorted(state.control_counts.items())
                     },
+                    "runtime_shadow": runtime_shadow,
+                    "runtime_body_edge": runtime_body_edge,
+                    "runtime_shadow_mechanism": "literal-haunt-add_cast_shadow",
+                    "runtime_shadow_source_sha256": HAUNT_SHADOW_SOURCE_SHA256,
+                    "runtime_shadow_control_plane_sha256": sha256_bytes(
+                        runtime_shadow_plane
+                    ),
                     "accepted_native_body_sha256": state.body_rgba_sha256,
-                    "runtime_body_source_state": state.high_resolution.state_id,
-                    "runtime_body_source_sha256": state.high_resolution.source_sha256,
+                    "accepted_state_body_source_state": (
+                        state.high_resolution.state_id
+                    ),
+                    "accepted_state_body_source_sha256": (
+                        state.high_resolution.source_sha256
+                    ),
+                    "runtime_body_source_state": (
+                        runtime_body_state.high_resolution.state_id
+                    ),
+                    "runtime_body_source_sha256": (
+                        runtime_body_state.high_resolution.source_sha256
+                    ),
+                    "runtime_body_authority_role": (
+                        "level-inactive-baseline"
+                        if state.role == "active"
+                        else state.role
+                    ),
                     "native_body_paste_offset": list(
-                        state.high_resolution.paste_offset
+                        runtime_body_state.high_resolution.paste_offset
                     ),
                     "runtime_body_paste_offset": [
                         round(value * RUNTIME_BUILDING_SCALE)
-                        for value in state.high_resolution.paste_offset
+                        for value in runtime_body_state.high_resolution.paste_offset
                     ],
                     "runtime_visible_resample": "approved-r14-source-direct-to-final-canvas",
                     "packaged_canvas": [
@@ -2713,6 +2745,16 @@ def write_maindata(
                         list(ACTIVE_PULSE_FACTORS)
                         if state.role == "active"
                         else []
+                    ),
+                    "active_liquid_mask": (
+                        LIQUID_MASK_EXPECTED_BY_LEVEL[level]
+                        if state.role == "active"
+                        else None
+                    ),
+                    "active_glow_ramp_lift_steps": (
+                        ACTIVE_GLOW_RAMP_LIFT_STEPS
+                        if state.role == "active"
+                        else None
                     ),
                     "packaged_tile_sha256": sha256_bytes(payload),
                     "occurrence_count": len(state.occurrences),
@@ -3057,8 +3099,16 @@ def write_maindata(
                 str(level): list(delta)
                 for level, delta in RUNTIME_HOTSPOT_DELTA_BY_LEVEL.items()
             },
+            "runtime_shadow_mechanism": "literal-haunt-add_cast_shadow",
+            "runtime_shadow_source_sha256": HAUNT_SHADOW_SOURCE_SHA256,
             "active_glow_palette_index": ACTIVE_GLOW_PALETTE_INDEX,
             "active_pulse_factors": list(ACTIVE_PULSE_FACTORS),
+            "active_glow_mask": "registered-inactive-liquid-surfaces-v1",
+            "active_glow_ramp_lift_steps": ACTIVE_GLOW_RAMP_LIFT_STEPS,
+            "liquid_mask_expected_by_level": {
+                str(level): record
+                for level, record in LIQUID_MASK_EXPECTED_BY_LEVEL.items()
+            },
             "payload_aggregate_sha256": APPROVED_BUILDING_PAYLOAD_SHA256,
             "source_topology": [
                 {

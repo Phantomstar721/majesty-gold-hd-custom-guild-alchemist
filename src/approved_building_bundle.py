@@ -101,6 +101,9 @@ SOURCE_INTERFACE_OCCURRENCES = (
     (0, 1000, 0, 0, 990),
     (2, 1002, 0, 0, 991),
 )
+SOURCE_HOTSPOT_TILES = (989, 1006, 1023)
+HOTSPOT_SET_ID = 400
+INACTIVE_SET_ID = 208
 READY_SOURCE_TILES = tuple(range(2349, 2365))
 READY_PALETTE_INDEX = 577
 READY_CANVAS = (269, 213)
@@ -111,14 +114,42 @@ READY_HEADER = (3, 213, 269, 0, 32, 140, 65, 8)
 # the user-approved in-game footprint is 2x. Render the approved r14 raster
 # authority directly to that final canvas so it is sampled and quantized only
 # once; scale only the accepted indexed control plane with nearest-neighbor.
-# Marketplace set 400 remains the stock-literal owner of the fixed world
-# selection/build circle, so each level retains its measured signed-hotspot
-# correction. The same correction applies to every lifecycle state.
+# The Marketplace lifecycle remains the stock-literal owner of the world
+# position.  When the approved body is enlarged, preserve each exact source
+# TILE's signed relationship between its hotspot and visible ground center
+# (horizontal body center, bottom body row).  This removes transparent-canvas
+# gutters from the calculation and seats each differently shaped Lab state on
+# its own Marketplace ground plane instead of pretending its silhouette is
+# oriented exactly like another guild.
 RUNTIME_BUILDING_SCALE = 2.0
-RUNTIME_HOTSPOT_DELTA_BY_LEVEL = {
-    1: (32, 71),
-    2: (42, 48),
-    3: (38, 37),
+# The accepted r14 authority independently registers its semantic pool at this
+# fixed displacement from every source hotspot.  Retain it as a body-family
+# registration gate and a diagnostic cross-check, not as a replacement for the
+# stock Marketplace ground owner.
+LAB_OWNER_TO_POOL_DISPLACEMENT = (45, 90)
+# Wizard Guild is the user's requested visual comparison.  Its complete body
+# lifecycle independently proves a 138-pixel front-ground offset; the Lab's
+# registered-pool placement is validated and reported against this authority,
+# but the Wizard silhouette is not substituted for the Lab's own registration.
+WIZARD_GUILD_GROUND_BASE_OFFSET = 138
+WIZARD_GUILD_GROUND_AUTHORITY_IMAGS = (
+    b"ABY1Wizard Guild1",
+    b"ABY2Wizard Guild2",
+    b"ABY3Wizard Guild3",
+)
+WIZARD_GUILD_GROUND_AUTHORITY_IMAG_SHA256 = (
+    "0005d8fe35f3fae8237a6b26153ec496a897ab85435a9f4cdca8bf9659ec3e12",
+    "05c43681b7a11f8850c03ee6412e1368b07d6df79d8ea82d7f9bb149144411a6",
+    "7ec801021eabb743633898b67c6a329384dc486394fda65a97d7a1e3a3b67b49",
+)
+# These are the body-owning TILEs reached by the stock Wizard Guild lifecycle:
+# construction handoff (set 80), inactive (208), damage A (98/99), damage B
+# (100/101), and rubble (224).  Level 2/3 construction literally carries the
+# preceding level's inactive TILE, exactly as represented below.
+WIZARD_GUILD_GROUND_AUTHORITY_TILES_BY_LEVEL = {
+    1: (1780, 1781, 1782, 1783, 1778),
+    2: (1781, 1905, 1906, 1907, 1778),
+    3: (1905, 1956, 1957, 1958, 1778),
 }
 # Literal eight-frame Haunt light-breathing cycle.  The authored active art is
 # frame zero/four, reaches only +10% at frame two, and only -10% at frame six.
@@ -172,6 +203,151 @@ def sha256_bytes(data: bytes) -> str:
 
 def sha256_file(path: Path) -> str:
     return sha256_bytes(path.read_bytes())
+
+
+def runtime_visible_body_bbox(
+    rows: Sequence[Sequence[int]],
+) -> tuple[int, int, int, int]:
+    """Return the exclusive bounds of ordinary visible TILE pixels."""
+
+    width = len(rows[0]) if rows else 0
+    if not width or any(len(row) != width for row in rows):
+        raise ValueError("Laboratory runtime TILE rows changed shape")
+    body = [
+        (x, y)
+        for y, row in enumerate(rows)
+        for x, value in enumerate(row)
+        if 1 <= value <= 246
+    ]
+    if not body:
+        raise ValueError("Laboratory runtime TILE lost its visible body")
+    return (
+        min(x for x, _y in body),
+        min(y for _x, y in body),
+        max(x for x, _y in body) + 1,
+        max(y for _x, y in body) + 1,
+    )
+
+
+def marketplace_ground_aligned_hotspot(
+    stock: Any,
+    template: bytes,
+    runtime_rows: Sequence[Sequence[int]],
+) -> tuple[tuple[int, int], dict[str, Any]]:
+    """Preserve a Marketplace TILE's visible ground-center registration."""
+
+    source_decoded = stock.decode_indexed_v3_tile(template)
+    if source_decoded is None:
+        raise ValueError("Marketplace ground-authority TILE no longer decodes")
+    source_bbox = runtime_visible_body_bbox(source_decoded[2])
+    runtime_bbox = runtime_visible_body_bbox(runtime_rows)
+    source_hotspot = struct.unpack_from("<hh", template, 10)
+    source_center_twice = source_bbox[0] + source_bbox[2]
+    runtime_center_twice = runtime_bbox[0] + runtime_bbox[2]
+    source_center_offset_twice = source_center_twice - 2 * source_hotspot[0]
+    hotspot_x_twice = runtime_center_twice - source_center_offset_twice
+    hotspot_x = (
+        (hotspot_x_twice + 1) // 2
+        if hotspot_x_twice >= 0
+        else -((-hotspot_x_twice + 1) // 2)
+    )
+    source_front_ground_offset = source_bbox[3] - source_hotspot[1]
+    hotspot_y = runtime_bbox[3] - source_front_ground_offset
+    hotspot = (hotspot_x, hotspot_y)
+    metrics = {
+        "source_body_bbox": list(source_bbox),
+        "runtime_body_bbox": list(runtime_bbox),
+        "source_hotspot": list(source_hotspot),
+        "source_body_center_offset_twice": source_center_offset_twice,
+        "runtime_body_center_offset_twice": (
+            runtime_center_twice - 2 * hotspot_x
+        ),
+        "source_front_ground_offset": source_front_ground_offset,
+        "runtime_front_ground_offset": runtime_bbox[3] - hotspot_y,
+    }
+    if (
+        abs(
+            metrics["runtime_body_center_offset_twice"]
+            - source_center_offset_twice
+        )
+        > 1
+        or metrics["runtime_front_ground_offset"]
+        != source_front_ground_offset
+    ):
+        raise AssertionError("Laboratory lost its Marketplace ground registration")
+    return hotspot, metrics
+
+
+def validate_stock_wizard_ground_authority(
+    stock: Any,
+    source_cam: Path,
+    stock_tiles: Sequence[Any],
+) -> dict[str, Any]:
+    """Prove the stock Wizard Guild ground baseline used by private Lab TILEs."""
+
+    lifecycle_roles = (
+        "construction_handoff",
+        "inactive",
+        "damage_a",
+        "damage_b",
+        "rubble",
+    )
+    levels: list[dict[str, Any]] = []
+    for level, (imag_name, imag_hash) in enumerate(
+        zip(
+            WIZARD_GUILD_GROUND_AUTHORITY_IMAGS,
+            WIZARD_GUILD_GROUND_AUTHORITY_IMAG_SHA256,
+        ),
+        start=1,
+    ):
+        imag = stock.read_cam_entry(source_cam, b"IMAG", imag_name).data
+        if sha256_bytes(imag) != imag_hash:
+            raise ValueError("Stock Wizard Guild ground-authority IMAG changed")
+        states: list[dict[str, Any]] = []
+        for role, tile_index in zip(
+            lifecycle_roles,
+            WIZARD_GUILD_GROUND_AUTHORITY_TILES_BY_LEVEL[level],
+        ):
+            decoded = stock.decode_indexed_v3_tile(stock_tiles[tile_index].data)
+            if decoded is None:
+                raise ValueError("Stock Wizard Guild ground-authority TILE changed")
+            body_bbox = runtime_visible_body_bbox(decoded[2])
+            hotspot = struct.unpack_from("<hh", stock_tiles[tile_index].data, 10)
+            ground_base_offset = body_bbox[3] - hotspot[1]
+            if ground_base_offset != WIZARD_GUILD_GROUND_BASE_OFFSET:
+                raise ValueError(
+                    "Stock Wizard Guild ground baseline changed: "
+                    f"level={level} role={role} offset={ground_base_offset}"
+                )
+            states.append(
+                {
+                    "role": role,
+                    "tile_index": tile_index,
+                    "hotspot": list(hotspot),
+                    "body_bbox": list(body_bbox),
+                    "ground_base_offset": ground_base_offset,
+                }
+            )
+        levels.append(
+            {
+                "level": level,
+                "imag": imag_name.decode("ascii"),
+                "imag_sha256": imag_hash,
+                "states": states,
+            }
+        )
+    return {
+        "analogue": "ABY1/2/3 Wizard Guild",
+        "lifecycle_sets": {
+            "construction_handoff": [80],
+            "inactive": [208],
+            "damage_a": [98, 99],
+            "damage_b": [100, 101],
+            "rubble": [224],
+        },
+        "ground_base_offset": WIZARD_GUILD_GROUND_BASE_OFFSET,
+        "levels": levels,
+    }
 
 
 def _load_json(path: Path, expected_sha256: str | None = None) -> dict[str, Any]:
@@ -655,7 +831,13 @@ def load_approved_building_bundle(
             or tuple(high_resolution_item.get("stock_canvas", ())) != expected_canvas
             or tuple(high_resolution_item.get("stock_anchor", ())) != expected_anchor
             or high_resolution.target_pool_center
-            != (expected_anchor[0] + 45, expected_anchor[1] + 90)
+            != tuple(
+                anchor + displacement
+                for anchor, displacement in zip(
+                    expected_anchor,
+                    LAB_OWNER_TO_POOL_DISPLACEMENT,
+                )
+            )
             or high_resolution_item.get("output", {}).get("sha256") != body_hash
         ):
             raise ValueError(f"Approved r14 source registration changed: {key}")
@@ -1560,15 +1742,13 @@ def package_runtime_building_tile(
         rows = _quantize_visible_rows(visible, colors)
         runtime_colors = colors
 
-    hotspot_x, hotspot_y = struct.unpack_from("<hh", template, 10)
-    runtime_hotspot = (
-        round(hotspot_x * RUNTIME_BUILDING_SCALE)
-        + RUNTIME_HOTSPOT_DELTA_BY_LEVEL[state.level][0],
-        round(hotspot_y * RUNTIME_BUILDING_SCALE)
-        + RUNTIME_HOTSPOT_DELTA_BY_LEVEL[state.level][1],
-    )
     rows = _literal_haunt_shadow_composite(rows, runtime_colors, state)
     runtime_body_edge_metrics(rows, runtime_colors)
+    runtime_hotspot, _ground_alignment = marketplace_ground_aligned_hotspot(
+        stock,
+        template,
+        rows,
+    )
 
     encoded = (
         stock.encode_indexed_v3_tile_like_original(
@@ -1699,6 +1879,47 @@ def _frame_reference_offset(
                 return frame_table + stream * frame_count * 8 + frame_order * 8 + 4
             current_track += 1
     raise ValueError("Marketplace IMAG track order is out of range")
+
+
+def _imag_set_chunk(imag: bytes, expected_set_id: int) -> bytes:
+    set_count = _u32(imag, 20)
+    entries = [
+        (_u32(imag, 24 + index * 8), _u32(imag, 28 + index * 8))
+        for index in range(set_count)
+    ]
+    matches = [
+        (index, start)
+        for index, (set_id, start) in enumerate(entries)
+        if set_id == expected_set_id
+    ]
+    if len(matches) != 1:
+        raise ValueError(
+            f"Marketplace IMAG set {expected_set_id:#x} is missing or ambiguous"
+        )
+    order, start = matches[0]
+    end = entries[order + 1][1] if order + 1 < len(entries) else len(imag)
+    return imag[start:end]
+
+
+def _single_frame_reference_for_set(imag: bytes, expected_set_id: int) -> int:
+    set_count = _u32(imag, 20)
+    orders = [
+        order
+        for order in range(set_count)
+        if _u32(imag, 24 + order * 8) == expected_set_id
+    ]
+    if len(orders) != 1:
+        raise ValueError(
+            f"Marketplace IMAG set {expected_set_id:#x} is missing or ambiguous"
+        )
+    offset = _frame_reference_offset(
+        imag,
+        orders[0],
+        expected_set_id,
+        0,
+        0,
+    )
+    return _u32(imag, offset)
 
 
 def patch_approved_building_imag(
@@ -1891,16 +2112,17 @@ def validate_packaged_approved_building_cam(
             )
             if len(frame_indices) != len(expected_factors):
                 raise ValueError("Approved building active-frame count changed")
-            expected_hotspot = struct.unpack_from(
+            source_hotspot = struct.unpack_from(
                 "<hh", stock_tiles[state.source_tile_index].data, 10
             )
-            expected_hotspot = tuple(
-                round(value * RUNTIME_BUILDING_SCALE) + delta
-                for value, delta in zip(
-                    expected_hotspot,
-                    RUNTIME_HOTSPOT_DELTA_BY_LEVEL[state.level],
+            if tuple(
+                pool - hotspot
+                for pool, hotspot in zip(
+                    state.high_resolution.target_pool_center,
+                    source_hotspot,
                 )
-            )
+            ) != LAB_OWNER_TO_POOL_DISPLACEMENT:
+                raise ValueError("Approved building owner-to-pool anchor changed")
             expected_canvas = tuple(
                 round(value * RUNTIME_BUILDING_SCALE)
                 for value in state.object_canvas
@@ -1953,6 +2175,15 @@ def validate_packaged_approved_building_cam(
                 runtime_shadow = runtime_shadow_contact_metrics(decoded[2])
                 if runtime_shadow["shadow_band_total"] <= 0:
                     raise ValueError("Approved building shadow lost its grounded band")
+                expected_hotspot, ground_alignment = (
+                    marketplace_ground_aligned_hotspot(
+                        stock,
+                        stock_tiles[state.source_tile_index].data,
+                        decoded[2],
+                    )
+                )
+                if ground_alignment != record["runtime_ground_alignment"]:
+                    raise ValueError("Approved building ground alignment changed")
                 shadow_plane = bytes(
                     value if value in CONTROL_INDICES else 0
                     for row in decoded[2]
@@ -2060,4 +2291,27 @@ def validate_packaged_approved_building_cam(
         if actual != expected:
             raise ValueError(
                 f"Approved building level {level} changed its Marketplace/Haunt topology"
+            )
+        if _imag_set_chunk(actual, HOTSPOT_SET_ID) != _imag_set_chunk(
+            source_imag,
+            HOTSPOT_SET_ID,
+        ):
+            raise ValueError("Approved Lab privatized Marketplace set 400")
+        hotspot_tile = (
+            _single_frame_reference_for_set(actual, HOTSPOT_SET_ID) & 0xFFFF
+        )
+        if hotspot_tile != SOURCE_HOTSPOT_TILES[level - 1]:
+            raise ValueError("Approved Lab changed Marketplace Hotspot TILE ownership")
+        inactive_states = [state for state in states if state.role == "inactive"]
+        if len(inactive_states) != 1:
+            raise ValueError("Approved Lab lost its unique inactive state")
+        inactive_tile = (
+            _single_frame_reference_for_set(actual, INACTIVE_SET_ID) & 0xFFFF
+        )
+        expected_inactive_tile = private_indices[
+            inactive_states[0].source_tile_index
+        ]
+        if inactive_tile != expected_inactive_tile or inactive_tile == hotspot_tile:
+            raise ValueError(
+                "Approved Lab no longer separates stock Hotspot and private inactive TILEs"
             )

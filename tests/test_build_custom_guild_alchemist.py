@@ -46,7 +46,7 @@ class AlchemistGuildTests(unittest.TestCase):
         )
         self.assertEqual(
             art_package.REAGENT_READY_CUSTOM_TILE_AGGREGATE_SHA256,
-            "e3e1033a4be50e1820a02bd21a9b8f84ab0d7bea816ab9b14d25b47c920a4d7c",
+            "67d98633728322b93aba81a992b3dc05086d7b8e904386a1dc6a7b75c6d7f889",
         )
         self.assertEqual(art_package.REAGENT_READY_POOL_CENTER_NATIVE, (165, 149))
         self.assertEqual(
@@ -64,6 +64,22 @@ class AlchemistGuildTests(unittest.TestCase):
         )
         self.assertEqual(building_bundle.ACTIVE_GLOW_PALETTE_INDEX, 855)
         self.assertEqual(
+            art_package.LAB_LEVEL3_ROOT_EFFECT_HOTSPOT_DELTA,
+            (-4, 50),
+        )
+        self.assertEqual(
+            art_package.LAB_LEVEL3_GROUND_ALIGNED_EFFECT_HOTSPOT,
+            (136, 115),
+        )
+        self.assertEqual(
+            art_package.ARCANE_INFUSION_HEADER[5:7],
+            art_package.LAB_LEVEL3_GROUND_ALIGNED_EFFECT_HOTSPOT,
+        )
+        self.assertEqual(
+            art_package.VIGOR_ACTIVATION_HEADER[5:7],
+            art_package.LAB_LEVEL3_GROUND_ALIGNED_EFFECT_HOTSPOT,
+        )
+        self.assertEqual(
             building_bundle.HIRES_AUTHORITY_DIRECTORY,
             "approved-alchemist-building-hires-v2",
         )
@@ -71,6 +87,43 @@ class AlchemistGuildTests(unittest.TestCase):
             building_bundle.HIRES_AUTHORITY_MANIFEST_SHA256,
             "b4649a3d04b829a9815eded14d640c0f22ba2ae45e2c213f877d6c522ffc5e78",
         )
+
+    def test_wizard_ground_comparison_covers_complete_body_lifecycle(self) -> None:
+        repo = Path(__file__).resolve().parents[1]
+        retail = Path(
+            r"C:\Program Files (x86)\Steam\steamapps\common\Majesty HD\Data\maindata.cam"
+        )
+        stock = art_package.load_stock_pipeline(repo)
+        authority = building_bundle.validate_stock_wizard_ground_authority(
+            stock,
+            retail,
+            stock.read_cam_entries(retail, b"TILE"),
+        )
+        self.assertEqual(authority["analogue"], "ABY1/2/3 Wizard Guild")
+        self.assertEqual(
+            authority["ground_base_offset"],
+            building_bundle.WIZARD_GUILD_GROUND_BASE_OFFSET,
+        )
+        self.assertEqual(len(authority["levels"]), 3)
+        expected_roles = [
+            "construction_handoff",
+            "inactive",
+            "damage_a",
+            "damage_b",
+            "rubble",
+        ]
+        for level in authority["levels"]:
+            self.assertEqual(
+                [state["role"] for state in level["states"]],
+                expected_roles,
+            )
+            self.assertTrue(
+                all(
+                    state["ground_base_offset"]
+                    == building_bundle.WIZARD_GUILD_GROUND_BASE_OFFSET
+                    for state in level["states"]
+                )
+            )
 
     def test_brewing_header_keeps_stock_ornament_and_private_backing(self) -> None:
         class StockTileFixture:
@@ -387,6 +440,25 @@ class AlchemistGuildTests(unittest.TestCase):
             list(building_bundle.SOURCE_IMAG_SET_COUNTS),
         )
         building_states = building_provenance["states"]
+        level_three_active = next(
+            record
+            for record in building_states
+            if record["level"] == 3 and record["role"] == "active"
+        )
+        self.assertEqual(
+            tuple(level_three_active["packaged_hotspot"]),
+            art_package.LAB_LEVEL3_MARKETPLACE_GROUND_HOTSPOT,
+        )
+        self.assertEqual(
+            tuple(
+                current - previous
+                for current, previous in zip(
+                    level_three_active["packaged_hotspot"],
+                    art_package.LAB_LEVEL3_PRE_GROUND_FIX_HOTSPOT,
+                )
+            ),
+            art_package.LAB_LEVEL3_ROOT_EFFECT_HOTSPOT_DELTA,
+        )
         self.assertEqual(
             building_provenance["active_glow_mask"],
             "registered-inactive-liquid-surfaces-v1",
@@ -395,6 +467,57 @@ class AlchemistGuildTests(unittest.TestCase):
             building_provenance["runtime_body_manifest_sha256"],
             building_bundle.HIRES_AUTHORITY_MANIFEST_SHA256,
         )
+        self.assertEqual(
+            building_provenance["runtime_hotspot_mechanism"],
+            "marketplace-visible-ground-center-v1",
+        )
+        self.assertEqual(
+            building_provenance["native_owner_to_pool_registration"],
+            list(building_bundle.LAB_OWNER_TO_POOL_DISPLACEMENT),
+        )
+        self.assertEqual(
+            building_provenance["wizard_ground_comparison"][
+                "ground_base_offset"
+            ],
+            building_bundle.WIZARD_GUILD_GROUND_BASE_OFFSET,
+        )
+        self.assertEqual(
+            building_provenance["marketplace_hotspot_set_policy"],
+            {
+                "set_id": building_bundle.HOTSPOT_SET_ID,
+                "ownership": "stock-retail-reference-preserved",
+                "source_tile_indices": list(
+                    building_bundle.SOURCE_HOTSPOT_TILES
+                ),
+            },
+        )
+        for level, (packaged_building_imag, source_name) in enumerate(
+            zip(packaged_building_imags, building_bundle.SOURCE_IMAG_NAMES),
+            start=1,
+        ):
+            source_building_imag = stock.read_cam_entry(
+                game_data / "maindata.cam",
+                b"IMAG",
+                source_name,
+            ).data
+            self.assertEqual(
+                building_bundle._imag_set_chunk(
+                    packaged_building_imag,
+                    building_bundle.HOTSPOT_SET_ID,
+                ),
+                building_bundle._imag_set_chunk(
+                    source_building_imag,
+                    building_bundle.HOTSPOT_SET_ID,
+                ),
+            )
+            self.assertEqual(
+                building_bundle._single_frame_reference_for_set(
+                    packaged_building_imag,
+                    building_bundle.HOTSPOT_SET_ID,
+                )
+                & 0xFFFF,
+                building_bundle.SOURCE_HOTSPOT_TILES[level - 1],
+            )
         self.assertEqual(
             building_provenance["runtime_shadow_mechanism"],
             "literal-haunt-add_cast_shadow",
@@ -427,15 +550,29 @@ class AlchemistGuildTests(unittest.TestCase):
                 ],
             )
             self.assertEqual(
-                record["packaged_hotspot"],
+                [
+                    pool - hotspot
+                    for pool, hotspot in zip(
+                        record["native_pool_center"],
+                        record["source_hotspot"],
+                    )
+                ],
+                list(building_bundle.LAB_OWNER_TO_POOL_DISPLACEMENT),
+            )
+            self.assertEqual(
+                record["runtime_pool_center"],
                 [
                     round(value * building_bundle.RUNTIME_BUILDING_SCALE)
-                    + delta
-                    for value, delta in zip(
-                        record["source_hotspot"],
-                        building_bundle.RUNTIME_HOTSPOT_DELTA_BY_LEVEL[
-                            record["level"]
-                        ],
+                    for value in record["native_pool_center"]
+                ],
+            )
+            self.assertEqual(
+                record["runtime_owner_to_pool_displacement"],
+                [
+                    pool - hotspot
+                    for pool, hotspot in zip(
+                        record["runtime_pool_center"],
+                        record["packaged_hotspot"],
                     )
                 ],
             )
@@ -455,6 +592,15 @@ class AlchemistGuildTests(unittest.TestCase):
             decoded = stock.decode_indexed_v3_tile(tile)
             self.assertIsNotNone(decoded)
             self.assertEqual([decoded[1], decoded[0]], record["packaged_canvas"])
+            expected_hotspot, ground_alignment = (
+                building_bundle.marketplace_ground_aligned_hotspot(
+                    stock,
+                    stock_tiles[record["source_tile_index"]].data,
+                    decoded[2],
+                )
+            )
+            self.assertEqual(list(expected_hotspot), record["packaged_hotspot"])
+            self.assertEqual(ground_alignment, record["runtime_ground_alignment"])
             runtime_body_edge = building_bundle.runtime_body_edge_metrics(
                 decoded[2],
                 stock.splt_palette_colors(
@@ -467,6 +613,19 @@ class AlchemistGuildTests(unittest.TestCase):
                 decoded[2]
             )
             self.assertEqual(runtime_shadow, record["runtime_shadow"])
+            self.assertEqual(
+                record["runtime_front_ground_offset"],
+                runtime_shadow["body_bbox"][3] - record["packaged_hotspot"][1],
+            )
+            self.assertEqual(
+                record["runtime_front_ground_offset"],
+                ground_alignment["source_front_ground_offset"],
+            )
+            self.assertEqual(
+                record["wizard_front_ground_offset_difference"],
+                record["runtime_front_ground_offset"]
+                - building_bundle.WIZARD_GUILD_GROUND_BASE_OFFSET,
+            )
             shadow_plane = bytes(
                 value if value in building_bundle.CONTROL_INDICES else 0
                 for row in decoded[2]

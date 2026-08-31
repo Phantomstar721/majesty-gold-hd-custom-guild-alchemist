@@ -24,20 +24,23 @@ from approved_building_bundle import (
     ACTIVE_PULSE_FACTORS,
     HAUNT_SHADOW_SOURCE_SHA256,
     HIRES_AUTHORITY_MANIFEST_SHA256,
+    LAB_OWNER_TO_POOL_DISPLACEMENT,
     LIQUID_MASK_EXPECTED_BY_LEVEL,
     PAYLOAD_AGGREGATE_SHA256 as APPROVED_BUILDING_PAYLOAD_SHA256,
     RUNTIME_BUILDING_SCALE,
-    RUNTIME_HOTSPOT_DELTA_BY_LEVEL,
     SOURCE_PALETTE_INDEX,
     SOURCE_IMAG_NAMES as APPROVED_BUILDING_SOURCE_IMAGS,
     active_glow_palette_data,
     expand_marketplace_active_animation,
     load_approved_building_bundle,
+    marketplace_ground_aligned_hotspot,
     package_runtime_building_tile,
     patch_approved_building_imag,
     runtime_body_edge_metrics,
     runtime_shadow_contact_metrics,
+    validate_stock_wizard_ground_authority,
     validate_packaged_approved_building_cam,
+    WIZARD_GUILD_GROUND_BASE_OFFSET,
 )
 
 
@@ -112,14 +115,40 @@ PHILOSOPHERS_STONE_FRAMES = 29
 PHILOSOPHERS_STONE_DELAY_MS = 0
 PHILOSOPHERS_STONE_HEADER = (3, 184, 192, 0, 32, 96, 92, 8)
 # Arcane Infusion uses the same stock HRC1 29-frame one-shot as Stone. Its
-# private TILE canvas instead matches the proven level-3 Laboratory object
-# canvas/hotspot so an effector created on the selected building remains
-# centered over that exact Laboratory rather than over a generic unit box.
+# private TILE canvas instead matches the proven level-3 Laboratory object.
+# The effect is a root-owned got_gold_bldg clone with no attachment point, so
+# preserve its approved registration by applying the same signed hotspot delta
+# as the level-3 body when that body's Marketplace ground anchor changes.
 ARCANE_INFUSION_ANIMATION_SET = PHILOSOPHERS_STONE_ANIMATION_SET
 ARCANE_INFUSION_FRAMES = PHILOSOPHERS_STONE_FRAMES
 ARCANE_INFUSION_DELAY_MS = PHILOSOPHERS_STONE_DELAY_MS
 ARCANE_INFUSION_PALETTE = 560
-ARCANE_INFUSION_HEADER = (3, 269, 213, 0, 32, 140, 65, 8)
+LAB_LEVEL3_PRE_GROUND_FIX_HOTSPOT = (288, 159)
+LAB_LEVEL3_MARKETPLACE_GROUND_HOTSPOT = (284, 209)
+LAB_LEVEL3_ROOT_EFFECT_HOTSPOT_DELTA = tuple(
+    current - previous
+    for current, previous in zip(
+        LAB_LEVEL3_MARKETPLACE_GROUND_HOTSPOT,
+        LAB_LEVEL3_PRE_GROUND_FIX_HOTSPOT,
+    )
+)
+LAB_LEVEL3_PRE_GROUND_FIX_EFFECT_HOTSPOT = (140, 65)
+LAB_LEVEL3_GROUND_ALIGNED_EFFECT_HOTSPOT = tuple(
+    hotspot + delta
+    for hotspot, delta in zip(
+        LAB_LEVEL3_PRE_GROUND_FIX_EFFECT_HOTSPOT,
+        LAB_LEVEL3_ROOT_EFFECT_HOTSPOT_DELTA,
+    )
+)
+ARCANE_INFUSION_HEADER = (
+    3,
+    269,
+    213,
+    0,
+    32,
+    *LAB_LEVEL3_GROUND_ALIGNED_EFFECT_HOTSPOT,
+    8,
+)
 # The generated source cells do not share a common crop origin. These are the
 # centers of the persistent alchemical ring/cardinal motif in each authored
 # phase, measured in the original 362x724 cells. Registering that landmark—
@@ -191,7 +220,7 @@ REAGENT_READY_ART_SOURCE_SHA256 = (
     "9db29df515ba925aafa08fec380dc1647bde558c43b39ec4757c037e1d35ea98"
 )
 REAGENT_READY_CUSTOM_TILE_AGGREGATE_SHA256 = (
-    "e3e1033a4be50e1820a02bd21a9b8f84ab0d7bea816ab9b14d25b47c920a4d7c"
+    "67d98633728322b93aba81a992b3dc05086d7b8e904386a1dc6a7b75c6d7f889"
 )
 REAGENT_READY_FRAME_COUNT = len(REAGENT_READY_SOURCE_TILES)
 REAGENT_READY_STREAM_COUNT = 2
@@ -1779,6 +1808,11 @@ def write_maindata(
     source = game_data / "maindata.cam"
     tiles = stock.read_cam_entries(source, b"TILE")
     palettes = stock.read_cam_entries(source, b"SPLT")
+    wizard_ground_authority = validate_stock_wizard_ground_authority(
+        stock,
+        source,
+        tiles,
+    )
     hero_imag = stock.read_cam_entry(source, b"IMAG", HERO_SOURCE).data
     approved_building_bundle = load_approved_building_bundle(
         repo / APPROVED_BUILDING_ROOT,
@@ -2684,6 +2718,19 @@ def write_maindata(
                 "<hh", tiles[state.source_tile_index].data, 10
             )
             packaged_hotspot = struct.unpack_from("<hh", payload, 10)
+            runtime_pool_center = tuple(
+                round(value * RUNTIME_BUILDING_SCALE)
+                for value in state.high_resolution.target_pool_center
+            )
+            expected_hotspot, runtime_ground_alignment = (
+                marketplace_ground_aligned_hotspot(
+                    stock,
+                    tiles[state.source_tile_index].data,
+                    decoded_payload[2],
+                )
+            )
+            if packaged_hotspot != expected_hotspot:
+                raise ValueError("Approved Laboratory ground hotspot changed")
             approved_building_records.append(
                 {
                     "concept_key": state.concept_key,
@@ -2698,6 +2745,26 @@ def write_maindata(
                     ),
                     "source_hotspot": list(source_hotspot),
                     "packaged_hotspot": list(packaged_hotspot),
+                    "native_pool_center": list(
+                        state.high_resolution.target_pool_center
+                    ),
+                    "runtime_pool_center": list(runtime_pool_center),
+                    "runtime_owner_to_pool_displacement": [
+                        pool - hotspot
+                        for pool, hotspot in zip(
+                            runtime_pool_center,
+                            packaged_hotspot,
+                        )
+                    ],
+                    "runtime_ground_alignment": runtime_ground_alignment,
+                    "runtime_front_ground_offset": (
+                        runtime_shadow["body_bbox"][3] - packaged_hotspot[1]
+                    ),
+                    "wizard_front_ground_offset_difference": (
+                        runtime_shadow["body_bbox"][3]
+                        - packaged_hotspot[1]
+                        - WIZARD_GUILD_GROUND_BASE_OFFSET
+                    ),
                     "source_art_sha256": state.indexed_object_sha256,
                     "accepted_control_counts": {
                         str(index): count
@@ -3095,9 +3162,15 @@ def write_maindata(
             "runtime_scale": RUNTIME_BUILDING_SCALE,
             "runtime_body_authority": "approved-r14-high-resolution-source-registration",
             "runtime_body_manifest_sha256": HIRES_AUTHORITY_MANIFEST_SHA256,
-            "runtime_hotspot_delta_by_level": {
-                str(level): list(delta)
-                for level, delta in RUNTIME_HOTSPOT_DELTA_BY_LEVEL.items()
+            "runtime_hotspot_mechanism": "marketplace-visible-ground-center-v1",
+            "native_owner_to_pool_registration": list(
+                LAB_OWNER_TO_POOL_DISPLACEMENT
+            ),
+            "wizard_ground_comparison": wizard_ground_authority,
+            "marketplace_hotspot_set_policy": {
+                "set_id": 400,
+                "ownership": "stock-retail-reference-preserved",
+                "source_tile_indices": [989, 1006, 1023],
             },
             "runtime_shadow_mechanism": "literal-haunt-add_cast_shadow",
             "runtime_shadow_source_sha256": HAUNT_SHADOW_SOURCE_SHA256,

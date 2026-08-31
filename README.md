@@ -177,7 +177,7 @@ and assets required for the new guild.
 | Area | Implementation |
 | --- | --- |
 | Package | One `.mmxml` manifest loading private CAM archives, XML descriptions, and compiled GPL |
-| Runtime | Manager v2 definition declaring the private building, Brewing controller, oil rows, name generator, and Freestyle CAM rebinding |
+| Runtime | Manager v3 typed features declaring the private building, Brewing controller, oil rows, name generator, and stock-derived actions |
 | Building | Marketplace lifecycle topology, original high-resolution indexed art, native TILE-v3 encoding, stock shadow controls, and the Krypta blocking footprint |
 | Interface | Private `CGAL` guild dialog and `CGBR` Brewing dialog cloned from stock controller families |
 | Rules | Stock-derived GPL compiled with Majesty's SDK compiler |

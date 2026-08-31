@@ -17,13 +17,13 @@ import approved_sprite_bundle as sprite_bundle
 
 
 class AlchemistGuildTests(unittest.TestCase):
-    def test_mod_manager_definition_is_complete_v2_contract(self) -> None:
+    def test_mod_manager_definition_is_complete_v3_contract(self) -> None:
         definition = json.loads(
             (builder.SOURCE_ROOT.parent / builder.MOD_DEFINITION_FILENAME).read_text(
                 encoding="utf-8"
             )
         )
-        self.assertEqual(definition["schema_version"], 2)
+        self.assertEqual(definition["schema_version"], 3)
         self.assertEqual(definition["mod_id"], builder.MOD_ID)
         self.assertEqual(definition["internal_name"], builder.PACKAGE_NAME)
         self.assertEqual(
@@ -31,15 +31,32 @@ class AlchemistGuildTests(unittest.TestCase):
             [
                 {
                     "local_name": "AlchemistsLaboratory",
-                    "dialog_id": "CGAL",
                     "controller_base": "AP10",
                     "panel_resource_template": "AP10",
                 }
             ],
         )
+        identity_fields = {
+            "stock.name-generator.v1": "generator_id",
+            "stock.ap78-enchantment-row.v1": "overlay_id",
+            "stock.ap10-ap69-secondary-panel.v1": "panel_key",
+            "stock.ap22-resource-meter.v1": "resource_key",
+            "stock.ap99-research-row.v1": "recipe_key",
+            "stock.ap17-upgrade-research-gate.v1": "parent_building",
+            "stock.ap24-timed-rage-action.v1": "action_key",
+            "stock.ap24-rage-command-action.v1": "action_key",
+            "stock.ap69-sovereign-target-action.v1": "action_key",
+        }
         self.assertEqual(
-            definition["runtime_capabilities"],
-            list(builder.RUNTIME_CAPABILITIES),
+            tuple(
+                (feature["type"], feature[identity_fields[feature["type"]]])
+                for feature in definition["runtime_features"]
+            ),
+            builder.RUNTIME_FEATURE_IDENTITIES,
+        )
+        self.assertEqual(
+            definition["runtime_features"][0]["name_tables"],
+            ["HN69", "HN70", "HN71", "HN72"],
         )
 
     def test_building_v2_and_ready_overlay_contract_is_frozen(self) -> None:

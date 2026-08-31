@@ -97,12 +97,19 @@ MOD_ID = "{42ba4603-2b13-446d-a2a4-6cf3a55ddac3}"
 PACKAGE_NAME = "CustomGuildAlchemist"
 MANIFEST_FILENAME = f"{PACKAGE_NAME}.mmxml"
 MOD_DEFINITION_FILENAME = "mod-definition.json"
-RUNTIME_CAPABILITIES = (
-    "expanded-building-slots.cg-prefix",
-    "freestyle-cam-rebind.v1",
-    "alchemist.cgbrewing-secondary-controller",
-    "alchemist.ap78-private-oil-rows",
-    "alchemist.nm18-name-generator",
+RUNTIME_FEATURE_IDENTITIES = (
+    ("stock.name-generator.v1", "NM18"),
+    ("stock.ap78-enchantment-row.v1", "ALo1"),
+    ("stock.ap78-enchantment-row.v1", "ALo2"),
+    ("stock.ap78-enchantment-row.v1", "ALo3"),
+    ("stock.ap10-ap69-secondary-panel.v1", "brewing"),
+    ("stock.ap22-resource-meter.v1", "reagents"),
+    ("stock.ap99-research-row.v1", "phoenix-phial"),
+    ("stock.ap99-research-row.v1", "weapon-oil"),
+    ("stock.ap17-upgrade-research-gate.v1", "AlchemistsLaboratory"),
+    ("stock.ap24-timed-rage-action.v1", "vigor-elixir"),
+    ("stock.ap24-rage-command-action.v1", "arcane-infusion"),
+    ("stock.ap69-sovereign-target-action.v1", "philosophers-stone"),
 )
 DIALOG_ID = b"CGAL"
 SOURCE_DIALOG_ID = b"AP10"
@@ -3994,8 +4001,8 @@ def validate_output(
     mod_definition = json.loads(
         (output_root / MOD_DEFINITION_FILENAME).read_text(encoding="utf-8")
     )
-    if mod_definition.get("schema_version") != 2:
-        raise ValueError("Mod Manager definition is not schema version 2")
+    if mod_definition.get("schema_version") != 3:
+        raise ValueError("Mod Manager definition is not schema version 3")
     if mod_definition.get("mod_id") != MOD_ID:
         raise ValueError("Mod Manager definition UUID does not match the manifest")
     if mod_definition.get("internal_name") != PACKAGE_NAME:
@@ -4005,14 +4012,37 @@ def validate_output(
     if mod_definition.get("custom_buildings") != [
         {
             "local_name": "AlchemistsLaboratory",
-            "dialog_id": "CGAL",
             "controller_base": "AP10",
             "panel_resource_template": "AP10",
         }
     ]:
         raise ValueError("Mod Manager custom-building contract changed")
-    if mod_definition.get("runtime_capabilities") != list(RUNTIME_CAPABILITIES):
-        raise ValueError("Mod Manager runtime capability contract changed")
+    runtime_features = mod_definition.get("runtime_features")
+    if not isinstance(runtime_features, list):
+        raise ValueError("Mod Manager runtime features are missing")
+    identity_fields = {
+        "stock.name-generator.v1": "generator_id",
+        "stock.ap78-enchantment-row.v1": "overlay_id",
+        "stock.ap10-ap69-secondary-panel.v1": "panel_key",
+        "stock.ap22-resource-meter.v1": "resource_key",
+        "stock.ap99-research-row.v1": "recipe_key",
+        "stock.ap17-upgrade-research-gate.v1": "parent_building",
+        "stock.ap24-timed-rage-action.v1": "action_key",
+        "stock.ap24-rage-command-action.v1": "action_key",
+        "stock.ap69-sovereign-target-action.v1": "action_key",
+    }
+    try:
+        runtime_feature_identities = tuple(
+            (feature["type"], feature[identity_fields[feature["type"]]])
+            for feature in runtime_features
+        )
+    except (KeyError, TypeError) as exc:
+        raise ValueError("Mod Manager runtime feature shape changed") from exc
+    if runtime_feature_identities != RUNTIME_FEATURE_IDENTITIES:
+        raise ValueError("Mod Manager typed runtime feature contract changed")
+    name_generator = runtime_features[0]
+    if name_generator.get("name_tables") != ["HN69", "HN70", "HN71", "HN72"]:
+        raise ValueError("Alchemist private name tables changed")
     if approved_sprite_test_set:
         provenance_path = output_root / APPROVED_SPRITE_PROVENANCE_NAME
         provenance = json.loads(provenance_path.read_text(encoding="utf-8"))

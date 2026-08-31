@@ -49,21 +49,33 @@ if ($sourceLinks.Count -gt 0) {
 }
 
 $definition = Get-Content -LiteralPath (Join-Path $package "mod-definition.json") -Raw | ConvertFrom-Json
-if ($definition.schema_version -ne 2) {
-    throw "Workshop package is not a Mod Manager v2 package."
+if ($definition.schema_version -ne 3) {
+    throw "Workshop package is not a Mod Manager v3 package."
 }
 if ($definition.mod_id -ne "{42ba4603-2b13-446d-a2a4-6cf3a55ddac3}") {
     throw "Workshop package has the wrong Alchemist mod ID."
 }
-$requiredCapabilities = @(
-    "expanded-building-slots.cg-prefix",
-    "freestyle-cam-rebind.v1",
-    "alchemist.cgbrewing-secondary-controller",
-    "alchemist.ap78-private-oil-rows",
-    "alchemist.nm18-name-generator"
+$requiredFeatureTypes = @(
+    "stock.name-generator.v1",
+    "stock.ap78-enchantment-row.v1",
+    "stock.ap78-enchantment-row.v1",
+    "stock.ap78-enchantment-row.v1",
+    "stock.ap10-ap69-secondary-panel.v1",
+    "stock.ap22-resource-meter.v1",
+    "stock.ap99-research-row.v1",
+    "stock.ap99-research-row.v1",
+    "stock.ap17-upgrade-research-gate.v1",
+    "stock.ap24-timed-rage-action.v1",
+    "stock.ap24-rage-command-action.v1",
+    "stock.ap69-sovereign-target-action.v1"
 )
-if ((@($definition.runtime_capabilities) -join "`n") -ne ($requiredCapabilities -join "`n")) {
-    throw "Workshop package has an incomplete runtime capability contract."
+if ((@($definition.runtime_features.type) -join "`n") -ne ($requiredFeatureTypes -join "`n")) {
+    throw "Workshop package has an incomplete typed runtime feature contract."
+}
+$nameGenerator = @($definition.runtime_features)[0]
+if ($nameGenerator.generator_id -ne "NM18" -or
+    (@($nameGenerator.name_tables) -join "`n") -ne (@("HN69", "HN70", "HN71", "HN72") -join "`n")) {
+    throw "Workshop package has the wrong private Alchemist name generator."
 }
 
 if (Test-Path -LiteralPath $target) {

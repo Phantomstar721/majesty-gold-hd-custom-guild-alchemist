@@ -1696,8 +1696,8 @@ def _validate_completed_sprite_cam(
     interface_records: Sequence[dict[str, Any]],
 ) -> None:
     output_palettes = stock.read_cam_entries(output_cam, b"SPLT")
-    if len(output_palettes) != bundle.private_palette_index + 1:
-        raise ValueError("Completed package does not end at its private SPLT")
+    if len(output_palettes) <= bundle.private_palette_index:
+        raise ValueError("Completed package is missing its private SPLT")
     if output_palettes[bundle.private_palette_index].data != bundle.private_palette_data:
         raise ValueError("Completed package changed its private SPLT")
     if output_palettes[427].data != stock_palettes[427].data:
@@ -1803,8 +1803,8 @@ def validate_packaged_approved_sprite_cam(
         return
 
     output_palettes = stock.read_cam_entries(output_cam, b"SPLT")
-    if len(output_palettes) != bundle.private_palette_index + 1:
-        raise ValueError("Packaged SPLT table does not end at the private palette")
+    if len(output_palettes) <= bundle.private_palette_index:
+        raise ValueError("Packaged SPLT table is missing the private palette")
     if output_palettes[bundle.private_palette_index].data != bundle.private_palette_data:
         raise ValueError("Packaged private SPLT differs from the approved palette")
     private_colours = stock.splt_palette_colors(bundle.private_palette_data)

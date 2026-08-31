@@ -41,12 +41,22 @@ from alchemist_art_package import (
     PHILOSOPHERS_STONE_FRAMES,
     PHILOSOPHERS_STONE_HEADER,
     PHILOSOPHERS_STONE_CURSOR_SET_ID,
-    REAGENT_READY_CANVAS,
     REAGENT_READY_CUSTOM,
-    REAGENT_READY_HOTSPOT,
+    REAGENT_READY_CUSTOM_TILE_AGGREGATE_SHA256,
+    REAGENT_READY_ART_SOURCE,
+    REAGENT_READY_ART_SOURCE_SHA256,
+    REAGENT_READY_CANVAS,
+    REAGENT_READY_EFFECT_CENTER,
+    REAGENT_READY_FRAME_COUNT,
     REAGENT_READY_PALETTE,
+    REAGENT_READY_POOL_CENTER_NATIVE,
     REAGENT_READY_SOURCE,
+    REAGENT_READY_SOURCE_PALETTES,
+    REAGENT_READY_SOURCE_SHA256,
+    REAGENT_READY_SOURCE_TILE_AGGREGATE_SHA256,
     REAGENT_READY_SOURCE_TILES,
+    REAGENT_READY_STREAM_COUNT,
+    REAGENT_READY_STREAM_REFERENCE_OFFSETS,
     RECIPE_PRIVATE_PLATE_TILE_GROUPS,
     STUN_SERUM_DEBUFF_CUSTOM,
     STUN_SERUM_IMPACT_CUSTOM,
@@ -61,6 +71,7 @@ from alchemist_art_package import (
     VIGOR_ACTIVATION_HEADER,
     VIGOR_ACTIVATION_PALETTE,
     VIGOR_EFFECT_CUSTOM,
+    RUNTIME_BUILDING_SCALE,
     generated_discrete_strip_tile,
     generated_frost_armor_hold_tile,
     VINES_FIXED_HEADER,
@@ -2099,32 +2110,33 @@ def build_brewing_overlays_xml(
     vigor_activation.find("./Engine/DefaultSound").set("value", "0")
     output.append(vigor_activation)
 
-    # Wizard Tower enchantment is Majesty's stock persistent building-owned
-    # presentation. Keep its Infinite CreateEffector/DeleteEffector lifecycle
-    # and StackPriority, then use Got_Gold's directionless position-owned
-    # registration because the private art is aligned to the Lab's complete
-    # level-3 canvas rather than a retail tower attachment point.
+    # Wizard Guild Supercharge is the exact stock root-owned, directionless
+    # persistent spell loop shown above a charged guild.  Clone its complete
+    # overlay contract; only privatize identity/art and silence the one-time
+    # Supercharge sound because this indicator can start from ordinary reagent
+    # deposits and save initialization.
     ready_source = stock_root.find(
-        './/Description[@Name="wiztower_enchantment"]'
+        './/Description[@Name="super_charge_effector"]'
     )
     if ready_source is None:
-        raise ValueError("Stock Wizard Tower enchantment overlay is missing")
+        raise ValueError("Stock Wizard Guild Supercharge overlay is missing")
     ready = ET.fromstring(ET.tostring(ready_source, encoding="utf-8"))
     ready.set("ID", "ARR1")
     ready.set("Name", "alchemist_reagent_ready_effector")
     ready.set("Description", "Laboratory Reagents Ready")
-    ready_engine = ready.find("./Engine")
     ready_image = ready.find("./Engine/ImageIDBase")
     ready_sound = ready.find("./Engine/DefaultSound")
-    if ready_engine is None or ready_image is None or ready_sound is None:
-        raise ValueError("Stock Wizard Tower enchantment contract changed")
-    ready_image.set("value", "ALR1")
+    if (
+        ready_image is None
+        or ready_sound is None
+        or ready.find('./Engine/Info[@value="Directionless"]') is None
+        or ready.find("./Engine/AttachmentPointID") is not None
+        or ready.find("./Game/StackPriority") is None
+        or ready.find("./Game/StackPriority").get("value") != "0"
+    ):
+        raise ValueError("Stock Wizard Guild Supercharge contract changed")
+    ready_image.set("value", REAGENT_READY_CUSTOM[:4].decode("ascii"))
     ready_sound.set("value", "0")
-    ready_attachment = ready_engine.find("./AttachmentPointID")
-    if ready_attachment is None or ready_attachment.get("value") != "2":
-        raise ValueError("Stock Wizard Tower attachment contract changed")
-    ready_engine.remove(ready_attachment)
-    ready_engine.insert(0, ET.Element("Info", {"value": "Directionless"}))
     output.append(ready)
 
     # Oil ownership is permanent, so the literal lifetime analogue is the
@@ -4455,30 +4467,27 @@ def validate_output(
         './Description[@Name="alchemist_reagent_ready_effector"]'
     )
     if ready_overlay is None:
-        raise ValueError("Private Reagent-ready building effector is missing")
+        raise ValueError("Private Reagents Ready building effector is missing")
     stock_ready_overlay = stock_stone_root.find(
-        './/Description[@Name="wiztower_enchantment"]'
+        './/Description[@Name="super_charge_effector"]'
     )
     if stock_ready_overlay is None:
-        raise ValueError("Stock Wizard Tower enchantment is missing during validation")
+        raise ValueError("Stock Wizard Guild Supercharge is missing")
     expected_ready_overlay = ET.fromstring(
         ET.tostring(stock_ready_overlay, encoding="utf-8")
     )
     expected_ready_overlay.set("ID", "ARR1")
-    expected_ready_overlay.set("Name", "alchemist_reagent_ready_effector")
-    expected_ready_overlay.set("Description", "Laboratory Reagents Ready")
-    expected_ready_engine = expected_ready_overlay.find("./Engine")
-    expected_ready_engine.find("./ImageIDBase").set("value", "ALR1")
-    expected_ready_engine.find("./DefaultSound").set("value", "0")
-    expected_ready_engine.remove(expected_ready_engine.find("./AttachmentPointID"))
-    expected_ready_engine.insert(
-        0, ET.Element("Info", {"value": "Directionless"})
+    expected_ready_overlay.set(
+        "Name", "alchemist_reagent_ready_effector"
     )
+    expected_ready_overlay.set("Description", "Laboratory Reagents Ready")
+    expected_ready_overlay.find("./Engine/ImageIDBase").set("value", "ALR1")
+    expected_ready_overlay.find("./Engine/DefaultSound").set("value", "0")
     if normalized_xml_node(ready_overlay) != normalized_xml_node(
         expected_ready_overlay
     ):
         raise ValueError(
-            "Reagent-ready presentation diverged from its stock building overlay clone"
+            "Reagents Ready diverged from stock Supercharge presenter"
         )
     oil_statuses = (
         (
@@ -4849,44 +4858,143 @@ def validate_output(
     ):
         raise ValueError("Alchemist art CAM contains a stock or obsolete Phoenix channel")
 
-    reagent_ready_image = art_stock.read_cam_entry(
+    reagent_ready_imag = art_stock.read_cam_entry(
         main_art, b"IMAG", REAGENT_READY_CUSTOM
     ).data
+    stock_main = game_path / "Data" / "maindata.cam"
+    stock_reagent_ready_imag = art_stock.read_cam_entry(
+        stock_main, b"IMAG", REAGENT_READY_SOURCE
+    ).data
+    if (
+        hashlib.sha256(stock_reagent_ready_imag).hexdigest()
+        != REAGENT_READY_SOURCE_SHA256
+    ):
+        raise ValueError("Stock Wizard Guild Supercharge IMAG changed")
+    if struct.unpack_from("<I", reagent_ready_imag, 104)[0] != (
+        (REAGENT_READY_FRAME_COUNT << 16) | REAGENT_READY_STREAM_COUNT
+    ):
+        raise ValueError("Reagents Ready lost Supercharge's 30-frame/two-stream table")
     reagent_ready_entries = {
         entry.name.rstrip(b"\x00"): (index, entry.data)
         for index, entry in enumerate(phoenix_tiles)
         if entry.name.rstrip(b"\x00").startswith(b"ALR1Ready")
     }
-    if len(reagent_ready_entries) != len(REAGENT_READY_SOURCE_TILES):
-        raise ValueError("Reagent-ready overlay lost its 16 stock Wizard Tower phases")
-    reagent_ready_reverse: dict[int, int] = {}
-    for frame, source_index in enumerate(REAGENT_READY_SOURCE_TILES):
-        name = f"ALR1Ready{frame:02d}".encode("ascii")
-        private_index, tile = reagent_ready_entries[name]
-        if art_stock.tile_palette_index(tile) != REAGENT_READY_PALETTE:
-            raise ValueError("Reagent-ready overlay lost its yellow-green palette")
-        header = struct.unpack_from("<8H", tile, 0)
-        if (header[2], header[1]) != REAGENT_READY_CANVAS:
-            raise ValueError("Reagent-ready overlay lost the level-3 Lab canvas")
-        if tuple(header[5:7]) != REAGENT_READY_HOTSPOT:
-            raise ValueError("Reagent-ready overlay lost the level-3 Lab hotspot")
-        decoded = art_stock.decode_indexed_v3_tile(tile)
-        if decoded is None or not any(
-            value != 0 for row in decoded[2] for value in row
-        ):
-            raise ValueError("Reagent-ready overlay contains a blank phase")
-        reagent_ready_reverse[private_index] = source_index
-    restored_reagent_ready = art_stock.remap_imag_tile_indices(
-        reagent_ready_image,
-        reagent_ready_reverse,
+    if len(reagent_ready_entries) != (
+        REAGENT_READY_FRAME_COUNT * REAGENT_READY_STREAM_COUNT
+    ):
+        raise ValueError("Reagents Ready lost its 60 private stream TILEs")
+    stock_main_tiles = art_stock.read_cam_entries(stock_main, b"TILE")
+    stock_ready_payloads = tuple(
+        stock_main_tiles[index].data for index in REAGENT_READY_SOURCE_TILES
     )
-    stock_reagent_ready = art_stock.read_cam_entry(
-        game_path / "Data" / "maindata.cam",
-        b"IMAG",
-        REAGENT_READY_SOURCE,
-    ).data
-    if restored_reagent_ready != stock_reagent_ready:
-        raise ValueError("Reagent-ready IMAG diverged from Wizard Tower timing/topology")
+    if (
+        hashlib.sha256(b"".join(stock_ready_payloads)).hexdigest()
+        != REAGENT_READY_SOURCE_TILE_AGGREGATE_SHA256
+    ):
+        raise ValueError("Stock Wizard Guild Supercharge TILE family changed")
+    if tuple(
+        art_stock.tile_palette_index(payload) for payload in stock_ready_payloads
+    ) != REAGENT_READY_SOURCE_PALETTES:
+        raise ValueError("Stock Wizard Guild Supercharge palette family changed")
+    ready_source_path = SOURCE_ROOT.parent / REAGENT_READY_ART_SOURCE
+    if sha256_file(ready_source_path) != REAGENT_READY_ART_SOURCE_SHA256:
+        raise ValueError("Approved Reagents Ready enchantment source changed")
+    owner_candidates = [
+        entry.data
+        for entry in phoenix_tiles
+        if entry.name.rstrip(b"\x00") == b"ALB3Act1027F00"
+    ]
+    if len(owner_candidates) != 1:
+        raise ValueError("Reagents Ready lost its level-3 Laboratory owner")
+    owner_hotspot = struct.unpack_from("<hh", owner_candidates[0], 10)
+    pool_center = tuple(
+        round(value * RUNTIME_BUILDING_SCALE)
+        for value in REAGENT_READY_POOL_CENTER_NATIVE
+    )
+    owner_to_pool = tuple(
+        pool - owner for pool, owner in zip(pool_center, owner_hotspot)
+    )
+    effective_hotspot = tuple(
+        center - displacement
+        for center, displacement in zip(
+            REAGENT_READY_EFFECT_CENTER,
+            owner_to_pool,
+        )
+    )
+    ready_payloads_by_stream: list[list[bytes]] = [[], []]
+    ready_counts_by_stream: list[list[int]] = [[], []]
+    ready_bounds_by_stream: list[list[tuple[int, int, int, int]]] = [[], []]
+    restored_reagent_ready = bytearray(reagent_ready_imag)
+    for stream, (prefix, offsets) in enumerate(
+        zip(("ALR1ReadyB", "ALR1ReadyM"), REAGENT_READY_STREAM_REFERENCE_OFFSETS)
+    ):
+        for frame, offset in enumerate(offsets):
+            source_word = struct.unpack_from("<I", stock_reagent_ready_imag, offset)[0]
+            private_word = struct.unpack_from("<I", reagent_ready_imag, offset)[0]
+            reference_flags = source_word >> 16
+            if private_word >> 16 != reference_flags:
+                raise ValueError("Reagents Ready changed a stock mirror flag")
+            name = f"{prefix}{frame:02d}".encode("ascii")
+            private_index, private_payload = reagent_ready_entries[name]
+            if private_word & 0xFFFF != private_index:
+                raise ValueError("Reagents Ready IMAG references the wrong private TILE")
+            if art_stock.tile_palette_index(private_payload) != REAGENT_READY_PALETTE:
+                raise ValueError("Reagents Ready lost its private purple palette")
+            decoded = art_stock.decode_indexed_v3_tile(private_payload)
+            if decoded is None or (decoded[1], decoded[0]) != REAGENT_READY_CANVAS:
+                raise ValueError("Reagents Ready lost its fixed custom canvas")
+            authored_hotspot = list(struct.unpack_from("<hh", private_payload, 10))
+            visible = [
+                [x, y, value]
+                for y, row in enumerate(decoded[2])
+                for x, value in enumerate(row)
+                if value != 0
+            ]
+            if not visible or any(247 <= value[2] <= 250 for value in visible):
+                raise ValueError("Reagents Ready custom art is empty or has controls")
+            if reference_flags & 0x2000:
+                authored_hotspot[0] = REAGENT_READY_CANVAS[0] - 1 - authored_hotspot[0]
+                for value in visible:
+                    value[0] = REAGENT_READY_CANVAS[0] - 1 - value[0]
+            if reference_flags & 0x4000:
+                authored_hotspot[1] = REAGENT_READY_CANVAS[1] - 1 - authored_hotspot[1]
+                for value in visible:
+                    value[1] = REAGENT_READY_CANVAS[1] - 1 - value[1]
+            if tuple(authored_hotspot) != effective_hotspot:
+                raise ValueError("Reagents Ready lost its fixed pool registration")
+            xs = [value[0] for value in visible]
+            ys = [value[1] for value in visible]
+            bounds = (min(xs), min(ys), max(xs) + 1, max(ys) + 1)
+            ready_payloads_by_stream[stream].append(private_payload)
+            ready_counts_by_stream[stream].append(len(visible))
+            ready_bounds_by_stream[stream].append(bounds)
+            struct.pack_into("<I", restored_reagent_ready, offset, source_word)
+    body_bounds = ready_bounds_by_stream[0]
+    if hashlib.sha256(
+        b"".join(
+            payload
+            for stream_payloads in ready_payloads_by_stream
+            for payload in stream_payloads
+        )
+    ).hexdigest() != REAGENT_READY_CUSTOM_TILE_AGGREGATE_SHA256:
+        raise ValueError("Reagents Ready private TILE family changed")
+    if (
+        any(len(set(payloads)) != REAGENT_READY_FRAME_COUNT for payloads in ready_payloads_by_stream)
+        or min(ready_counts_by_stream[0]) < 180
+        or max(ready_counts_by_stream[0]) > min(ready_counts_by_stream[0]) * 1.45
+        or min(ready_counts_by_stream[1]) < 5
+        or max(bound[0] for bound in body_bounds) - min(bound[0] for bound in body_bounds) > 8
+        or max(bound[2] for bound in body_bounds) - min(bound[2] for bound in body_bounds) > 8
+        or any(
+            not bound[0] <= REAGENT_READY_EFFECT_CENTER[0] <= bound[2]
+            or abs(bound[3] - REAGENT_READY_EFFECT_CENTER[1]) > 5
+            for bound in body_bounds
+        )
+    ):
+        raise ValueError("Reagents Ready custom stream loop changed size or density")
+    if bytes(restored_reagent_ready) != stock_reagent_ready_imag:
+        raise ValueError("Reagents Ready changed Supercharge stream timing/topology")
+
     for image_name, tile_prefix, frame_count, palette_index in (
         (VIGOR_EFFECT_CUSTOM, b"ALV1Spark", 29, 560),
         (FLASH_FLASK_BUFF_CUSTOM, b"AFF1Flask", 29, 560),
@@ -5675,6 +5783,7 @@ def validate_output(
         "#Alchemist_Reagent_Carry_Limit 3",
         "$Alchemist_Update_Reagent_Ready_Effector ( ThisBuilding )",
         "$Alchemist_Update_Reagent_Ready_Effector ( laboratory )",
+        'laboratory\'s "Level" >= 3',
         'laboratory\'s "num_resources" >= 10',
         '"alchemist_reagent_ready_effector"',
         '"Infinite"',
@@ -5696,7 +5805,33 @@ def validate_output(
         or "ActiveScript" in ready_function
     ):
         raise ValueError(
-            "Reagent-ready indicator diverged from the stock Wizard Tower effector lifecycle"
+            "Reagents Ready diverged from the stock Tower effector lifecycle"
+        )
+    ready_birth_function = extract_gpl_function(
+        reagent_source,
+        "Alchemist_Laboratory_Birth_Or_Upgrade",
+    )
+    ready_upgrade_function = extract_gpl_function(
+        reagent_source,
+        "Alchemist_Laboratory_Upgrade",
+    )
+    if (
+        ready_birth_function.count("$Guild_Birth") != 1
+        or ready_birth_function.count("$RunThread") != 1
+        or ready_birth_function.count(
+            "$Alchemist_Update_Reagent_Ready_Effector"
+        )
+        != 2
+        or "#ATTRIB_FirstStageBuilt" not in ready_birth_function
+        or "#ATTRIB_CurrentStageBuilt" not in ready_birth_function
+        or "#palace_upgrade_check" not in ready_birth_function
+        or ready_upgrade_function.count("$basic_upgrade") != 1
+        or ready_upgrade_function.count("$RunThread") != 1
+        or "#palace_upgrade_check" not in ready_upgrade_function
+        or "BuildingReachedMaxHP" in reagent_source
+    ):
+        raise ValueError(
+            "Reagents Ready lost the stock Palace/Restore Zoo upgrade poll"
         )
     for unsafe_reagent_contract in (
         "AlchemistReagent",
@@ -5743,12 +5878,18 @@ def validate_output(
         raise ValueError("Every Laboratory level must use the combined stock visit dispatcher")
     for contract in (
         "(birthscript basic_birth)",
-        "(birthScript2 Guild_Birth)",
         "(member_basicscript Alchemist_tree)",
-        "(upgradescript basic_upgrade)",
     ):
         if contract not in building_data:
             raise ValueError(f"GPL construction contract is missing: {contract}")
+    if building_data.count(
+        "(birthScript2 Alchemist_Laboratory_Birth_Or_Upgrade)"
+    ) != 3 or building_data.count(
+        "(upgradescript Alchemist_Laboratory_Upgrade)"
+    ) != 2:
+        raise ValueError(
+            "Laboratory data lost the private stock upgrade-completion slots"
+        )
     compiled = output_root / "Data" / "Alchemist.bcd"
     if compiled.stat().st_size == 0:
         raise ValueError("Compiled Alchemist bytecode is empty")
@@ -5758,6 +5899,15 @@ def validate_output(
         raise ValueError("Compiled Alchemist bytecode lost its private Vigor symbol")
     if b"Alchemist_Arcane_Infusion" not in compiled_symbols:
         raise ValueError("Compiled Alchemist bytecode lost Arcane Infusion")
+    for symbol in (
+        b"Alchemist_Update_Reagent_Ready_Effector",
+        b"Alchemist_Laboratory_Birth_Or_Upgrade",
+        b"Alchemist_Laboratory_Upgrade",
+    ):
+        if symbol not in compiled_symbols:
+            raise ValueError(
+                f"Compiled Alchemist bytecode lost Reagents Ready symbol {symbol!r}"
+            )
     for symbol in (
         b"Alchemist_Flash_Flask_Begin",
         b"Alchemist_Flash_Flask_End",

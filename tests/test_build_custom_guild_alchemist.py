@@ -16,9 +16,61 @@ import approved_sprite_bundle as sprite_bundle
 
 
 class AlchemistGuildTests(unittest.TestCase):
-    def test_reagent_ready_glow_uses_reviewed_pool_position(self) -> None:
-        self.assertEqual(art_package.REAGENT_READY_ART_BOX, (121, 133, 201, 178))
-        self.assertEqual(art_package.REAGENT_READY_SOURCE_CROP_TOP, 0.62)
+    def test_building_v2_and_ready_overlay_contract_is_frozen(self) -> None:
+        self.assertEqual(
+            art_package.APPROVED_BUILDING_ROOT,
+            Path("assets/source/approved-alchemist-building-set-v2"),
+        )
+        self.assertEqual(
+            art_package.REAGENT_READY_SOURCE,
+            b"WRF1super_charge_e",
+        )
+        self.assertEqual(
+            art_package.REAGENT_READY_SOURCE_TILES,
+            tuple(range(2296, 2326)),
+        )
+        self.assertEqual(
+            art_package.REAGENT_READY_SOURCE_PALETTES,
+            (*(175 for _ in range(5)), *(176 for _ in range(24)), 177),
+        )
+        self.assertEqual(art_package.REAGENT_READY_FRAME_COUNT, 30)
+        self.assertEqual(
+            art_package.REAGENT_READY_PALETTE,
+            building_bundle.ACTIVE_GLOW_PALETTE_INDEX,
+        )
+        self.assertEqual(art_package.REAGENT_READY_CANVAS, (213, 269))
+        self.assertEqual(art_package.REAGENT_READY_EFFECT_CENTER, (162, 208))
+        self.assertEqual(
+            art_package.REAGENT_READY_ART_SOURCE_SHA256,
+            "9db29df515ba925aafa08fec380dc1647bde558c43b39ec4757c037e1d35ea98",
+        )
+        self.assertEqual(
+            art_package.REAGENT_READY_CUSTOM_TILE_AGGREGATE_SHA256,
+            "e3e1033a4be50e1820a02bd21a9b8f84ab0d7bea816ab9b14d25b47c920a4d7c",
+        )
+        self.assertEqual(art_package.REAGENT_READY_POOL_CENTER_NATIVE, (165, 149))
+        self.assertEqual(
+            building_bundle.ACTIVE_PULSE_FACTORS,
+            (
+                1.0,
+                1.0707106781186548,
+                1.1,
+                1.0707106781186548,
+                1.0,
+                0.9292893218813453,
+                0.9,
+                0.9292893218813453,
+            ),
+        )
+        self.assertEqual(building_bundle.ACTIVE_GLOW_PALETTE_INDEX, 855)
+        self.assertEqual(
+            building_bundle.HIRES_AUTHORITY_DIRECTORY,
+            "approved-alchemist-building-hires-v2",
+        )
+        self.assertEqual(
+            building_bundle.HIRES_AUTHORITY_MANIFEST_SHA256,
+            "b4649a3d04b829a9815eded14d640c0f22ba2ae45e2c213f877d6c522ffc5e78",
+        )
 
     def test_brewing_header_keeps_stock_ornament_and_private_backing(self) -> None:
         class StockTileFixture:
@@ -334,31 +386,55 @@ class AlchemistGuildTests(unittest.TestCase):
             list(building_bundle.SOURCE_IMAG_SET_COUNTS),
         )
         building_states = building_provenance["states"]
-        for level, geometry_source in (
-            building_bundle.STABLE_STATE_GEOMETRY_SOURCE_BY_LEVEL.items()
-        ):
-            stable_states = [
-                record
-                for record in building_states
-                if record["level"] == level
-                and record["role"] in ("inactive", "active")
-            ]
-            self.assertTrue(stable_states)
-            self.assertEqual(
-                {record["geometry_source_tile_index"] for record in stable_states},
-                {geometry_source},
-            )
-            self.assertEqual(
-                len({tuple(record["packaged_canvas"]) for record in stable_states}),
-                1,
-            )
-            self.assertEqual(
-                len({tuple(record["packaged_hotspot"]) for record in stable_states}),
-                1,
-            )
+        self.assertEqual(
+            building_provenance["runtime_body_manifest_sha256"],
+            building_bundle.HIRES_AUTHORITY_MANIFEST_SHA256,
+        )
         for record in building_provenance["states"]:
+            self.assertEqual(record["source_canvas"], record["object_canvas"])
+            self.assertEqual(
+                record["packaged_canvas"],
+                [
+                    round(value * building_bundle.RUNTIME_BUILDING_SCALE)
+                    for value in record["object_canvas"]
+                ],
+            )
+            self.assertEqual(record["body_source_offset_in_object"], [0, 0])
+            self.assertEqual(
+                record["runtime_visible_resample"],
+                "approved-r14-source-direct-to-final-canvas",
+            )
+            self.assertEqual(len(record["runtime_body_source_sha256"]), 64)
+            self.assertEqual(len(record["accepted_native_body_sha256"]), 64)
+            self.assertEqual(
+                record["runtime_body_paste_offset"],
+                [
+                    round(value * building_bundle.RUNTIME_BUILDING_SCALE)
+                    for value in record["native_body_paste_offset"]
+                ],
+            )
+            self.assertEqual(
+                record["packaged_hotspot"],
+                [
+                    round(value * building_bundle.RUNTIME_BUILDING_SCALE)
+                    + delta
+                    for value, delta in zip(
+                        record["source_hotspot"],
+                        building_bundle.RUNTIME_HOTSPOT_DELTA_BY_LEVEL[
+                            record["level"]
+                        ],
+                    )
+                ],
+            )
             tile = output_tiles[record["private_tile_index"]].data
-            self.assertEqual(stock.tile_palette_index(tile), 68)
+            self.assertEqual(
+                stock.tile_palette_index(tile),
+                (
+                    building_bundle.ACTIVE_GLOW_PALETTE_INDEX
+                    if record["role"] == "active"
+                    else building_bundle.SOURCE_PALETTE_INDEX
+                ),
+            )
             self.assertEqual(
                 list(struct.unpack_from("<hh", tile, 10)),
                 record["packaged_hotspot"],
@@ -366,7 +442,45 @@ class AlchemistGuildTests(unittest.TestCase):
             decoded = stock.decode_indexed_v3_tile(tile)
             self.assertIsNotNone(decoded)
             self.assertEqual([decoded[1], decoded[0]], record["packaged_canvas"])
+            flat_indices = [value for row in decoded[2] for value in row]
+            for index, count in record["accepted_control_counts"].items():
+                self.assertEqual(
+                    flat_indices.count(int(index)),
+                    count * round(building_bundle.RUNTIME_BUILDING_SCALE) ** 2,
+                )
             sprite_bundle.validate_split_control_segments(tile)
+        ready = building_provenance["reagents_ready"]
+        self.assertEqual(ready["stock_analogue"], "WRF1super_charge_e")
+        self.assertEqual(len(ready["private_tile_indices"]), 60)
+        self.assertEqual(
+            [stream["layer"] for stream in ready["private_streams"]],
+            ["body", "motes"],
+        )
+        self.assertEqual(
+            [len(stream["frames"]) for stream in ready["private_streams"]],
+            [30, 30],
+        )
+        self.assertEqual(
+            ready["private_palette_index"],
+            building_bundle.ACTIVE_GLOW_PALETTE_INDEX,
+        )
+        self.assertEqual(ready["private_canvas"], [213, 269])
+        self.assertEqual(ready["private_effect_center"], [162, 208])
+        self.assertEqual(
+            ready["private_art_source_sha256"],
+            art_package.REAGENT_READY_ART_SOURCE_SHA256,
+        )
+        self.assertEqual(
+            ready["private_tile_aggregate_sha256"],
+            art_package.REAGENT_READY_CUSTOM_TILE_AGGREGATE_SHA256,
+        )
+        self.assertEqual(
+            sum(
+                entry.name.rstrip(b"\x00").startswith(b"ALR1Ready")
+                for entry in output_tiles
+            ),
+            60,
+        )
         flash_activation = packaged_effects[
             art_package.FLASH_FLASK_ACTIVATION_CUSTOM
         ]
@@ -989,7 +1103,15 @@ class AlchemistGuildTests(unittest.TestCase):
         for name in builder.BUILDING_NAMES:
             self.assertIn(f"[{name}]", data)
         self.assertIn("(birthscript basic_birth)", data)
-        self.assertIn("(birthScript2 Guild_Birth)", data)
+        self.assertEqual(
+            data.count(
+                "(birthScript2 Alchemist_Laboratory_Birth_Or_Upgrade)"
+            ),
+            3,
+        )
+        self.assertEqual(
+            data.count("(upgradescript Alchemist_Laboratory_Upgrade)"), 2
+        )
         self.assertIn("(member_basicscript Alchemist_tree)", data)
         self.assertEqual(data.count("(Visited_Script Alchemy_Lab_Visited)"), 3)
         self.assertEqual(data.count("(member_title Alchemist)"), 3)
@@ -1823,7 +1945,7 @@ end
         )
 
     def test_brewing_overlay_has_a_private_callback(self) -> None:
-        stock = """<Majesty><Description type="Unit" subType="Overlay" ID="QRa1" Name="Rage_icon" Description="Rage of Krolm"><Engine><Info value="Directionless"/><Info value="DontBlock"/><ImageIDBase value="QRa1"/><Script type="0" cProc="0" GPLFunction="rage_end"/></Engine><Game><StackPriority value="1"/></Game></Description><Description type="Unit" subType="Overlay" ID="QRd0" Name="ring_icon" Description="This hero has the Magic Ring."><Engine><Info value="Static"/><Info value="Directionless"/><Info value="DontBlock"/><Menu value="11"/><ImageIDBase value="QRd0"/><DefaultSound value="0"/></Engine><Game><DialogID value="0"/><StackPriority value="0"/></Game></Description><Description type="Unit" subType="Overlay" ID="HRC1" Name="resurrection_effector" Description="Resurrection"><Engine><Info value="Directionless"/><Info value="DontBlock"/><Menu value="11"/><ImageIDBase value="HRC1"/><DefaultSound value="Resurrection"/><Script type="0" cProc="0" GPLFunction="Resurrection_End"/></Engine><Game><StackPriority value="0"/><Flags value="TransparentToMouse"/></Game></Description><Description type="Unit" subType="Overlay" ID="ARB2" Name="Got_Gold" Description="Got gold"><Engine><Info value="Directionless"/><Info value="DontBlock"/><CanUse value="HumanPlayer"/><Menu value="11"/><ImageIDBase value="ARB2"/><DefaultSound value="Got_Gold"/></Engine><Game><DialogID value="0"/><StackPriority value="0"/></Game></Description><Description type="Unit" subType="Overlay" ID="ARM1" Name="wiztower_enchantment" Description="Tower enchantment"><Engine><Info value="DontBlock"/><CanUse value="HumanPlayer"/><Menu value="11"/><ImageIDBase value="ARM1"/><AttachmentPointID value="2"/><DefaultSound value="Wizard_Tower_Enchant"/></Engine><Game><DialogID value="0"/><StackPriority value="1"/></Game></Description></Majesty>"""
+        stock = """<Majesty><Description type="Unit" subType="Overlay" ID="QRa1" Name="Rage_icon" Description="Rage of Krolm"><Engine><Info value="Directionless"/><Info value="DontBlock"/><ImageIDBase value="QRa1"/><Script type="0" cProc="0" GPLFunction="rage_end"/></Engine><Game><StackPriority value="1"/></Game></Description><Description type="Unit" subType="Overlay" ID="QRd0" Name="ring_icon" Description="This hero has the Magic Ring."><Engine><Info value="Static"/><Info value="Directionless"/><Info value="DontBlock"/><Menu value="11"/><ImageIDBase value="QRd0"/><DefaultSound value="0"/></Engine><Game><DialogID value="0"/><StackPriority value="0"/></Game></Description><Description type="Unit" subType="Overlay" ID="HRC1" Name="resurrection_effector" Description="Resurrection"><Engine><Info value="Directionless"/><Info value="DontBlock"/><Menu value="11"/><ImageIDBase value="HRC1"/><DefaultSound value="Resurrection"/><Script type="0" cProc="0" GPLFunction="Resurrection_End"/></Engine><Game><StackPriority value="0"/><Flags value="TransparentToMouse"/></Game></Description><Description type="Unit" subType="Overlay" ID="ARB2" Name="Got_Gold" Description="Got gold"><Engine><Info value="Directionless"/><Info value="DontBlock"/><CanUse value="HumanPlayer"/><Menu value="11"/><ImageIDBase value="ARB2"/><DefaultSound value="Got_Gold"/></Engine><Game><DialogID value="0"/><StackPriority value="0"/></Game></Description><Description type="Unit" subType="Overlay" ID="WRF1" Name="super_charge_effector" Description="Super Charge"><Engine><Info value="Directionless"/><Info value="DontBlock"/><Menu value="11"/><ImageIDBase value="WRF1"/><DefaultSound value="Supercharge"/></Engine><Game><DialogID value="0"/><StackPriority value="0"/><Flags value="TransparentToMouse"/></Game></Description></Majesty>"""
         stock = stock.replace(
             "</Majesty>",
             '<Description type="Unit" subType="Overlay" ID="ARD1" '
@@ -1908,7 +2030,7 @@ end
         self.assertEqual(ready.find("./Engine/DefaultSound").get("value"), "0")
         self.assertIsNone(ready.find("./Engine/AttachmentPointID"))
         self.assertIsNotNone(ready.find('./Engine/Info[@value="Directionless"]'))
-        self.assertEqual(ready.find("./Game/StackPriority").get("value"), "1")
+        self.assertEqual(ready.find("./Game/StackPriority").get("value"), "0")
         statuses = output.findall("Description")[6:]
         self.assertEqual(len(statuses), 3)
         self.assertEqual(
@@ -2185,6 +2307,7 @@ end
             "#Alchemist_Reagent_Carry_Limit 3",
             "$Alchemist_Update_Reagent_Ready_Effector ( ThisBuilding )",
             "$Alchemist_Update_Reagent_Ready_Effector ( laboratory )",
+            'laboratory\'s "Level" >= 3',
             'laboratory\'s "num_resources" >= 10',
             '"alchemist_reagent_ready_effector"',
             '"Infinite"',
@@ -2216,6 +2339,28 @@ end
         self.assertEqual(ready_source.count("$DeleteEffector"), 1)
         self.assertNotIn("$NewThread", ready_source)
         self.assertNotIn("$RunThread", ready_source)
+        ready_birth = reagent_source.split(
+            "function Alchemist_Laboratory_Birth_Or_Upgrade", 1
+        )[1].split(
+            "function Alchemist_Laboratory_Upgrade", 1
+        )[0]
+        ready_upgrade = reagent_source.split(
+            "function Alchemist_Laboratory_Upgrade", 1
+        )[1].split(
+            "function Alchemist_Update_Reagent_Ready_Effector", 1
+        )[0]
+        self.assertEqual(ready_birth.count("$Guild_Birth"), 1)
+        self.assertEqual(ready_birth.count("$RunThread"), 1)
+        self.assertEqual(
+            ready_birth.count("$Alchemist_Update_Reagent_Ready_Effector"), 2
+        )
+        self.assertIn("#ATTRIB_FirstStageBuilt", ready_birth)
+        self.assertIn("#ATTRIB_CurrentStageBuilt", ready_birth)
+        self.assertIn("#palace_upgrade_check", ready_birth)
+        self.assertEqual(ready_upgrade.count("$basic_upgrade"), 1)
+        self.assertEqual(ready_upgrade.count("$RunThread"), 1)
+        self.assertIn("#palace_upgrade_check", ready_upgrade)
+        self.assertNotIn("BuildingReachedMaxHP", reagent_source)
         for nonstock_inventory_contract in (
             "AlchemistReagent",
             "$CreateNewInventoryItem",

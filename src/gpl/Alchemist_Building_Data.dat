@@ -12,9 +12,9 @@
 		(Lived_In_Script Alchemist_Lived_In)
 		(Sleep_for 30000)
 		(birthscript basic_birth)
-		(birthScript2 Guild_Birth)
+		(birthScript2 Alchemist_Laboratory_Birth_Or_Upgrade)
 		(IGdeathscript guild_destroyed_a)
-		(upgradescript basic_upgrade)
+		(upgradescript Alchemist_Laboratory_Upgrade)
 	}
 [end]
 
@@ -32,8 +32,9 @@
 		(Lived_In_Script Alchemist_Lived_In)
 		(Sleep_for 30000)
 		(birthScript Guild_Birth)
+		(birthScript2 Alchemist_Laboratory_Birth_Or_Upgrade)
 		(IGdeathscript guild_destroyed_a)
-		(upgradescript basic_upgrade)
+		(upgradescript Alchemist_Laboratory_Upgrade)
 	}
 [end]
 
@@ -51,6 +52,7 @@
 		(Lived_In_Script Alchemist_Lived_In)
 		(Sleep_for 30000)
 		(birthScript Guild_Birth)
+		(birthScript2 Alchemist_Laboratory_Birth_Or_Upgrade)
 		(IGdeathscript guild_destroyed_a)
 	}
 [end]

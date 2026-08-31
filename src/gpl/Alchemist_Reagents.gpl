@@ -214,6 +214,39 @@ begin
 end
 
 ///////////////////////////////////////////////////////////////////////////////
+function Alchemist_Laboratory_Birth_Or_Upgrade ( agent laboratory )
+///////////////////////////////////////////////////////////////////////////////
+// Restore Zoo's proven private-building adaptation of Palace_upgrade2. Guild
+// declares birthScript2 but has no post-upgrade callback: preserve Guild_Birth
+// for first construction, poll the stock CurrentStageBuilt bit at Palace's
+// stock cadence during upgrades, and refresh only after the new Level exists.
+declare
+begin
+	if ( $GetAttribute ( laboratory, #ATTRIB_FirstStageBuilt ) != 1 )
+		begin
+			$Guild_Birth ( laboratory );
+			$Alchemist_Update_Reagent_Ready_Effector ( laboratory );
+		end
+	else if ( $GetAttribute ( laboratory, #ATTRIB_CurrentStageBuilt ) != 1 )
+		$RunThread (
+			laboratory's "birthScript2", #palace_upgrade_check, laboratory );
+	else
+		$Alchemist_Update_Reagent_Ready_Effector ( laboratory );
+end
+
+///////////////////////////////////////////////////////////////////////////////
+function Alchemist_Laboratory_Upgrade ( agent laboratory )
+///////////////////////////////////////////////////////////////////////////////
+// Literal stock palace_upgrade timing shape, using Guild's declared
+// birthScript2 slot as Restore Zoo does for an otherwise ordinary building.
+declare
+begin
+	$basic_upgrade ( laboratory );
+	$RunThread (
+		laboratory's "birthScript2", #palace_upgrade_check, laboratory );
+end
+
+///////////////////////////////////////////////////////////////////////////////
 function Alchemist_Update_Reagent_Ready_Effector ( agent laboratory )
 ///////////////////////////////////////////////////////////////////////////////
 // Literal Wizard Tower enchantment ownership: an Infinite building effector
@@ -229,7 +262,8 @@ begin
 		laboratory,
 		"alchemist_reagent_ready_effector"
 	);
-	if ( laboratory's "num_resources" >= 10 )
+	if ( laboratory's "Level" >= 3 &&
+		laboratory's "num_resources" >= 10 )
 		begin
 			if ( Has_Ready_Effector == FALSE )
 				$CreateEffector (

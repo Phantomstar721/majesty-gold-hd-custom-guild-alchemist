@@ -6,7 +6,7 @@ from pathlib import Path
 import struct
 import sys
 
-from PIL import Image, ImageChops, ImageDraw
+from PIL import Image, ImageChops, ImageDraw, ImageEnhance, ImageFilter, ImageOps
 
 from approved_sprite_bundle import (
     load_approved_sprite_bundle,
@@ -18,12 +18,19 @@ from approved_sprite_bundle import (
     validate_packaged_approved_sprite_cam,
 )
 from approved_building_bundle import (
+    ACTIVE_GLOW_PALETTE_INDEX,
+    ACTIVE_GLOW_PALETTE_NAME,
+    ACTIVE_PULSE_FACTORS,
+    HIRES_AUTHORITY_MANIFEST_SHA256,
     PAYLOAD_AGGREGATE_SHA256 as APPROVED_BUILDING_PAYLOAD_SHA256,
+    RUNTIME_BUILDING_SCALE,
+    RUNTIME_HOTSPOT_DELTA_BY_LEVEL,
     SOURCE_IMAG_NAMES as APPROVED_BUILDING_SOURCE_IMAGS,
+    active_glow_palette_data,
+    expand_marketplace_active_animation,
     load_approved_building_bundle,
-    package_approved_building_tile,
+    package_runtime_building_tile,
     patch_approved_building_imag,
-    stable_state_geometry,
     validate_packaged_approved_building_cam,
 )
 
@@ -152,21 +159,49 @@ MIASMA_CLOUD_SATURATION = 1.40
 MIASMA_PARTICLE_BRIGHTNESS = 0.95
 MIASMA_PARTICLE_SATURATION = 1.40
 MIASMA_PARTICLE_ALPHA_SCALE = 0.72
-REAGENT_READY_SOURCE = b"ARM1WizardTower"
+# Wizard Guild Supercharge is Majesty's stock persistent, root-owned magical
+# building loop. Reagents Ready retains that complete 30-frame/two-stream IMAG
+# lifecycle, while every visible TILE is private purple enchantment artwork
+# registered on the Laboratory's brewing pool.
+REAGENT_READY_SOURCE = b"WRF1super_charge_e"
 REAGENT_READY_CUSTOM = b"ALR1Reagent Ready"
 REAGENT_READY_SOURCE_SHA256 = (
-    "eafcd91a5f8f63da85bc7f692e4dc75737ed71cc2d388dd9341f912815f1bb7c"
+    "57fb612a14df922fab9633edca411a7c51d23e7ba84ef34fd3b381a44f5e7bb7"
 )
-REAGENT_READY_SOURCE_TILES = tuple(range(2349, 2365))
-REAGENT_READY_PALETTE = 577
-REAGENT_READY_CANVAS = (269, 213)
-REAGENT_READY_HOTSPOT = (140, 65)
-# The accepted level-3 sprite's round green potion pool occupies the lower
-# center of the object canvas. The first live build fitted the full portrait
-# effect into a narrow box, leaving only a tiny off-center wisp. Use the broad
-# bubbling lower half of that art and cover the actual pool surface instead.
-REAGENT_READY_ART_BOX = (121, 133, 201, 178)
-REAGENT_READY_SOURCE_CROP_TOP = 0.62
+REAGENT_READY_SOURCE_TILES = tuple(range(2296, 2326))
+REAGENT_READY_SOURCE_TILE_AGGREGATE_SHA256 = (
+    "5c6caa2ea5d117a1ab3ef429c44388ee6cdadaae159f201f60e92cbe5998dd36"
+)
+REAGENT_READY_SOURCE_PALETTES = (
+    *(175 for _ in range(5)),
+    *(176 for _ in range(24)),
+    177,
+)
+REAGENT_READY_ART_SOURCE = Path(
+    "assets/source/effects/reagent-ready/"
+    "alchemist-reagent-ready-enchant-source-v2.png"
+)
+REAGENT_READY_ART_SOURCE_SHA256 = (
+    "9db29df515ba925aafa08fec380dc1647bde558c43b39ec4757c037e1d35ea98"
+)
+REAGENT_READY_CUSTOM_TILE_AGGREGATE_SHA256 = (
+    "e3e1033a4be50e1820a02bd21a9b8f84ab0d7bea816ab9b14d25b47c920a4d7c"
+)
+REAGENT_READY_FRAME_COUNT = len(REAGENT_READY_SOURCE_TILES)
+REAGENT_READY_STREAM_COUNT = 2
+REAGENT_READY_STREAM_REFERENCE_OFFSETS = (
+    tuple(0x80 + frame * 8 for frame in range(REAGENT_READY_FRAME_COUNT)),
+    tuple(0x170 + frame * 8 for frame in range(REAGENT_READY_FRAME_COUNT)),
+)
+REAGENT_READY_PALETTE = ACTIVE_GLOW_PALETTE_INDEX
+REAGENT_READY_CANVAS = (213, 269)
+REAGENT_READY_EFFECT_CENTER = (162, 208)
+REAGENT_READY_EFFECT_SIZE = (62, 108)
+# The accepted raster's nominal pool center landed the live two-stream effect
+# slightly low/right. This corrected registered target moves every retained
+# WRF1 stream together by ten runtime pixels left and four pixels up.
+REAGENT_READY_POOL_CENTER_NATIVE = (165, 149)
+REAGENT_READY_LEVEL3_ACTIVE_SOURCE_TILE = 1027
 METEOR_STORM_RADIUS = 175
 # Keep Tempest's private Meteor field on the complete stock field footprint.
 # The previous second scale-down made its visible boundary too small to
@@ -190,7 +225,7 @@ BUILDING_PALETTE = 560
 # forest green and copper into blue-black. Fervus building palette 560 retains
 # both materials and already owns the stock 247-250 sprite controls.
 HERO_ART_PALETTE = 560
-APPROVED_BUILDING_ROOT = Path("assets/source/approved-alchemist-building-set-v1")
+APPROVED_BUILDING_ROOT = Path("assets/source/approved-alchemist-building-set-v2")
 APPROVED_INTERFACE_ART_SHA256 = {
     HERO_PORTRAIT_TILE: "f78a44a14bff09a378e4392a2bbaa7c25d4ed7405a48b0cddd7428843113c944",
     HERO_ICON_TILE: "3131dd204cc42d6c8ac2a5cb865e65ae1a5eeb942c7c8fb160feda61c9fc81a0",
@@ -451,109 +486,6 @@ def generated_miasma_particle_tile(
     )
 
 
-def generated_reagent_ready_tile(
-    stock,
-    template_tile: bytes,
-    palettes,
-    source_png: Path,
-    frame_index: int,
-    frame_count: int,
-) -> bytes:
-    """Paint a clear bubbling pulse over the level-3 Lab's potion pool."""
-    from PIL import ImageEnhance
-
-    header = list(struct.unpack_from("<8H", template_tile, 0))
-    height, width = header[1], header[2]
-    if (width, height) != REAGENT_READY_CANVAS:
-        raise ValueError(
-            f"Level-3 Reagent overlay canvas changed: {(width, height)}"
-        )
-    if tuple(header[5:7]) != REAGENT_READY_HOTSPOT:
-        raise ValueError(
-            f"Level-3 Reagent overlay hotspot changed: {tuple(header[5:7])}"
-        )
-
-    with Image.open(source_png) as loaded:
-        source = loaded.convert("RGBA")
-    bbox = source.getchannel("A").getbbox()
-    if bbox is None:
-        raise ValueError("Reagent-ready source has no visible alpha")
-    source = source.crop(bbox)
-    crop_top = round(source.height * REAGENT_READY_SOURCE_CROP_TOP)
-    source = source.crop((0, crop_top, source.width, source.height))
-
-    left, top, right, bottom = REAGENT_READY_ART_BOX
-    target_width = right - left
-    target_height = bottom - top
-    fit = min(
-        target_width / max(1, source.width),
-        target_height / max(1, source.height),
-    )
-    source = source.resize(
-        (
-            max(2, round(source.width * fit)),
-            max(2, round(source.height * fit)),
-        ),
-        Image.Resampling.LANCZOS,
-    )
-    phase = 2.0 * math.pi * frame_index / max(1, frame_count)
-    pulse = 0.95 + 0.25 * (0.5 + 0.5 * math.sin(phase))
-    source = ImageEnhance.Brightness(source).enhance(pulse)
-    alpha = source.getchannel("A").point(lambda value: round(value * 0.92))
-    source.putalpha(alpha)
-
-    canvas = Image.new("RGBA", (width, height), (0, 0, 0, 0))
-    canvas.alpha_composite(
-        source,
-        (
-            left + (target_width - source.width) // 2,
-            bottom - source.height + round(math.sin(phase)),
-        ),
-    )
-    # The source contributes the bubbling plume. A broad, crisp pool ring makes
-    # the readiness state legible at Majesty's native zoom and fixes the live
-    # presentation's previous resemblance to a stray yellow particle.
-    ring = Image.new("RGBA", (width, height), (0, 0, 0, 0))
-    draw = ImageDraw.Draw(ring)
-    ring_brightness = 0.82 + 0.18 * (0.5 + 0.5 * math.sin(phase))
-    outer_color = (
-        round(205 * ring_brightness),
-        round(242 * ring_brightness),
-        round(72 * ring_brightness),
-        235,
-    )
-    inner_color = (
-        250,
-        round(218 * ring_brightness),
-        round(70 * ring_brightness),
-        245,
-    )
-    draw.ellipse((129, 150, 194, 180), outline=outer_color, width=2)
-    arc_start = round(frame_index * 360 / max(1, frame_count))
-    draw.arc(
-        (135, 154, 188, 176),
-        start=arc_start,
-        end=arc_start + 150,
-        fill=inner_color,
-        width=2,
-    )
-    draw.arc(
-        (135, 154, 188, 176),
-        start=arc_start + 180,
-        end=arc_start + 270,
-        fill=inner_color,
-        width=1,
-    )
-    canvas.alpha_composite(ring)
-    header[4] = 32
-    return stock.rgba_to_indexed_tile(
-        canvas,
-        palettes,
-        REAGENT_READY_PALETTE,
-        tuple(header),
-    )
-
-
 def generated_approved_strip_tile(
     stock,
     template_tile: bytes,
@@ -612,6 +544,221 @@ def generated_approved_strip_tile(
         palette_index,
         tuple(header),
     )
+
+
+def generated_reagent_ready_enchant_tile(
+    stock,
+    palettes,
+    source_png: Path,
+    frame_index: int,
+    frame_count: int,
+    layer: str,
+    reference_flags: int,
+    header_words: tuple[int, int, int, int, int, int, int, int],
+) -> bytes:
+    """Render one seamless purple enchantment phase on the brewing pool.
+
+    WRF1 remains the timing and two-stream owner. This routine supplies only
+    private visible art split along WRF1's two coupled streams: stream zero is
+    the halo/helix body and stream one owns sparse rising motes. Stock mirror
+    flags are pre-applied to the pixels and hotspot, so the engine's retained
+    transform restores both layers onto the same pool center without drift.
+    """
+
+    if not 0 <= frame_index < frame_count or frame_count < 2:
+        raise ValueError("Reagents Ready frame index is outside its stock loop")
+    if layer not in ("body", "motes"):
+        raise ValueError("Reagents Ready custom layer changed")
+    if reference_flags & ~0x6000:
+        raise ValueError("Reagents Ready encountered an unknown stock transform")
+
+    phase_ratio = frame_index / frame_count
+    phase = math.tau * phase_ratio
+    local_size = (
+        REAGENT_READY_EFFECT_SIZE[0] + 12,
+        REAGENT_READY_EFFECT_SIZE[1] + 12,
+    )
+    local = Image.new("RGBA", local_size, (0, 0, 0, 0))
+    draw = ImageDraw.Draw(local, "RGBA")
+    center_x = local.width // 2
+    base_y = local.height - 6
+    if layer == "body":
+        with Image.open(source_png) as loaded:
+            source = loaded.convert("RGBA")
+        source_box = source.getchannel("A").getbbox()
+        if source_box is None:
+            raise ValueError("Reagents Ready enchantment source is transparent")
+        source = source.crop(source_box).resize(
+            REAGENT_READY_EFFECT_SIZE,
+            Image.Resampling.LANCZOS,
+        )
+        source = ImageEnhance.Brightness(source).enhance(
+            0.86 + 0.08 * math.sin(phase)
+        )
+        source_alpha = source.getchannel("A").point(
+            lambda value: min(255, round(value * 0.76))
+        )
+        source.putalpha(source_alpha)
+        ribbon = Image.new("RGBA", local_size, (0, 0, 0, 0))
+        for y in range(source.height):
+            vertical_phase = math.tau * 1.65 * y / max(1, source.height - 1)
+            shift = round(3.2 * math.sin(phase + vertical_phase))
+            ribbon.alpha_composite(
+                source.crop((0, y, source.width, y + 1)),
+                (6 + shift, 3 + y),
+            )
+        glow_alpha = ribbon.getchannel("A").filter(
+            ImageFilter.GaussianBlur(1.5)
+        )
+        glow_alpha = glow_alpha.point(lambda value: round(value * 0.52))
+        glow = Image.new("RGBA", local_size, (120, 42, 220, 0))
+        glow.putalpha(glow_alpha)
+        local = Image.alpha_composite(glow, ribbon)
+        draw = ImageDraw.Draw(local, "RGBA")
+        ring_box = (
+            center_x - 25,
+            base_y - 6,
+            center_x + 25,
+            base_y + 6,
+        )
+        for segment in range(3):
+            start = phase_ratio * 360.0 + segment * 120.0
+            draw.arc(
+                ring_box,
+                start=start,
+                end=start + 58.0,
+                fill=(224, 155, 255, 215),
+                width=2,
+            )
+    else:
+        for particle in range(7):
+            progress = (phase_ratio + particle / 7.0) % 1.0
+            orbit = math.tau * (progress * 1.75 + particle * 0.19)
+            depth = (math.sin(orbit) + 1.0) * 0.5
+            radius = 10.0 + 10.0 * (1.0 - progress)
+            x = round(center_x + math.cos(orbit) * radius)
+            y = round(base_y - 8 - progress * (local.height - 25))
+            size = 1 if depth < 0.48 else 2
+            alpha = round(105 + depth * 135)
+            draw.polygon(
+                ((x, y - size), (x + size, y), (x, y + size), (x - size, y)),
+                fill=(210, 126, 255, alpha),
+            )
+            if depth > 0.72:
+                draw.point((x, y), fill=(255, 240, 255, 255))
+
+    canvas = Image.new("RGBA", REAGENT_READY_CANVAS, (0, 0, 0, 0))
+    canvas.alpha_composite(
+        local,
+        (
+            REAGENT_READY_EFFECT_CENTER[0] - local.width // 2,
+            REAGENT_READY_EFFECT_CENTER[1] - local.height,
+        ),
+    )
+    if reference_flags & 0x2000:
+        canvas = ImageOps.mirror(canvas)
+    if reference_flags & 0x4000:
+        canvas = ImageOps.flip(canvas)
+    return stock.rgba_to_indexed_tile(
+        canvas,
+        palettes,
+        REAGENT_READY_PALETTE,
+        header_words,
+    )
+
+
+def reagent_ready_authored_hotspot(
+    owner_to_pool: tuple[int, int],
+    reference_flags: int,
+) -> tuple[int, int]:
+    """Pre-transform the common pool hotspot for one retained WRF1 flag."""
+
+    if reference_flags & ~0x6000:
+        raise ValueError("Reagents Ready encountered an unknown stock transform")
+    hotspot = [
+        center - displacement
+        for center, displacement in zip(
+            REAGENT_READY_EFFECT_CENTER,
+            owner_to_pool,
+        )
+    ]
+    if reference_flags & 0x2000:
+        hotspot[0] = REAGENT_READY_CANVAS[0] - 1 - hotspot[0]
+    if reference_flags & 0x4000:
+        hotspot[1] = REAGENT_READY_CANVAS[1] - 1 - hotspot[1]
+    if not all(-32768 <= value <= 32767 for value in hotspot):
+        raise ValueError("Reagents Ready custom hotspot overflowed")
+    return tuple(hotspot)
+
+
+def patch_reagent_ready_imag_streams(
+    source_imag: bytes,
+    private_indices_by_stream: tuple[tuple[int, ...], tuple[int, ...]],
+) -> bytes:
+    """Patch only WRF1's 60 low16 art references, preserving all flags."""
+
+    expected_count_word = (
+        REAGENT_READY_FRAME_COUNT << 16
+    ) | REAGENT_READY_STREAM_COUNT
+    if (
+        len(source_imag) != 604
+        or struct.unpack_from("<I", source_imag, 104)[0] != expected_count_word
+    ):
+        raise ValueError("Stock WRF1 frame table changed")
+    if (
+        len(private_indices_by_stream) != REAGENT_READY_STREAM_COUNT
+        or any(
+            len(indices) != REAGENT_READY_FRAME_COUNT
+            for indices in private_indices_by_stream
+        )
+    ):
+        raise ValueError("Reagents Ready private stream table is incomplete")
+    patched = bytearray(source_imag)
+    allowed_low16_bytes: set[int] = set()
+    for offsets, private_indices in zip(
+        REAGENT_READY_STREAM_REFERENCE_OFFSETS,
+        private_indices_by_stream,
+    ):
+        for offset, private_index in zip(offsets, private_indices):
+            if not 0 <= private_index <= 0xFFFF:
+                raise ValueError("Reagents Ready private TILE exceeds low16")
+            source_word = struct.unpack_from("<I", source_imag, offset)[0]
+            struct.pack_into(
+                "<I",
+                patched,
+                offset,
+                (source_word & 0xFFFF0000) | private_index,
+            )
+            if struct.unpack_from("<I", patched, offset)[0] >> 16 != source_word >> 16:
+                raise AssertionError("Reagents Ready changed a stock mirror flag")
+            allowed_low16_bytes.update((offset, offset + 1))
+    if any(
+        before != after and offset not in allowed_low16_bytes
+        for offset, (before, after) in enumerate(zip(source_imag, patched))
+    ):
+        raise AssertionError("Reagents Ready changed WRF1 outside art references")
+    return bytes(patched)
+
+
+def restore_reagent_ready_imag_streams(
+    private_imag: bytes,
+    source_imag: bytes,
+) -> bytes:
+    """Restore WRF1's exact source words after validating retained flags."""
+
+    if len(private_imag) != len(source_imag):
+        raise ValueError("Reagents Ready IMAG length changed")
+    restored = bytearray(private_imag)
+    for offsets in REAGENT_READY_STREAM_REFERENCE_OFFSETS:
+        for offset in offsets:
+            private_word = struct.unpack_from("<I", private_imag, offset)[0]
+            source_word = struct.unpack_from("<I", source_imag, offset)[0]
+            if private_word >> 16 != source_word >> 16:
+                raise ValueError("Reagents Ready changed a WRF1 transform flag")
+            struct.pack_into("<I", restored, offset, source_word)
+    if bytes(restored) != source_imag:
+        raise ValueError("Reagents Ready changed WRF1 timing or topology")
+    return bytes(restored)
 
 
 def generated_registered_strip_tile(
@@ -1702,12 +1849,24 @@ def write_maindata(
         source, b"IMAG", MIASMA_PARTICLE_SOURCE
     ).data
     miasma_debuff_imag = buff_icon_template_imag
-    reagent_ready_imag = stock.read_cam_entry(
+    reagent_ready_source_imag = stock.read_cam_entry(
         source, b"IMAG", REAGENT_READY_SOURCE
     ).data
-    if sha256_bytes(reagent_ready_imag) != REAGENT_READY_SOURCE_SHA256:
-        raise ValueError("Stock Wizard Tower enchantment IMAG changed")
-
+    if sha256_bytes(reagent_ready_source_imag) != REAGENT_READY_SOURCE_SHA256:
+        raise ValueError("Stock Wizard Guild Supercharge IMAG changed")
+    reagent_ready_source_payloads = tuple(
+        tiles[index].data for index in REAGENT_READY_SOURCE_TILES
+    )
+    if (
+        sha256_bytes(b"".join(reagent_ready_source_payloads))
+        != REAGENT_READY_SOURCE_TILE_AGGREGATE_SHA256
+    ):
+        raise ValueError("Stock Wizard Guild Supercharge TILE family changed")
+    if tuple(
+        stock.tile_palette_index(payload)
+        for payload in reagent_ready_source_payloads
+    ) != REAGENT_READY_SOURCE_PALETTES:
+        raise ValueError("Stock Wizard Guild Supercharge palette sequence changed")
     approved_bundle = (
         load_approved_sprite_bundle(
             approved_sprite_test_root,
@@ -1720,6 +1879,23 @@ def write_maindata(
         if approved_sprite_test_root is not None
         else None
     )
+    reagent_ready_render_palettes = [
+        *palettes,
+        stock.CamEntry(
+            name=stock.pad_name(b"ALG0Render Reserve"),
+            data=(
+                approved_bundle.private_palette_data
+                if approved_bundle is not None
+                else palettes[68].data
+            ),
+        ),
+        stock.CamEntry(
+            name=stock.pad_name(ACTIVE_GLOW_PALETTE_NAME),
+            data=active_glow_palette_data(stock, palettes),
+        ),
+    ]
+    if len(reagent_ready_render_palettes) != REAGENT_READY_PALETTE + 1:
+        raise ValueError("Reagents Ready private render palette index changed")
 
     # All appended art is private. Stock TILE slots remain empty fall-through
     # placeholders in the emitted CAM, so no retail art is globally replaced.
@@ -1991,10 +2167,7 @@ def write_maindata(
     vigor_activation_effect_source_png = (
         repo / "assets/source/spells/vigor-elixir/laboratory-vigor-sheet.png"
     )
-    reagent_ready_source_png = (
-        repo
-        / "assets/source/effects/reagent-ready/alchemist-reagent-ready-source.png"
-    )
+    reagent_ready_art_source_png = repo / REAGENT_READY_ART_SOURCE
     for source_png in (
         vigor_source_png,
         flash_buff_source_png,
@@ -2008,10 +2181,12 @@ def write_maindata(
         philosophers_stone_hit_source_png,
         arcane_infusion_effect_source_png,
         vigor_activation_effect_source_png,
-        reagent_ready_source_png,
+        reagent_ready_art_source_png,
     ):
         if not source_png.is_file():
             raise FileNotFoundError(source_png)
+    if sha256_file(reagent_ready_art_source_png) != REAGENT_READY_ART_SOURCE_SHA256:
+        raise ValueError("Approved Reagents Ready enchantment source changed")
 
     vigor_effect_replacements: dict[int, int] = {}
     flash_buff_replacements: dict[int, int] = {}
@@ -2431,26 +2606,70 @@ def write_maindata(
 
     approved_building_records: list[dict] = []
     approved_building_private_indices: list[dict[int, int]] = []
-    reagent_ready_template: bytes | None = None
+    reagent_ready_owner_tile: bytes | None = None
     for level in (1, 2, 3):
         states = approved_building_bundle.states_by_level[level - 1]
+        inactive_states = [state for state in states if state.role == "inactive"]
+        if len(inactive_states) != 1:
+            raise ValueError(f"Approved Lab level {level} lost its inactive state")
+        inactive_state = inactive_states[0]
+        active_authority_states = tuple(
+            sorted(
+                (state for state in states if state.role == "active"),
+                key=lambda state: (
+                    not any(
+                        occurrence["set_id"] == 192
+                        for occurrence in state.occurrences
+                    ),
+                    state.source_tile_index,
+                ),
+            )
+        )
         private_indices: dict[int, int] = {}
+        active_frames: dict[int, list[int]] = {}
         for state in states:
-            geometry_state = stable_state_geometry(states, state)
-            payload = package_approved_building_tile(
-                stock,
-                tiles[state.source_tile_index].data,
-                state,
-                tiles[geometry_state.source_tile_index].data,
-                geometry_state,
+            pulse_factors = (
+                ACTIVE_PULSE_FACTORS if state.role == "active" else (None,)
             )
-            private_index = append(
-                f"ALB{level}State{state.source_tile_index:04d}".encode("ascii"),
-                payload,
-            )
+            frame_indices: list[int] = []
+            frame_payloads: list[bytes] = []
+            for frame, pulse_factor in enumerate(pulse_factors):
+                payload = package_runtime_building_tile(
+                    stock,
+                    palettes,
+                    tiles[state.source_tile_index].data,
+                    state,
+                    inactive_state=(
+                        inactive_state if pulse_factor is not None else None
+                    ),
+                    active_states=(
+                        active_authority_states
+                        if pulse_factor is not None
+                        else ()
+                    ),
+                    pulse_factor=pulse_factor,
+                )
+                private_index = append(
+                    (
+                        f"ALB{level}Act{state.source_tile_index:04d}F{frame:02d}"
+                        if state.role == "active"
+                        else f"ALB{level}State{state.source_tile_index:04d}"
+                    ).encode("ascii"),
+                    payload,
+                )
+                frame_indices.append(private_index)
+                frame_payloads.append(payload)
+            payload = frame_payloads[0]
+            private_index = frame_indices[0]
+            if (
+                level == 3
+                and state.source_tile_index
+                == REAGENT_READY_LEVEL3_ACTIVE_SOURCE_TILE
+            ):
+                reagent_ready_owner_tile = payload
             private_indices[state.source_tile_index] = private_index
-            if level == 3 and state.source_tile_index == 1027:
-                reagent_ready_template = payload
+            if state.role == "active":
+                active_frames[state.source_tile_index] = frame_indices
             source_hotspot = struct.unpack_from(
                 "<hh", tiles[state.source_tile_index].data, 10
             )
@@ -2470,9 +2689,31 @@ def write_maindata(
                     "source_hotspot": list(source_hotspot),
                     "packaged_hotspot": list(packaged_hotspot),
                     "source_art_sha256": state.indexed_object_sha256,
-                    "geometry_source_tile_index": geometry_state.source_tile_index,
-                    "packaged_canvas": list(geometry_state.object_canvas),
-                    "packaged_body_bbox": list(geometry_state.body_bbox_in_object),
+                    "accepted_control_counts": {
+                        str(index): count
+                        for index, count in sorted(state.control_counts.items())
+                    },
+                    "accepted_native_body_sha256": state.body_rgba_sha256,
+                    "runtime_body_source_state": state.high_resolution.state_id,
+                    "runtime_body_source_sha256": state.high_resolution.source_sha256,
+                    "native_body_paste_offset": list(
+                        state.high_resolution.paste_offset
+                    ),
+                    "runtime_body_paste_offset": [
+                        round(value * RUNTIME_BUILDING_SCALE)
+                        for value in state.high_resolution.paste_offset
+                    ],
+                    "runtime_visible_resample": "approved-r14-source-direct-to-final-canvas",
+                    "packaged_canvas": [
+                        round(state.object_canvas[0] * RUNTIME_BUILDING_SCALE),
+                        round(state.object_canvas[1] * RUNTIME_BUILDING_SCALE),
+                    ],
+                    "active_frame_private_indices": frame_indices,
+                    "active_pulse_factors": (
+                        list(ACTIVE_PULSE_FACTORS)
+                        if state.role == "active"
+                        else []
+                    ),
                     "packaged_tile_sha256": sha256_bytes(payload),
                     "occurrence_count": len(state.occurrences),
                 }
@@ -2484,29 +2725,122 @@ def write_maindata(
             profile_index,
             icon_index,
         )
+        for state in states:
+            if state.role != "active":
+                continue
+            for occurrence in state.occurrences:
+                building_imags[level - 1] = (
+                    expand_marketplace_active_animation(
+                        building_imags[level - 1],
+                        occurrence["set_id"],
+                        active_frames[state.source_tile_index],
+                    )
+                )
         approved_building_private_indices.append(private_indices)
 
-    if reagent_ready_template is None:
-        raise ValueError("Approved level-3 active Lab state is missing")
-    reagent_ready_replacements: dict[int, int] = {}
-    for frame, source_index in enumerate(REAGENT_READY_SOURCE_TILES):
-        if source_index >= len(tiles):
-            raise ValueError(f"Wizard Tower enchantment TILE {source_index} is missing")
-        reagent_ready_replacements[source_index] = append(
-            f"ALR1Ready{frame:02d}".encode("ascii"),
-            generated_reagent_ready_tile(
-                stock,
-                reagent_ready_template,
-                palettes,
-                reagent_ready_source_png,
-                frame,
-                len(REAGENT_READY_SOURCE_TILES),
-            ),
-        )
-    reagent_ready_imag = stock.remap_imag_tile_indices(
-        reagent_ready_imag,
-        reagent_ready_replacements,
+    if reagent_ready_owner_tile is None:
+        raise ValueError("Approved level-3 Laboratory active owner is missing")
+    reagent_ready_owner_hotspot = struct.unpack_from(
+        "<hh", reagent_ready_owner_tile, 10
     )
+    reagent_ready_pool_center = tuple(
+        round(value * RUNTIME_BUILDING_SCALE)
+        for value in REAGENT_READY_POOL_CENTER_NATIVE
+    )
+    reagent_ready_owner_displacement = tuple(
+        pool - owner
+        for pool, owner in zip(
+            reagent_ready_pool_center, reagent_ready_owner_hotspot
+        )
+    )
+    reagent_ready_hotspot = reagent_ready_authored_hotspot(
+        reagent_ready_owner_displacement,
+        0,
+    )
+    reagent_ready_private_indices_by_stream: list[tuple[int, ...]] = []
+    reagent_ready_private_indices: list[int] = []
+    reagent_ready_private_payloads: list[bytes] = []
+    reagent_ready_stream_records: list[dict] = []
+    for stream, (layer, prefix, offsets) in enumerate(
+        zip(
+            ("body", "motes"),
+            ("ALR1ReadyB", "ALR1ReadyM"),
+            REAGENT_READY_STREAM_REFERENCE_OFFSETS,
+        )
+    ):
+        stream_indices: list[int] = []
+        stream_records: list[dict] = []
+        for frame, offset in enumerate(offsets):
+            source_word = struct.unpack_from(
+                "<I", reagent_ready_source_imag, offset
+            )[0]
+            source_index = source_word & 0xFFFF
+            reference_flags = source_word >> 16
+            if source_index not in REAGENT_READY_SOURCE_TILES:
+                raise ValueError("WRF1 stream references an unknown source TILE")
+            authored_hotspot = reagent_ready_authored_hotspot(
+                reagent_ready_owner_displacement,
+                reference_flags,
+            )
+            reagent_ready_header = (
+                3,
+                REAGENT_READY_CANVAS[1],
+                REAGENT_READY_CANVAS[0],
+                0,
+                32,
+                authored_hotspot[0] & 0xFFFF,
+                authored_hotspot[1] & 0xFFFF,
+                8,
+            )
+            private_payload = generated_reagent_ready_enchant_tile(
+                stock,
+                reagent_ready_render_palettes,
+                reagent_ready_art_source_png,
+                frame,
+                REAGENT_READY_FRAME_COUNT,
+                layer,
+                reference_flags,
+                reagent_ready_header,
+            )
+            private_index = append(
+                f"{prefix}{frame:02d}".encode("ascii"), private_payload
+            )
+            stream_indices.append(private_index)
+            reagent_ready_private_indices.append(private_index)
+            reagent_ready_private_payloads.append(private_payload)
+            stream_records.append(
+                {
+                    "frame": frame,
+                    "reference_offset": offset,
+                    "source_reference_word": source_word,
+                    "source_tile_index": source_index,
+                    "reference_flags": reference_flags,
+                    "private_tile_index": private_index,
+                    "authored_hotspot": list(authored_hotspot),
+                }
+            )
+        reagent_ready_private_indices_by_stream.append(tuple(stream_indices))
+        reagent_ready_stream_records.append(
+            {"stream": stream, "layer": layer, "frames": stream_records}
+        )
+    reagent_ready_private_aggregate = sha256_bytes(
+        b"".join(reagent_ready_private_payloads)
+    )
+    if (
+        reagent_ready_private_aggregate
+        != REAGENT_READY_CUSTOM_TILE_AGGREGATE_SHA256
+    ):
+        raise ValueError("Approved Reagents Ready private TILE family changed")
+    reagent_ready_imag = patch_reagent_ready_imag_streams(
+        reagent_ready_source_imag,
+        tuple(reagent_ready_private_indices_by_stream),
+    )
+    restored_reagent_ready_imag = restore_reagent_ready_imag_streams(
+        reagent_ready_imag,
+        reagent_ready_source_imag,
+    )
+    if restored_reagent_ready_imag != reagent_ready_source_imag:
+        raise ValueError("Private Reagents Ready IMAG changed Supercharge topology")
 
     if approved_bundle is not None:
         # ALC1's cloned Interface-00/01/02 records still point at retail TILE
@@ -2574,7 +2908,11 @@ def write_maindata(
             approved_interface_tile_indices,
         )
 
-    palette_indices = {BUILDING_PALETTE, HERO_ART_PALETTE}
+    palette_indices = {
+        BUILDING_PALETTE,
+        HERO_ART_PALETTE,
+        ACTIVE_GLOW_PALETTE_INDEX,
+    }
     for entry in extra:
         index = stock.tile_palette_index(entry.data)
         if index is not None:
@@ -2586,6 +2924,25 @@ def write_maindata(
                 stock.CamEntry(
                     name=stock.pad_name(b"ALC1WalkStandV4"),
                     data=approved_bundle.private_palette_data,
+                )
+            )
+            continue
+        if index == ACTIVE_GLOW_PALETTE_INDEX:
+            palette_entries_list.append(
+                stock.CamEntry(
+                    name=stock.pad_name(ACTIVE_GLOW_PALETTE_NAME),
+                    data=active_glow_palette_data(stock, palettes),
+                )
+            )
+            continue
+        if index == len(palettes):
+            # The approved hero normally owns this first private slot. Keep a
+            # harmless stock-colored filler only for legacy developer calls
+            # that package building art without the approved hero handoff.
+            palette_entries_list.append(
+                stock.CamEntry(
+                    name=stock.pad_name(b"ALG0Reserved SPLT"),
+                    data=palettes[SOURCE_PALETTE_INDEX].data,
                 )
             )
             continue
@@ -2692,7 +3049,16 @@ def write_maindata(
             output,
         )
         provenance["building_art"] = {
-            "authority": "accepted-as-is-r9",
+            "authority": "alchemist-r14-s01-accepted-as-is-v2",
+            "runtime_scale": RUNTIME_BUILDING_SCALE,
+            "runtime_body_authority": "approved-r14-high-resolution-source-registration",
+            "runtime_body_manifest_sha256": HIRES_AUTHORITY_MANIFEST_SHA256,
+            "runtime_hotspot_delta_by_level": {
+                str(level): list(delta)
+                for level, delta in RUNTIME_HOTSPOT_DELTA_BY_LEVEL.items()
+            },
+            "active_glow_palette_index": ACTIVE_GLOW_PALETTE_INDEX,
+            "active_pulse_factors": list(ACTIVE_PULSE_FACTORS),
             "payload_aggregate_sha256": APPROVED_BUILDING_PAYLOAD_SHA256,
             "source_topology": [
                 {
@@ -2706,6 +3072,28 @@ def write_maindata(
                 )
             ],
             "states": approved_building_records,
+            "reagents_ready": {
+                "stock_analogue": REAGENT_READY_SOURCE.decode("ascii"),
+                "stock_imag_sha256": REAGENT_READY_SOURCE_SHA256,
+                "stock_tile_aggregate_sha256": (
+                    REAGENT_READY_SOURCE_TILE_AGGREGATE_SHA256
+                ),
+                "source_tile_indices": list(REAGENT_READY_SOURCE_TILES),
+                "private_tile_indices": reagent_ready_private_indices,
+                "private_streams": reagent_ready_stream_records,
+                "runtime_pool_center": list(reagent_ready_pool_center),
+                "owner_hotspot": list(reagent_ready_owner_hotspot),
+                "owner_to_pool_displacement": list(
+                    reagent_ready_owner_displacement
+                ),
+                "private_art_source": REAGENT_READY_ART_SOURCE.as_posix(),
+                "private_art_source_sha256": REAGENT_READY_ART_SOURCE_SHA256,
+                "private_palette_index": REAGENT_READY_PALETTE,
+                "private_canvas": list(REAGENT_READY_CANVAS),
+                "private_effect_center": list(REAGENT_READY_EFFECT_CENTER),
+                "private_hotspot": list(reagent_ready_hotspot),
+                "private_tile_aggregate_sha256": reagent_ready_private_aggregate,
+            },
         }
         return provenance
     return None

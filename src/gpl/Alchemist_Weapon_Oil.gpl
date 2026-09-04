@@ -14,9 +14,8 @@ expression #Alchemy_Transmutation_Greed 20
 expression #Alchemy_Weapon_Oil_Task 1
 
 ///////////////////////////////////////////////////////////////////////////////
-// Literal stock Obtain_Poison transaction plus one persistent, invisible
-// presenter. WeaponPoisoned remains the sole gameplay owner; this effector has
-// no script, stats, world art, or cleanup and exists only for AP78's list.
+// Literal stock Obtain_Poison transaction. WeaponPoisoned is the complete
+// native lifecycle; stock poison does not create an Enchantments presenter.
 ///////////////////////////////////////////////////////////////////////////////
 Function Obtain_Poison (agent ThisAgent)
 Declare
@@ -25,17 +24,12 @@ Begin
 	$SetThreadInterval (ThisAgent's "ActiveScript", #Normal_Cycle);
 
 	$SetAttribute (ThisAgent, #ATTRIB_WeaponPoisoned, 1);
-	$CreateEffector (
-		ThisAgent,
-		"alchemist_poisoned_weapon_status",
-		1,
-		"Infinite"
-	);
 	$DebugOut (thisagent's "title","poisoned their weapon!");
 
 	ThisAgent's "ActiveScript" = $Done_Poisoning_Weapon;
 End
 
+///////////////////////////////////////////////////////////////////////////////
 Function Alchemy_Oil_Check (agent ThisAgent, list AlchemyLabs) is boolean
 Declare
 	agent	AlchemyLab;

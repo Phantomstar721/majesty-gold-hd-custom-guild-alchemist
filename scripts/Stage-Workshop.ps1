@@ -59,7 +59,6 @@ $requiredFeatureTypes = @(
     "stock.name-generator.v1",
     "stock.ap78-enchantment-row.v1",
     "stock.ap78-enchantment-row.v1",
-    "stock.ap78-enchantment-row.v1",
     "stock.ap10-ap69-secondary-panel.v1",
     "stock.ap22-resource-meter.v1",
     "stock.ap99-research-row.v1",

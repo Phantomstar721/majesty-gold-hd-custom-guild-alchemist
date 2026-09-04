@@ -125,7 +125,9 @@ Weapon Oil research costs 250 gold, and a researched oil costs a visiting hero
 - Transmutation Oil grants its owner five gold on a successful weapon hit.
 
 Heroes with Greed above 20 choose Transmutation Oil; others choose Paralytic
-Oil. Current oil and poison states appear in the hero Enchantments panel.
+Oil. The current Alchemist oil appears in the hero Enchantments panel. Stock
+poison remains fully functional but has no Enchantments entry, matching its
+native lifecycle.
 
 ### Phoenix Phial
 

@@ -27,11 +27,6 @@
       "display_text": "Transmutation Oil - +5 gold on weapon hit"
     },
     {
-      "type": "stock.ap78-enchantment-row.v1",
-      "overlay_id": "ALo3",
-      "display_text": "Poisoned Weapon - poison on weapon hit"
-    },
-    {
       "type": "stock.ap10-ap69-secondary-panel.v1",
       "panel_key": "brewing",
       "parent_building": "AlchemistsLaboratory",

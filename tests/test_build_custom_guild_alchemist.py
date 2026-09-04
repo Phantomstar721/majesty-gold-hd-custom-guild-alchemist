@@ -2114,6 +2114,14 @@ end
         source = (builder.GPL_SOURCE_ROOT / "Alchemist_Weapon_Oil.gpl").read_text(
             encoding="utf-8"
         )
+        stock_poison = Path(
+            r"C:\Program Files (x86)\Steam\steamapps\common\Majesty HD\SDK"
+            r"\OriginalQuests\GPL\TaskModules\Buildings\Poison_Weapons.gpl"
+        ).read_text(encoding="utf-8")
+        self.assertEqual(
+            builder.extract_gpl_function(source, "Obtain_Poison"),
+            builder.extract_gpl_function(stock_poison, "Obtain_Poison"),
+        )
         self.assertIn('$HasAttribute ("AlchemyWeaponOilType", ThisAgent)', source)
         self.assertIn('ThisAgent\'s "AlchemyWeaponOilType" > 0', source)
         self.assertIn("expression #Alchemy_Weapon_Oil_Price 100", source)
@@ -2148,11 +2156,11 @@ end
         self.assertIn(
             '$SetAttribute (ThisAgent, #ATTRIB_WeaponPoisoned, 1)', source
         )
-        self.assertIn('"alchemist_poisoned_weapon_status"', source)
+        self.assertNotIn('"alchemist_poisoned_weapon_status"', source)
         self.assertIn(
             'ThisAgent\'s "ActiveScript" = $Done_Poisoning_Weapon', source
         )
-        self.assertEqual(source.count('"Infinite"'), 3)
+        self.assertEqual(source.count('"Infinite"'), 2)
         self.assertLess(
             source.index('$Exit_Building (ThisAgent, ThisAgent\'s "Target")'),
             source.index('"alchemist_paralytic_weapon_oil_status"'),
@@ -2352,6 +2360,22 @@ end
         stock = """<Majesty><Description type="Unit" subType="Overlay" ID="QRa1" Name="Rage_icon" Description="Rage of Krolm"><Engine><Info value="Directionless"/><Info value="DontBlock"/><ImageIDBase value="QRa1"/><Script type="0" cProc="0" GPLFunction="rage_end"/></Engine><Game><StackPriority value="1"/></Game></Description><Description type="Unit" subType="Overlay" ID="QRd0" Name="ring_icon" Description="This hero has the Magic Ring."><Engine><Info value="Static"/><Info value="Directionless"/><Info value="DontBlock"/><Menu value="11"/><ImageIDBase value="QRd0"/><DefaultSound value="0"/></Engine><Game><DialogID value="0"/><StackPriority value="0"/></Game></Description><Description type="Unit" subType="Overlay" ID="HRC1" Name="resurrection_effector" Description="Resurrection"><Engine><Info value="Directionless"/><Info value="DontBlock"/><Menu value="11"/><ImageIDBase value="HRC1"/><DefaultSound value="Resurrection"/><Script type="0" cProc="0" GPLFunction="Resurrection_End"/></Engine><Game><StackPriority value="0"/><Flags value="TransparentToMouse"/></Game></Description><Description type="Unit" subType="Overlay" ID="ARB2" Name="Got_Gold" Description="Got gold"><Engine><Info value="Directionless"/><Info value="DontBlock"/><CanUse value="HumanPlayer"/><Menu value="11"/><ImageIDBase value="ARB2"/><DefaultSound value="Got_Gold"/></Engine><Game><DialogID value="0"/><StackPriority value="0"/></Game></Description><Description type="Unit" subType="Overlay" ID="WRF1" Name="super_charge_effector" Description="Super Charge"><Engine><Info value="Directionless"/><Info value="DontBlock"/><Menu value="11"/><ImageIDBase value="WRF1"/><DefaultSound value="Supercharge"/></Engine><Game><DialogID value="0"/><StackPriority value="0"/><Flags value="TransparentToMouse"/></Game></Description></Majesty>"""
         stock = stock.replace(
             "</Majesty>",
+            '<Description type="Unit" subType="Overlay" ID="QRb1" '
+            'Name="charm_icon" Description="Charmed!"><Engine>'
+            '<Info value="Directionless"/><Info value="DontBlock"/>'
+            '<Menu value="11"/><ImageIDBase value="QRb1"/>'
+            '<DefaultSound value="0"/></Engine><Game><DialogID value="0"/>'
+            '<StackPriority value="1"/></Game></Description>'
+            '<Description type="Unit" subType="Overlay" ID="CRB2" '
+            'Name="vines_icon" Description="Vines"><Engine>'
+            '<Info value="Directionless"/><Info value="DontBlock"/>'
+            '<Info value="NotVisibleInISOView"/><Menu value="11"/>'
+            '<ImageIDBase value="CRB2"/><DefaultSound value="0"/></Engine>'
+            '<Game><DialogID value="0"/><StackPriority value="0"/></Game>'
+            '</Description></Majesty>',
+        )
+        stock = stock.replace(
+            "</Majesty>",
             '<Description type="Unit" subType="Overlay" ID="ARD1" '
             'Name="got_gold_bldg" Description="Building getting gold">'
             '<Engine><Info value="Directionless"/><Info value="DontBlock"/>'
@@ -2468,7 +2492,7 @@ end
             self.assertIsNotNone(
                 status.find('./Engine/Info[@value="NotVisibleInISOView"]')
             )
-            self.assertIsNotNone(status.find('./Engine/Info[@value="Static"]'))
+            self.assertIsNone(status.find('./Engine/Info[@value="Static"]'))
             self.assertIsNone(status.find("./Engine/Script"))
             self.assertEqual(
                 status.find("./Game/StackPriority").get("value"), "0"

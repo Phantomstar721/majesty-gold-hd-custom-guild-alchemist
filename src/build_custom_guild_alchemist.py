@@ -101,7 +101,6 @@ RUNTIME_FEATURE_IDENTITIES = (
     ("stock.name-generator.v1", "NM18"),
     ("stock.ap78-enchantment-row.v1", "ALo1"),
     ("stock.ap78-enchantment-row.v1", "ALo2"),
-    ("stock.ap78-enchantment-row.v1", "ALo3"),
     ("stock.ap10-ap69-secondary-panel.v1", "brewing"),
     ("stock.ap22-resource-meter.v1", "reagents"),
     ("stock.ap99-research-row.v1", "phoenix-phial"),
@@ -2155,15 +2154,21 @@ def build_brewing_overlays_xml(
     ready_sound.set("value", "0")
     output.append(ready)
 
-    # Oil ownership is permanent, so the literal lifetime analogue is the
-    # Magic Ring's static duration-1/Infinite Menu-11 presenter. Keep that
-    # lifecycle, use Speed Tonic's stock icon art, and compose Vines' proven
-    # NotVisibleInISOView flag so no world-space icon is drawn.
+    # Oil ownership is permanent and multi-owner. Vines supplies the exact
+    # non-Static, invisible Menu-11 presenter contract, while Charm proves the
+    # same non-Static ownership shape is valid for multiple Infinite effectors.
+    # ALo3 remains description-only so old saves containing the retired poison
+    # presenter can resolve it; no new GPL path creates it or exposes its row.
     status_source = stock_root.find(
-        './/Description[@ID="QRd0"][@Name="ring_icon"]'
+        './/Description[@ID="CRB2"][@Name="vines_icon"]'
     )
     if status_source is None:
-        raise ValueError("Stock Magic Ring persistent presenter is missing")
+        raise ValueError("Stock Vines invisible presenter is missing")
+    charm_source = stock_root.find(
+        './/Description[@ID="QRb1"][@Name="charm_icon"]'
+    )
+    if charm_source is None:
+        raise ValueError("Stock Charm multi-owner presenter is missing")
     speed_icon_source = stock_mx_root.find(
         './/Description[@ID="XR01"][@Name="Speed_Tonic_Icon"]'
     )
@@ -2174,15 +2179,19 @@ def build_brewing_overlays_xml(
     if (
         status_source.find("./Engine") is None
         or status_image is None
-        or status_image.get("value") != "QRd0"
+        or status_image.get("value") != "CRB2"
         or status_menu is None
         or status_menu.get("value") != "11"
-        or status_source.find('./Engine/Info[@value="Static"]') is None
+        or status_source.find('./Engine/Info[@value="Static"]') is not None
+        or status_source.find('./Engine/Info[@value="NotVisibleInISOView"]') is None
         or status_source.find("./Game") is None
         or status_source.find("./Game/StackPriority").get("value") != "0"
         or status_source.find("./Engine/Script") is not None
+        or charm_source.find('./Engine/Info[@value="Static"]') is not None
+        or charm_source.find("./Engine/Menu").get("value") != "11"
+        or charm_source.find("./Engine/Script") is not None
     ):
-        raise ValueError("Stock Magic Ring persistent presenter contract changed")
+        raise ValueError("Stock Vines/Charm presenter contract changed")
     for status_id, status_name, description in (
         (
             PARALYTIC_OIL_STATUS_ID,
@@ -2206,12 +2215,6 @@ def build_brewing_overlays_xml(
         status.set("Description", description)
         status_engine = status.find("./Engine")
         status_engine.find("./ImageIDBase").set("value", "XR01")
-        if status.find('./Engine/Info[@value="NotVisibleInISOView"]') is None:
-            ET.SubElement(
-                status_engine,
-                "Info",
-                {"value": "NotVisibleInISOView"},
-            )
         output.append(status)
     ET.indent(output, space="\t")
     return ET.tostring(output, encoding="utf-8", xml_declaration=False) + b"\n"
@@ -4577,13 +4580,13 @@ def validate_output(
         if (
             status.find("./Engine/Menu").get("value") != "11"
             or status.find("./Engine/ImageIDBase").get("value") != "XR01"
-            or status.find('./Engine/Info[@value="Static"]') is None
+            or status.find('./Engine/Info[@value="Static"]') is not None
             or status.find('./Engine/Info[@value="NotVisibleInISOView"]') is None
             or status.find("./Game/StackPriority").get("value") != "0"
             or status.find("./Engine/Script") is not None
         ):
             raise ValueError(
-                f"Private oil status lost stock Magic Ring contract: {status_name}"
+                f"Private oil status lost stock Vines/Charm contract: {status_name}"
             )
     oil_restraint = stun_root.find(
         './Description[@Name="alchemist_paralytic_oil_restraint"]'
@@ -6018,7 +6021,6 @@ def validate_output(
         b"Phoenix_Phial_Resurrection_End",
         PARALYTIC_OIL_STATUS_NAME.encode("ascii"),
         TRANSMUTATION_OIL_STATUS_NAME.encode("ascii"),
-        POISONED_WEAPON_STATUS_NAME.encode("ascii"),
     ):
         if symbol not in compiled_symbols:
             raise ValueError(f"Compiled Alchemist bytecode lost oil symbol {symbol!r}")

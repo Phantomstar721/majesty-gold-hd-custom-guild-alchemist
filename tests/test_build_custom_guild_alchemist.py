@@ -101,9 +101,9 @@ class AlchemistGuildTests(unittest.TestCase):
         )
         self.assertEqual(
             art_package.REAGENT_READY_CUSTOM_TILE_AGGREGATE_SHA256,
-            "67d98633728322b93aba81a992b3dc05086d7b8e904386a1dc6a7b75c6d7f889",
+            "98b5e915cd12f6e47237b15d3ee34b954d56e8320baf864d684696b2727bed63",
         )
-        self.assertEqual(art_package.REAGENT_READY_POOL_CENTER_NATIVE, (165, 149))
+        self.assertEqual(art_package.REAGENT_READY_POOL_CENTER_NATIVE, (153, 150))
         self.assertEqual(
             building_bundle.ACTIVE_PULSE_FACTORS,
             (
@@ -1565,6 +1565,8 @@ class AlchemistGuildTests(unittest.TestCase):
             "$Purchase_equipment(thisagent)",
             "$pursue_entertainment(thisagent)",
             "$collect_special_item (ThisAgent, 90)",
+            'thisagent, "poison_plants", 90',
+            'thisagent, "healing_herbs", 95',
             '$check_library(thisagent,15, "Train_magic_resist")',
             '$check_library(thisagent,25, "Learn_generic_spell")',
             "$Combat_wandering(thisagent,65)",
@@ -1579,7 +1581,21 @@ class AlchemistGuildTests(unittest.TestCase):
         self.assertEqual(positions, sorted(positions))
         self.assertNotIn("$Steal_Check", source)
         self.assertNotIn("$Loot_Gravestones", source)
-        self.assertNotIn('"poison_plants"', source)
+        resource_clone = source.split(
+            "function Alchemist_Collect_Nearby_Reagent", 1
+        )[1].split("function Alchemist_tree", 1)[0]
+        self.assertIn(
+            'ThisAgent\'s "num_picked_goodies" >= '
+            "#Alchemist_Reagent_Carry_Limit",
+            resource_clone,
+        )
+        self.assertEqual(resource_clone.count("$Collect_Resource"), 1)
+        self.assertIn(
+            "$Collect_Resource(ThisAgent, Resource, Chance)", resource_clone
+        )
+        self.assertEqual(
+            source.count("$Alchemist_Collect_Nearby_Reagent("), 2
+        )
         self.assertNotIn("Cultist_tree", source)
         self.assertEqual(source.count("$Purchase_equipment(thisagent)"), 1)
         self.assertEqual(

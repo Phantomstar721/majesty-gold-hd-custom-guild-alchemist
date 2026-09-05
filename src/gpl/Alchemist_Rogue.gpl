@@ -1,8 +1,8 @@
 ///////////////////////////////////////////////////////////////////////////////
 // Private Alchemist clone of stock OriginalQuests Rogue_tree.
 // Ordering, calls, and flags are intentionally unchanged except for the
-// requested deletion of Rogue's stealing, gravestone-looting, and poison-plant
-// branches. Every retained stock priority keeps its original call/lifecycle.
+// requested deletion of Rogue's stealing and gravestone-looting branches.
+// Nearby plant collection retains the stock Rogue/Ranger resource lifecycle.
 ///////////////////////////////////////////////////////////////////////////////
 
 // Stock Vigilance uses -50 to produce a clearly faster movement profile.
@@ -208,6 +208,28 @@ end
 
 ///////////////////////////////////////////////////////////////////////////////
 
+function Alchemist_Collect_Nearby_Reagent (
+	agent ThisAgent,
+	string Resource,
+	integer Chance
+) is boolean
+
+declare
+
+begin
+	// The stock resource callback increments num_picked_goodies. Do not dispatch
+	// another pickup once the shared Alchemist load has reached its return limit.
+	if (ThisAgent's "num_picked_goodies" >= #Alchemist_Reagent_Carry_Limit)
+		return False;
+
+	if ($Collect_Resource(ThisAgent, Resource, Chance) == False)
+		return False;
+
+	return True;
+end
+
+///////////////////////////////////////////////////////////////////////////////
+
 function Alchemist_tree (agent thisagent)
 
 declare
@@ -251,6 +273,15 @@ begin
 	if ($pursue_entertainment(thisagent) == False)
 
 	if ($collect_special_item (ThisAgent, 90) == False)
+
+	// Literal stock Rogue poison-plant and Ranger healing-herb searches. Their
+	// Basic_Pickup callback adds one item to the same carried Reagent count used
+	// by monster remains, then deletes the collected map resource.
+	if ($Alchemist_Collect_Nearby_Reagent(
+		thisagent, "poison_plants", 90) == False)
+
+	if ($Alchemist_Collect_Nearby_Reagent(
+		thisagent, "healing_herbs", 95) == False)
 
 	if ($check_library(thisagent,15, "Train_magic_resist") == FALSE)
 

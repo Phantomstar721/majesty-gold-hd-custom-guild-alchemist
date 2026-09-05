@@ -221,7 +221,7 @@ REAGENT_READY_ART_SOURCE_SHA256 = (
     "9db29df515ba925aafa08fec380dc1647bde558c43b39ec4757c037e1d35ea98"
 )
 REAGENT_READY_CUSTOM_TILE_AGGREGATE_SHA256 = (
-    "67d98633728322b93aba81a992b3dc05086d7b8e904386a1dc6a7b75c6d7f889"
+    "98b5e915cd12f6e47237b15d3ee34b954d56e8320baf864d684696b2727bed63"
 )
 REAGENT_READY_FRAME_COUNT = len(REAGENT_READY_SOURCE_TILES)
 REAGENT_READY_STREAM_COUNT = 2
@@ -234,9 +234,9 @@ REAGENT_READY_CANVAS = (213, 269)
 REAGENT_READY_EFFECT_CENTER = (162, 208)
 REAGENT_READY_EFFECT_SIZE = (62, 108)
 # The accepted raster's nominal pool center landed the live two-stream effect
-# slightly low/right. This corrected registered target moves every retained
-# WRF1 stream together by ten runtime pixels left and four pixels up.
-REAGENT_READY_POOL_CENTER_NATIVE = (165, 149)
+# low/right. Register every retained WRF1 stream twenty-four runtime pixels left
+# and two pixels down so the visible spiral centers on the level-3 brewing pool.
+REAGENT_READY_POOL_CENTER_NATIVE = (153, 150)
 REAGENT_READY_LEVEL3_ACTIVE_SOURCE_TILE = 1027
 METEOR_STORM_RADIUS = 175
 # Keep Tempest's private Meteor field on the complete stock field footprint.

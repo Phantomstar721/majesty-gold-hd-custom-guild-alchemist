@@ -102,6 +102,10 @@ When an ordinary monster dies, its stock `LevelXP` value determines the chance
 that the closest eligible Alchemist within 300 units collects one Reagent.
 Quest-protected bosses do not provide renewable Reagents.
 
+As a lower-priority field task, Alchemists also use the stock Rogue and Ranger
+resource searches to gather nearby Poisonous Plants and Healing Herbs. Each
+collected plant counts as one Reagent and shares the same three-Reagent load.
+
 | Threat rank | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
 | Drop chance | 10% | 20% | 30% | 45% | 60% | 75% | 90% | 100% |

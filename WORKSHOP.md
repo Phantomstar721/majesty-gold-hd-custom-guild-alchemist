@@ -33,8 +33,8 @@ raw Workshop packages together without the manager.
 - A new Alchemist hero with complete animation, original portrait, names,
   voiced reactions, equipment priorities, and field-research behavior
 - Flash Flask, Stun Serum, and the large lingering Miasma Mist combat cloud
-- Monster Reagents gathered from ordinary enemy deaths and deposited at the
-  Alchemist's home Lab
+- Reagents gathered from ordinary enemy deaths or nearby Poisonous Plants and
+  Healing Herbs, then deposited at the Alchemist's home Lab
 - A live Brewing panel with stored Reagent count and a purple pool indicator
   when a level-3 Lab can afford a major recipe
 - Weapon Oil with Paralytic and gold-producing Transmutation variants

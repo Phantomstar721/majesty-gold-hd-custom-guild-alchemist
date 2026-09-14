@@ -5882,6 +5882,15 @@ def validate_output(
     )
     if (
         ready_birth_function.count("$Guild_Birth") != 1
+        or ready_birth_function.count(
+            '$HasAttribute ( "EconomyBuilding", laboratory )'
+        )
+        != 1
+        or ready_birth_function.count(
+            '$AddAttribute (\n\t\t\tlaboratory,\n\t\t\t"EconomyBuilding",'
+        )
+        != 1
+        or '"boolean",\n\t\t\tTRUE' not in ready_birth_function
         or ready_birth_function.count("$RunThread") != 1
         or ready_birth_function.count(
             "$Alchemist_Update_Reagent_Ready_Effector"
@@ -5939,6 +5948,10 @@ def validate_output(
         raise ValueError("Every GPL Laboratory level must use its production title")
     if building_data.count("(Alchemist_Brewing True)") != 3:
         raise ValueError("Every Laboratory level must carry its Brewing marker")
+    if "EconomyBuilding" in building_data:
+        raise ValueError(
+            "EconomyBuilding must be installed as a live GPL attribute, not DAT"
+        )
     if building_data.count("(Visited_Script Alchemy_Lab_Visited)") != 3:
         raise ValueError("Every Laboratory level must use the combined stock visit dispatcher")
     for contract in (

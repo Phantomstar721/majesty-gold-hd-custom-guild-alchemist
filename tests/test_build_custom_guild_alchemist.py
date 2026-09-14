@@ -1518,8 +1518,22 @@ class AlchemistGuildTests(unittest.TestCase):
         )
         self.assertIn("(member_basicscript Alchemist_tree)", data)
         self.assertEqual(data.count("(Visited_Script Alchemy_Lab_Visited)"), 3)
+        self.assertNotIn("EconomyBuilding", data)
         self.assertEqual(data.count("(member_title Alchemist)"), 3)
         self.assertNotIn("fervus_Birth", data)
+
+    def test_laboratory_installs_live_economy_building_marker(self) -> None:
+        source = (builder.GPL_SOURCE_ROOT / "Alchemist_Reagents.gpl").read_text(
+            encoding="utf-8"
+        )
+        birth = builder.extract_gpl_function(
+            source, "Alchemist_Laboratory_Birth_Or_Upgrade"
+        )
+        self.assertEqual(
+            birth.count('$HasAttribute ( "EconomyBuilding", laboratory )'), 1
+        )
+        self.assertEqual(birth.count('"EconomyBuilding"'), 2)
+        self.assertIn('"boolean",\n\t\t\tTRUE', birth)
 
     def test_alchemist_hero_uses_private_stock_rogue_behavior(self) -> None:
         data = (builder.GPL_SOURCE_ROOT / "Alchemist_Hero_Data.dat").read_text(

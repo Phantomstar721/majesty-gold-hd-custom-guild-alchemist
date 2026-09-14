@@ -222,6 +222,18 @@ function Alchemist_Laboratory_Birth_Or_Upgrade ( agent laboratory )
 // stock cadence during upgrades, and refresh only after the new Level exists.
 declare
 begin
+	// Public classification marker for systems that need a reusable economy-
+	// building category. Arbitrary DAT fields are not promoted into Majesty's
+	// live GPL attribute tree, so install the typed marker through the ordinary
+	// construction/upgrade callback that already owns Laboratory state.
+	if ( $HasAttribute ( "EconomyBuilding", laboratory ) == FALSE )
+		$AddAttribute (
+			laboratory,
+			"EconomyBuilding",
+			"boolean",
+			TRUE
+		);
+
 	if ( $GetAttribute ( laboratory, #ATTRIB_FirstStageBuilt ) != 1 )
 		begin
 			$Guild_Birth ( laboratory );

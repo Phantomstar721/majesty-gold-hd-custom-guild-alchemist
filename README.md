@@ -168,6 +168,8 @@ target then follows its normal death callbacks.
 
 - The Lab's Visitors panel lets heroes buy researched Weapon Oil and Phoenix
   Phials.
+- On construction, the Lab installs the public boolean `EconomyBuilding` GPL
+  attribute so compatible mods can recognize it as an economy building.
 - Stock Embassies discover completed Alchemy Labs and recruit Alchemists.
 - Outpost and Embassy random recruitment appends Alchemist to Northern
   Expansion's complete selector without removing Paladins.

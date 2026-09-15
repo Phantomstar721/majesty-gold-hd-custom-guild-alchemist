@@ -9,9 +9,14 @@ import sys
 from PIL import Image, ImageChops, ImageDraw, ImageEnhance, ImageFilter, ImageOps
 
 from approved_sprite_bundle import (
+    MINIMAP_SET_ID,
+    MINIMAP_SOURCE_TILE,
+    MINIMAP_TILE_SHA256,
+    MX_RATAPULT_COLLISION_TILE_SHA256,
     load_approved_sprite_bundle,
     package_provenance,
     patch_completed_warrior_imag,
+    patch_stock_warrior_minimap_imag,
     remap_approved_warrior_imag,
     sha256_bytes,
     sha256_file,
@@ -2085,6 +2090,32 @@ def write_maindata(
             hero_imag, hero_replacements
         )
 
+    # Warrior's stock Minimap set owns one 3x3 Adept marker at TILE 3729.
+    # DataMX independently uses numeric TILE 3729 for a Ratapult death frame,
+    # so an unchanged fall-through reference becomes unsafe when archives are
+    # relocated together. Clone the exact stock marker privately and change
+    # only set 300's one low16 reference word.
+    minimap_source_payload = tiles[MINIMAP_SOURCE_TILE].data
+    if sha256_bytes(minimap_source_payload) != MINIMAP_TILE_SHA256:
+        raise ValueError("Stock Warrior Minimap TILE changed")
+    if sha256_bytes(mx_tiles[MINIMAP_SOURCE_TILE].data) != MX_RATAPULT_COLLISION_TILE_SHA256:
+        raise ValueError("Stock MX Ratapult TILE collision authority changed")
+    if minimap_source_payload == mx_tiles[MINIMAP_SOURCE_TILE].data:
+        raise ValueError("Warrior Minimap and MX Ratapult TILEs unexpectedly match")
+    minimap_private_index = append(b"ALC1Minimap", minimap_source_payload)
+    hero_imag = patch_stock_warrior_minimap_imag(
+        hero_imag, minimap_private_index
+    )
+    minimap_record = {
+        "set_id": MINIMAP_SET_ID,
+        "source_stock_slot": MINIMAP_SOURCE_TILE,
+        "private_tile_index": minimap_private_index,
+        "name": "ALC1Minimap",
+        "packaged_tile_sha256": MINIMAP_TILE_SHA256,
+        "mx_collision_tile_sha256": MX_RATAPULT_COLLISION_TILE_SHA256,
+        "mutation_boundary": "set 300 direction 0 stream 0 frame 0 low16 only",
+    }
+
     # Retail and the SDK model carried items as ordinary IsInventoryItem units
     # backed by AVk4's Inactive/Minimap/Interface animation sets. Preserve that
     # whole structure and privatize only the image identity and referenced art.
@@ -3153,12 +3184,14 @@ def write_maindata(
             stock.read_cam_entry(source, b"IMAG", HERO_SOURCE).data,
             approved_bundle,
             approved_private_tile_indices,
+            minimap_private_index,
             approved_interface_tile_indices,
             approved_interface_records,
         )
         provenance = package_provenance(
             approved_bundle,
             approved_private_tile_indices,
+            minimap_record,
             approved_interface_tile_indices,
             approved_interface_records,
             output,

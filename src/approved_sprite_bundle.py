@@ -60,6 +60,15 @@ EXPECTED_INTERFACE_IMAG_OFFSETS = {
     6054: 0x22C,
     5411: 0x290,
 }
+MINIMAP_SET_ID = 300
+MINIMAP_SOURCE_TILE = 3729
+EXPECTED_MINIMAP_IMAG_OFFSET = 0x1634
+MINIMAP_TILE_SHA256 = (
+    "09164a322559906bb74594b27e6035b9202902ec31cc8a9f3af21699af239685"
+)
+MX_RATAPULT_COLLISION_TILE_SHA256 = (
+    "463547a6b002d19be95fd67eb137076259b4dfd65577ed585c37001c36c68ede"
+)
 
 NATIVE_CANVAS = (96, 92)
 NATIVE_ROOT = (48, 70)
@@ -1684,6 +1693,73 @@ def patch_completed_warrior_imag(
     return bytes(patched)
 
 
+def patch_stock_warrior_minimap_imag(
+    warrior_imag: bytes,
+    private_tile_index: int,
+) -> bytes:
+    """Privatize only Warrior's single stock Minimap frame reference."""
+
+    if not 0 <= private_tile_index <= 0xFFFF:
+        raise ValueError("Private Alchemist minimap TILE index exceeds low16")
+    if len(warrior_imag) < 24:
+        raise ValueError("Stock Warrior IMAG is truncated")
+    set_count = struct.unpack_from("<I", warrior_imag, 20)[0]
+    table_end = 24 + set_count * 8
+    if set_count <= 0 or table_end > len(warrior_imag):
+        raise ValueError("Stock Warrior IMAG set table is invalid")
+    table = [
+        struct.unpack_from("<II", warrior_imag, 24 + order * 8)
+        for order in range(set_count)
+    ]
+    matches = [
+        (order, set_offset)
+        for order, (set_id, set_offset) in enumerate(table)
+        if set_id == MINIMAP_SET_ID
+    ]
+    if len(matches) != 1:
+        raise ValueError("Stock Warrior Minimap set is missing or ambiguous")
+    set_order, set_offset = matches[0]
+    set_end = (
+        table[set_order + 1][1]
+        if set_order + 1 < len(table)
+        else len(warrior_imag)
+    )
+    if set_offset + 68 > set_end:
+        raise ValueError("Stock Warrior Minimap set is truncated")
+    direction_count = struct.unpack_from("<I", warrior_imag, set_offset)[0]
+    direction_relative = struct.unpack_from("<I", warrior_imag, set_offset + 64)[0]
+    direction_offset = set_offset + direction_relative
+    if direction_count != 1 or direction_offset + 8 > set_end:
+        raise ValueError("Stock Warrior Minimap direction topology changed")
+    count_word = struct.unpack_from("<I", warrior_imag, direction_offset + 4)[0]
+    frame_count = count_word >> 16
+    stream_count = count_word & 0xFFFF
+    if (frame_count, stream_count) != (1, 1):
+        raise ValueError("Stock Warrior Minimap frame topology changed")
+    reference_offset = set_end - 4
+    if reference_offset != EXPECTED_MINIMAP_IMAG_OFFSET:
+        raise ValueError("Stock Warrior Minimap frame offset changed")
+    source_word = struct.unpack_from("<I", warrior_imag, reference_offset)[0]
+    if (source_word & 0xFFFF) != MINIMAP_SOURCE_TILE:
+        raise ValueError("Stock Warrior Minimap TILE reference changed")
+
+    patched = bytearray(warrior_imag)
+    struct.pack_into(
+        "<I",
+        patched,
+        reference_offset,
+        (source_word & 0xFFFF0000) | private_tile_index,
+    )
+    changed_offsets = [
+        offset
+        for offset in range(0, len(warrior_imag) - 3, 4)
+        if warrior_imag[offset : offset + 4] != patched[offset : offset + 4]
+    ]
+    if changed_offsets != [EXPECTED_MINIMAP_IMAG_OFFSET]:
+        raise ValueError("Alchemist Minimap patch changed another Warrior IMAG word")
+    return bytes(patched)
+
+
 def _validate_completed_sprite_cam(
     stock: Any,
     output_cam: Path,
@@ -1692,6 +1768,7 @@ def _validate_completed_sprite_cam(
     warrior_imag: bytes,
     bundle: ApprovedSpriteBundle,
     private_tile_indices: Sequence[int],
+    minimap_tile_index: int,
     interface_tile_indices: dict[int, int],
     interface_records: Sequence[dict[str, Any]],
 ) -> None:
@@ -1750,6 +1827,15 @@ def _validate_completed_sprite_cam(
         ):
             raise ValueError("Completed humanoid grounded-shadow clone changed")
 
+    if minimap_tile_index != first_private + len(bundle.records):
+        raise ValueError("Completed Alchemist minimap TILE is not the first private clone")
+    minimap_payload = output_tiles[minimap_tile_index].data
+    source_minimap_payload = stock_tiles[MINIMAP_SOURCE_TILE].data
+    if sha256_bytes(source_minimap_payload) != MINIMAP_TILE_SHA256:
+        raise ValueError("Stock Warrior Minimap TILE changed")
+    if minimap_payload != source_minimap_payload:
+        raise ValueError("Completed Alchemist minimap TILE is not an exact stock clone")
+
     if tuple(interface_tile_indices) != INTERFACE_SOURCE_SLOTS:
         raise ValueError("Completed interface TILE mapping is incomplete")
     if list(interface_tile_indices.values()) != list(
@@ -1769,6 +1855,9 @@ def _validate_completed_sprite_cam(
     expected_imag = stock.remap_imag_low16_tile_indices(
         expected_imag, interface_tile_indices
     )
+    expected_imag = patch_stock_warrior_minimap_imag(
+        expected_imag, minimap_tile_index
+    )
     packaged_imag = stock.read_cam_entry(output_cam, b"IMAG", b"ALC1Alchemist").data
     if packaged_imag != expected_imag:
         raise ValueError("Completed ALC1 IMAG differs from the stock-authorized clone")
@@ -1783,6 +1872,7 @@ def validate_packaged_approved_sprite_cam(
     warrior_imag: bytes,
     bundle: ApprovedSpriteBundle,
     private_tile_indices: dict[int, int],
+    minimap_tile_index: int,
     interface_tile_indices: dict[int, int],
     interface_records: Sequence[dict[str, Any]],
 ) -> None:
@@ -1797,6 +1887,7 @@ def validate_packaged_approved_sprite_cam(
             warrior_imag,
             bundle,
             list(private_tile_indices.values()),
+            minimap_tile_index,
             interface_tile_indices,
             interface_records,
         )
@@ -1817,6 +1908,10 @@ def validate_packaged_approved_sprite_cam(
     first_private = len(stock_tiles)
     if any(entry.data for entry in output_tiles[:first_private]):
         raise ValueError("Packaged CAM overwrites a retail TILE slot")
+    if minimap_tile_index < first_private or minimap_tile_index >= len(output_tiles):
+        raise ValueError("Packaged Alchemist minimap TILE is not private")
+    if output_tiles[minimap_tile_index].data != stock_tiles[MINIMAP_SOURCE_TILE].data:
+        raise ValueError("Packaged Alchemist minimap TILE is not an exact stock clone")
     if sorted(private_tile_indices.values()) != list(
         range(first_private, first_private + (APPROVED_SLOT_END - APPROVED_SLOT_START))
     ):
@@ -1913,6 +2008,9 @@ def validate_packaged_approved_sprite_cam(
         expected_imag,
         interface_tile_indices,
     )
+    expected_imag = patch_stock_warrior_minimap_imag(
+        expected_imag, minimap_tile_index
+    )
     if packaged_imag != expected_imag:
         raise ValueError(
             "Packaged ALC1 IMAG differs from the audited Walk/Stand/interface remap"
@@ -1939,6 +2037,7 @@ def validate_packaged_approved_sprite_cam(
 def package_provenance(
     bundle: ApprovedSpriteBundle,
     private_tile_indices: dict[int, int],
+    minimap_record: dict[str, Any],
     interface_tile_indices: dict[int, int],
     interface_records: Sequence[dict[str, Any]],
     output_cam: Path,
@@ -1984,6 +2083,7 @@ def package_provenance(
                 },
             },
             "interface_frames": list(interface_records),
+            "minimap_frame": dict(minimap_record),
             "records": records,
             "output": {
                 "maindata_cam_sha256": sha256_file(output_cam),
@@ -2075,6 +2175,7 @@ def package_provenance(
         "source_hashes": bundle.source_hashes,
         "frames": records,
         "interface_frames": [dict(record) for record in interface_records],
+        "minimap_frame": dict(minimap_record),
         "output": {
             "maindata_cam": "Data/alchemist_maindata.cam",
             "maindata_cam_sha256": sha256_file(output_cam),

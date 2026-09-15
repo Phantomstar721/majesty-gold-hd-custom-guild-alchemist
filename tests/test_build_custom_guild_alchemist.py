@@ -497,6 +497,25 @@ class AlchemistGuildTests(unittest.TestCase):
                 sprite_bundle.sha256_bytes(output_tiles[private_index].data),
                 record["packaged_tile_sha256"],
             )
+        minimap_record = provenance["minimap_frame"]
+        minimap_private_index = minimap_record["private_tile_index"]
+        self.assertGreaterEqual(minimap_private_index, len(stock_tiles))
+        self.assertNotEqual(
+            minimap_private_index,
+            sprite_bundle.MINIMAP_SOURCE_TILE,
+        )
+        self.assertEqual(
+            output_tiles[minimap_private_index].data,
+            stock_tiles[sprite_bundle.MINIMAP_SOURCE_TILE].data,
+        )
+        self.assertEqual(
+            struct.unpack_from(
+                "<I",
+                packaged_imag,
+                sprite_bundle.EXPECTED_MINIMAP_IMAG_OFFSET,
+            )[0] & 0xFFFF,
+            minimap_private_index,
+        )
         self.assertGreater(len(output_tiles), len(stock_tiles))
         building_provenance = provenance["building_art"]
         self.assertEqual(
@@ -1170,6 +1189,58 @@ class AlchemistGuildTests(unittest.TestCase):
             [patch["offset"] for patch in bundle.imag_patches],
         )
         self.assertEqual(len(changed_offsets), 378)
+
+    def test_alchemist_minimap_is_one_private_stock_clone_not_mx_ratapult(self) -> None:
+        repo = Path(__file__).resolve().parents[1]
+        stock = art_package.load_stock_pipeline(repo)
+        retail = Path(
+            r"C:\Program Files (x86)\Steam\steamapps\common\Majesty HD\Data\maindata.cam"
+        )
+        mx = retail.parent.parent / "DataMX" / "mx_maindata.cam"
+        warrior_imag = stock.read_cam_entry(
+            retail, b"IMAG", art_package.HERO_SOURCE
+        ).data
+        retail_tiles = stock.read_cam_entries(retail, b"TILE")
+        mx_tiles = stock.read_cam_entries(mx, b"TILE")
+        self.assertEqual(sprite_bundle.MINIMAP_SET_ID, 300)
+        self.assertEqual(sprite_bundle.MINIMAP_SOURCE_TILE, 3729)
+        self.assertEqual(
+            sprite_bundle.sha256_bytes(
+                retail_tiles[sprite_bundle.MINIMAP_SOURCE_TILE].data
+            ),
+            sprite_bundle.MINIMAP_TILE_SHA256,
+        )
+        self.assertEqual(
+            sprite_bundle.sha256_bytes(
+                mx_tiles[sprite_bundle.MINIMAP_SOURCE_TILE].data
+            ),
+            sprite_bundle.MX_RATAPULT_COLLISION_TILE_SHA256,
+        )
+        self.assertNotEqual(
+            retail_tiles[sprite_bundle.MINIMAP_SOURCE_TILE].data,
+            mx_tiles[sprite_bundle.MINIMAP_SOURCE_TILE].data,
+        )
+
+        private_tile_index = 20000
+        patched = sprite_bundle.patch_stock_warrior_minimap_imag(
+            warrior_imag, private_tile_index
+        )
+        changed_offsets = [
+            offset
+            for offset in range(0, len(warrior_imag) - 3, 4)
+            if warrior_imag[offset : offset + 4] != patched[offset : offset + 4]
+        ]
+        self.assertEqual(
+            changed_offsets,
+            [sprite_bundle.EXPECTED_MINIMAP_IMAG_OFFSET],
+        )
+        self.assertEqual(
+            struct.unpack_from(
+                "<I", patched, sprite_bundle.EXPECTED_MINIMAP_IMAG_OFFSET
+            )[0] & 0xFFFF,
+            private_tile_index,
+        )
+        self.assertNotEqual(private_tile_index, sprite_bundle.MINIMAP_SOURCE_TILE)
 
     def test_approved_sprite_mode_is_explicit_and_cannot_use_regular_art_cache(self) -> None:
         source = Path(builder.__file__).read_text(encoding="utf-8")

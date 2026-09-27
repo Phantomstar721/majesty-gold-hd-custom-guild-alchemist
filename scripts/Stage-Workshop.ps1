@@ -57,6 +57,8 @@ if ($definition.mod_id -ne "{42ba4603-2b13-446d-a2a4-6cf3a55ddac3}") {
 }
 $requiredFeatureTypes = @(
     "stock.name-generator.v1",
+    "stock.typed-boolean-dispatch.v1",
+    "stock.bazaar-potion-policy.v1",
     "stock.ap78-enchantment-row.v1",
     "stock.ap78-enchantment-row.v1",
     "stock.ap10-ap69-secondary-panel.v1",

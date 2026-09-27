@@ -99,6 +99,8 @@ MANIFEST_FILENAME = f"{PACKAGE_NAME}.mmxml"
 MOD_DEFINITION_FILENAME = "mod-definition.json"
 RUNTIME_FEATURE_IDENTITIES = (
     ("stock.name-generator.v1", "NM18"),
+    ("stock.typed-boolean-dispatch.v1", "HeroCapability"),
+    ("stock.bazaar-potion-policy.v1", "alchemist_bazaar_potions"),
     ("stock.ap78-enchantment-row.v1", "ALo1"),
     ("stock.ap78-enchantment-row.v1", "ALo2"),
     ("stock.ap10-ap69-secondary-panel.v1", "brewing"),
@@ -108,7 +110,7 @@ RUNTIME_FEATURE_IDENTITIES = (
     ("stock.ap17-upgrade-research-gate.v1", "AlchemistsLaboratory"),
     ("stock.ap24-timed-rage-action.v1", "vigor-elixir"),
     ("stock.ap24-rage-command-action.v1", "arcane-infusion"),
-    ("stock.ap69-sovereign-target-action.v1", "philosophers-stone"),
+    ("stock.ap69-sovereign-target-action.v2", "philosophers-stone"),
 )
 DIALOG_ID = b"CGAL"
 SOURCE_DIALOG_ID = b"AP10"
@@ -820,11 +822,9 @@ def build_alchemist_economy(stock_purchase_equipment: Path) -> str:
         raise ValueError("Stock Purchase_Equipment weapon gate changed")
     oil_classification = (
         weapon_gate_anchor
-        + "\n\t// Weapon Oil is for every ordinary weapon-upgrading combatant."
-        + "\n\t// Upgrade_Weapon_Chance is a stock hero-class capability marker here,"
-        + "\n\t// not a second random purchase roll."
-        + "\n\tIf (($GetAttribute (ThisAgent, #ATTRIB_WeaponTypeIndex) > 0) &&"
-        + "\n\t\t(ThisAgent's \"Upgrade_Weapon_Chance\" > 0))"
+        + "\n\t// Weapon Oil uses the stock-derived weapon shopping capability unless"
+        + "\n\t// the hero package supplies an explicit typed HeroCapability answer."
+        + "\n\tIf ($Alchemist_Can_Use_Weapon_Oil (ThisAgent) == TRUE)"
         + "\n\t\tWants_Oil = TRUE;"
     )
     function = function.replace(weapon_gate_anchor, oil_classification, 1)
@@ -934,10 +934,9 @@ def build_alchemist_damage(stock_make_attack: Path) -> str:
 
 
 def build_alchemist_magic_bazaar(stock_magic_bazaar: Path) -> str:
-    """Privatize only Bazaar selection; retain the complete stock transaction."""
+    """Privatize Bazaar priority/range; retain its shared stock policy call."""
     source = stock_magic_bazaar.read_text(encoding="cp1252")
     purchase = extract_gpl_function(source, "Purchase_Bazaar")
-    check = extract_gpl_function(source, "Bazaar_Item_Check")
 
     stock_signature = (
         "Function Purchase_Bazaar ( agent ThisAgent, integer bazaar_chance ) is boolean"
@@ -973,34 +972,6 @@ def build_alchemist_magic_bazaar(stock_magic_bazaar: Path) -> str:
     purchase = purchase.replace(stock_order, private_order, 1)
     if purchase.count("$Bazaar_Item_Check") != 1:
         raise ValueError("Stock Purchase_Bazaar item-check call changed")
-    purchase = purchase.replace(
-        "$Bazaar_Item_Check", "$Alchemist_Bazaar_Item_Check", 1
-    )
-
-    stock_check_signature = (
-        "Function Bazaar_Item_Check ( agent ThisAgent, integer item, list potentials, integer Item_cost ) is boolean"
-    )
-    if check.count(stock_check_signature) != 1:
-        raise ValueError("Stock Bazaar_Item_Check signature changed")
-    check = check.replace(
-        stock_check_signature,
-        "Function Alchemist_Bazaar_Item_Check ( agent ThisAgent, integer item, list potentials, integer Item_cost ) is boolean",
-        1,
-    )
-    stock_fire_gate = (
-        '\t\tif (( thisagent\'s "title" != "ranger"  ) && '
-        '( thisagent\'s "title" != "rogue" ) && '
-        '( thisagent\'s "title" != "elf" ))'
-    )
-    private_fire_gate = (
-        '\t\tif (( thisagent\'s "title" != "ranger"  ) && '
-        '( thisagent\'s "title" != "rogue" ) && '
-        '( thisagent\'s "title" != "elf" ) && '
-        '( thisagent\'s "title" != "alchemist" ))'
-    )
-    if check.count(stock_fire_gate) != 1:
-        raise ValueError("Stock Bazaar fire-balm eligibility changed")
-    check = check.replace(stock_fire_gate, private_fire_gate, 1)
 
     nearby_purchase = purchase.replace(
         "Function Alchemist_Purchase_Bazaar",
@@ -1015,7 +986,7 @@ def build_alchemist_magic_bazaar(stock_magic_bazaar: Path) -> str:
     if nearby_purchase.count(stock_search) != 1:
         raise ValueError("Stock Bazaar intelligence search radius changed")
     nearby_purchase = nearby_purchase.replace(stock_search, nearby_search, 1)
-    return purchase + "\n\n" + nearby_purchase + "\n\n" + check + "\n"
+    return purchase + "\n\n" + nearby_purchase + "\n"
 
 
 def build_alchemist_nearby_equipment(stock_purchase_equipment: Path) -> str:
@@ -1245,26 +1216,45 @@ def build_alchemist_consumable_threat(
 
 declare
 \tlist Threats;
+\tlist Eligible_Threats;
 \tagent Target;
+\tagent Threat;
 \tinteger Base_Score;
 \tinteger Spell_Score;
 
 begin
-\t// Use the encounter list already owned by stock eval_enemies_nearby. Reward
-\t// targets have no Hostiles entry until contact, so the current target is the
-\t// stock-shaped fallback.
+\t// Stock list_eval receives list_enemies output: valid combatants whose
+\t// attacktype is consumed unconditionally by gettohit/gettoavoid. Hostiles is
+\t// persistent state, so preserve that exact input boundary before cloning the
+\t// stock score. Never pass lairs, buildings, stale agents or the hero itself.
 \tThreats = ThisAgent's "Hostiles";
-\tIf ($ListSize(Threats) == 0)
+\tForeach Threat in Threats do
+\t\tbegin
+\t\t\tIf ($NotValid(Threat) == False)
+\t\t\t\tbegin
+\t\t\t\t\tIf (Threat != ThisAgent)
+\t\t\t\t\t\tbegin
+\t\t\t\t\t\t\tIf ($HasAttribute ("attacktype", Threat))
+\t\t\t\t\t\t\t\tEligible_Threats << Threat;
+\t\t\t\t\t\tend
+\t\t\t\tend
+\t\tend
+
+\t// Reward targets have no Hostiles entry until contact. Reuse the current
+\t// target only when it satisfies the same stock combatant precondition.
+\tIf ($ListSize(Eligible_Threats) == 0)
 \t\tbegin
 \t\t\tTarget = ThisAgent's "Target";
 \t\t\tIf ($NotValid(Target))
 \t\t\t\treturn 0;
 \t\t\tIf (Target == ThisAgent)
 \t\t\t\treturn 0;
-\t\t\tThreats << Target;
+\t\t\tIf ($HasAttribute ("attacktype", Target) == False)
+\t\t\t\treturn 0;
+\t\t\tEligible_Threats << Target;
 \t\tend
 
-\tBase_Score = $Alchemist_Base_List_Eval(ThisAgent, Threats);
+\tBase_Score = $Alchemist_Base_List_Eval(ThisAgent, Eligible_Threats);
 \t// The stock evaluator counts every available spell at full flee-confidence
 \t// weight. That is correct for retreat behavior, but the Alchemist's private
 \t// 60 + 100 confidence made every finite combat flask invalid. Retain one
@@ -1315,10 +1305,9 @@ end'''
 
 
 def build_alchemist_shapeshift(stock_spells: Path) -> str:
-    """Clone stock Shapeshift Potion with one Alchemist-only Spider branch."""
+    """Privatize only the stock Shapeshift action and function names."""
     source = stock_spells.read_text(encoding="cp1252")
     effect = extract_gpl_function(source, "Shapeshift_Potion_Effect")
-    cleanup = extract_gpl_function(source, "Shapeshift_Potion_End")
 
     effect = effect.replace(
         "function Shapeshift_Potion_Effect",
@@ -1329,43 +1318,7 @@ def build_alchemist_shapeshift(stock_spells: Path) -> str:
     if effect.count(stock_spell) != 2:
         raise ValueError("Stock Shapeshift Potion spell-name contract changed")
     effect = effect.replace(stock_spell, f'"{ALCHEMIST_SHAPESHIFT_ACTION_NAME}"')
-
-    effect_anchor = '\tif ( thisagent\'s "AttackType" == 2 )'
-    if effect.count(effect_anchor) != 1:
-        raise ValueError("Stock Shapeshift Potion form dispatch changed")
-    spider_effect = (
-        '\tif ( title == "Alchemist" )\n'
-        "\t\tbegin // Alchemists become Giant Spiders.\n"
-        '\t\t\t$ChangeUnitType ( thisagent, "Giant_Spider" );\n'
-        "\t\t\t$adjustattribute ( thisagent, #ATTRIB_Armor_Basic_Damage, 5 );\n"
-        "\t\t\t$MagicalAdjustAttribute ( thisagent, #ATTRIB_HtoH, 10 );\n"
-        "\t\t\t$MagicalAdjustAttribute ( thisagent, #ATTRIB_Strength, 18 );\n"
-        "\t\t\t$MagicalAdjustAttribute ( thisagent, #ATTRIB_Vitality, 15 );\n"
-        "\t\t\t$adjustattribute ( thisagent, #ATTRIB_ActionRateModifier, -50 );\n"
-        "\t\t\t$adjustattribute ( thisagent, #ATTRIB_MaxHP, 30 );\n"
-        "\t\t\t$adjustattribute ( thisagent, #ATTRIB_HP, 30 );\n"
-        "\t\tend\n"
-        "\telse "
-    )
-    effect = effect.replace(effect_anchor, spider_effect + effect_anchor, 1)
-
-    cleanup_anchor = '\tif ( thisagent\'s "AttackType" == 2 )'
-    if cleanup.count(cleanup_anchor) != 1:
-        raise ValueError("Stock Shapeshift Potion cleanup dispatch changed")
-    spider_cleanup = (
-        '\tif ( title == "Alchemist" )\n'
-        "\t\tbegin // Revert from Giant Spider.\n"
-        "\t\t\t$adjustattribute (thisagent, #ATTRIB_Armor_Basic_Damage, -5 );\n"
-        "\t\t\t$MagicalAdjustAttribute ( thisagent, #ATTRIB_HtoH, -10 );\n"
-        "\t\t\t$MagicalAdjustAttribute ( thisagent, #ATTRIB_Strength, -18 );\n"
-        "\t\t\t$MagicalAdjustAttribute ( thisagent, #ATTRIB_Vitality, -15 );\n"
-        "\t\t\t$adjustattribute ( thisagent, #ATTRIB_ActionRateModifier, 50 );\n"
-        "\t\t\t$adjustattribute ( thisagent, #ATTRIB_MaxHP, -30 );\n"
-        "\t\tend\n"
-        "\telse "
-    )
-    cleanup = cleanup.replace(cleanup_anchor, spider_cleanup + cleanup_anchor, 1)
-    return effect + "\n\n" + cleanup + "\n"
+    return effect + "\n"
 
 
 def build_gpl_project(include_siege_test_fixture: bool) -> str:
@@ -4026,6 +3979,8 @@ def validate_output(
         raise ValueError("Mod Manager runtime features are missing")
     identity_fields = {
         "stock.name-generator.v1": "generator_id",
+        "stock.typed-boolean-dispatch.v1": "attribute",
+        "stock.bazaar-potion-policy.v1": "feature_key",
         "stock.ap78-enchantment-row.v1": "overlay_id",
         "stock.ap10-ap69-secondary-panel.v1": "panel_key",
         "stock.ap22-resource-meter.v1": "resource_key",
@@ -4033,7 +3988,7 @@ def validate_output(
         "stock.ap17-upgrade-research-gate.v1": "parent_building",
         "stock.ap24-timed-rage-action.v1": "action_key",
         "stock.ap24-rage-command-action.v1": "action_key",
-        "stock.ap69-sovereign-target-action.v1": "action_key",
+        "stock.ap69-sovereign-target-action.v2": "action_key",
     }
     try:
         runtime_feature_identities = tuple(
@@ -4047,6 +4002,68 @@ def validate_output(
     name_generator = runtime_features[0]
     if name_generator.get("name_tables") != ["HN69", "HN70", "HN71", "HN72"]:
         raise ValueError("Alchemist private name tables changed")
+    capability_dispatch = runtime_features[1]
+    if capability_dispatch != {
+        "type": "stock.typed-boolean-dispatch.v1",
+        "feature_key": "weapon_oil_capability_dispatch",
+        "attribute": "HeroCapability",
+        "parameter_types": ["agent", "string"],
+        "dispatch_symbol": "Alchemist_Dispatch_Hero_Capability",
+    }:
+        raise ValueError("Weapon Oil typed hero-capability dispatch changed")
+    bazaar_policy = runtime_features[2]
+    if bazaar_policy != {
+        "type": "stock.bazaar-potion-policy.v1",
+        "feature_key": "alchemist_bazaar_potions",
+        "hero_title": "Alchemist",
+        "potions": {
+            "speed": True,
+            "fire-balm": False,
+            "strength": True,
+            "regeneration": True,
+            "invisibility": True,
+            "shapeshift": True,
+        },
+        "shapeshift": {
+            "preset": "custom",
+            "unit_name": "Giant_Spider",
+            "adjustments": [
+                {
+                    "attribute": "ATTRIB_Armor_Basic_Damage",
+                    "amount": 5,
+                    "mode": "raw",
+                },
+                {"attribute": "ATTRIB_HtoH", "amount": 10, "mode": "magical"},
+                {
+                    "attribute": "ATTRIB_Strength",
+                    "amount": 18,
+                    "mode": "magical",
+                },
+                {
+                    "attribute": "ATTRIB_Vitality",
+                    "amount": 15,
+                    "mode": "magical",
+                },
+                {
+                    "attribute": "ATTRIB_ActionRateModifier",
+                    "amount": -50,
+                    "mode": "raw",
+                },
+                {"attribute": "ATTRIB_MaxHP", "amount": 30, "mode": "raw"},
+            ],
+            "heal": 30,
+        },
+        "private_actions": {
+            "strength": "alchemist_strength_potion",
+            "shapeshift": "alchemist_shapeshift_potion",
+            "fire-balm": "alchemist_fire_balm",
+            "regeneration": "alchemist_regeneration_elixer",
+        },
+    }:
+        raise ValueError("Alchemist Bazaar potion policy changed")
+    stone_feature = runtime_features[-1]
+    if stone_feature.get("callback_symbol") != "Philosophers_Stone_Hit":
+        raise ValueError("Philosopher's Stone exact source-target callback changed")
     if approved_sprite_test_set:
         provenance_path = output_root / APPROVED_SPRITE_PROVENANCE_NAME
         provenance = json.loads(provenance_path.read_text(encoding="utf-8"))
@@ -5654,6 +5671,22 @@ def validate_output(
         raise ValueError("Alchemist shopping lost the Call to Grave spacing boundary")
     if "expression #Alchemist_Funded_Resupply_Gold 2000" not in alchemist_tree:
         raise ValueError("Alchemist funded-resupply purse threshold changed")
+    kiting_compat = extract_gpl_function(
+        alchemist_tree, "Alchemist_Sync_Kiting_Compatibility"
+    )
+    for contract in (
+        '$HasAttribute("Should_Kite", ThisAgent)',
+        '$AddAttribute(ThisAgent, "Should_Kite", "boolean", False)',
+        'ThisAgent\'s "Should_Kite" = False',
+        '$HasAttribute("KitingTime", ThisAgent)',
+        '$AddAttribute(ThisAgent, "KitingTime", "integer", 0)',
+    ):
+        if contract not in kiting_compat:
+            raise ValueError(f"Alchemist kiting compatibility is missing: {contract}")
+    for owner in ("Alchemist_birth", "Alchemist_tree"):
+        owner_source = extract_gpl_function(alchemist_tree, owner)
+        if owner_source.count("$Alchemist_Sync_Kiting_Compatibility") != 1:
+            raise ValueError(f"{owner} lost its kiting compatibility initialization")
     embassy_source = (output_root / "GPL" / "Alchemist_Embassy.gpl").read_text(
         encoding="utf-8"
     )
@@ -5757,6 +5790,22 @@ def validate_output(
     )
     if bazaar_source != expected_bazaar_source:
         raise ValueError("Alchemist Bazaar shopping diverged from its stock clones")
+    if "$Alchemist_Bazaar_Item_Check" in bazaar_source:
+        raise ValueError("Alchemist Bazaar retained a private title-policy function")
+    if bazaar_source.count("$Bazaar_Item_Check") != 2:
+        raise ValueError("Alchemist Bazaar lost its shared stock policy calls")
+    shapeshift_source = (
+        output_root / "GPL" / "Alchemist_Shapeshift.gpl"
+    ).read_text(encoding="utf-8")
+    expected_shapeshift_source = build_alchemist_shapeshift(
+        stock_gplmx / "TaskModules" / "Subtasks" / "mx_Spells.gpl"
+    )
+    if shapeshift_source != expected_shapeshift_source:
+        raise ValueError("Alchemist Shapeshift action diverged from its stock clone")
+    if "function Shapeshift_Potion_End" in shapeshift_source:
+        raise ValueError("Alchemist package retained the shared Shapeshift cleanup owner")
+    if "Giant_Spider" in shapeshift_source:
+        raise ValueError("Alchemist package retained authored Shapeshift form policy")
     nearby_equipment_source = (
         output_root / "GPL" / "Alchemist_Nearby_Equipment.gpl"
     ).read_text(encoding="utf-8")
@@ -5770,6 +5819,61 @@ def validate_output(
         raise ValueError(
             "Alchemist nearby equipment shopping diverged from its stock clone"
         )
+    economy_source = (
+        output_root / "GPL" / "Alchemist_Economy.gpl"
+    ).read_text(encoding="utf-8")
+    expected_economy_source = build_alchemist_economy(
+        game_path
+        / "SDK"
+        / "OriginalQuests"
+        / "GPL"
+        / "DecisionTrees"
+        / "Modules"
+        / "Purchase_Equipment.gpl"
+    )
+    if economy_source != expected_economy_source:
+        raise ValueError("Alchemist equipment shopping diverged from its stock clone")
+    oil_source = (
+        output_root / "GPL" / "Alchemist_Weapon_Oil.gpl"
+    ).read_text(encoding="utf-8")
+    oil_eligibility = extract_gpl_function(
+        oil_source, "Alchemist_Can_Use_Weapon_Oil"
+    )
+    for contract in (
+        '$HasAttribute ("HeroCapability", ThisAgent)',
+        '$validfunction (ThisAgent\'s "HeroCapability")',
+        '$Alchemist_Dispatch_Hero_Capability',
+        '"weapon_oil"',
+        '#ATTRIB_WeaponTypeIndex',
+        'ThisAgent\'s "Upgrade_Weapon_Chance" > 0',
+    ):
+        if contract not in oil_eligibility:
+            raise ValueError(
+                f"Weapon Oil lost its generic hero-capability contract: {contract}"
+            )
+    if "Spellsinger" in oil_eligibility:
+        raise ValueError("Weapon Oil eligibility must not hardcode a hero class")
+    if economy_source.count("$Alchemist_Can_Use_Weapon_Oil") != 1:
+        raise ValueError("Weapon Oil shopping lost its class eligibility gate")
+    if nearby_equipment_source.count("$Alchemist_Can_Use_Weapon_Oil") != 2:
+        raise ValueError("Nearby Weapon Oil shopping lost its class eligibility gates")
+    for function_name, required in (
+        ("Alchemy_Oil_Check", ("$Alchemist_Can_Use_Weapon_Oil",)),
+        (
+            "Alchemy_Oil_Enchant_Equipment",
+            ("$Alchemist_Can_Use_Weapon_Oil", "$Reset_Tasks"),
+        ),
+        (
+            "Obtain_Alchemy_Oil",
+            ("$Alchemist_Can_Use_Weapon_Oil", "$Exit_Building", "$Reset_Tasks"),
+        ),
+    ):
+        function_source = extract_gpl_function(oil_source, function_name)
+        for contract in required:
+            if contract not in function_source:
+                raise ValueError(
+                    f"Weapon Oil {function_name} lost saved-visit exclusion: {contract}"
+                )
     priority_contract = (
         "$Alchemist_Return_Full_Reagent_Load(thisagent)",
         "$Alchemist_Purchase_Nearby_Equipment(thisagent)",
@@ -5921,14 +6025,42 @@ def validate_output(
             raise ValueError(
                 "Monster Reagents retained a non-stock inventory-item path"
             )
-    stone_effect_call = (
-        '$CreateEffector ( thisagent, "philosophers_stone_hit_effector", 0 );'
+    stone_function = extract_gpl_function(reagent_source, "Philosophers_Stone_Hit")
+    stone_signature = (
+        "function Philosophers_Stone_Hit ( agent Spell, agent SourceBuilding, "
+        "agent ClickedTarget )"
     )
-    stone_gold_call = '$CreateEffector ( thisagent, "Got_Gold", 0, 3000 );'
+    if stone_signature not in reagent_source:
+        raise ValueError(
+            "Philosopher's Stone lost its exact source-target callback signature"
+        )
+    for reconstructed_target in (
+        "$compile_enemies",
+        "$Pick_Closest",
+        "list nearby",
+        "list eligible",
+    ):
+        if reconstructed_target in stone_function:
+            raise ValueError(
+                "Philosopher's Stone reconstructed a target instead of using the stock click"
+            )
+    if (
+        "$Alchemist_Is_Protected_Transmutation_Target ( ClickedTarget ) == TRUE"
+        not in stone_function
+        or "$Alchemist_Consume_Reagent_Stock ( SourceBuilding, 10 ) == FALSE"
+        not in stone_function
+    ):
+        raise ValueError(
+            "Philosopher's Stone lost its exact target policy or source-owned debit"
+        )
+    stone_effect_call = (
+        '$CreateEffector ( Spell, "philosophers_stone_hit_effector", 0 );'
+    )
+    stone_gold_call = '$CreateEffector ( Spell, "Got_Gold", 0, 3000 );'
     stone_effect_offset = reagent_source.find(stone_effect_call)
     stone_gold_offset = reagent_source.find(stone_gold_call)
     stone_attack_offset = reagent_source.find(
-        "$spelldamage ( $nullagent(), target, 100000, 100000 );",
+        "$spelldamage ( $nullagent(), ClickedTarget, 100000, 100000 );",
         stone_effect_offset,
     )
     if (
@@ -5938,7 +6070,7 @@ def validate_output(
         or stone_gold_offset < 0
         or stone_attack_offset <= stone_effect_offset
         or reagent_source.find(
-            "$SetSpellUnitTimeout ( thisagent, 3500 );",
+            "$SetSpellUnitTimeout ( Spell, 3500 );",
             stone_attack_offset,
         ) <= stone_attack_offset
     ):
@@ -5969,6 +6101,28 @@ def validate_output(
         raise ValueError(
             "Laboratory data lost the private stock upgrade-completion slots"
         )
+    consumable_source = (
+        output_root / "GPL" / "Alchemist_Consumable_Threat.gpl"
+    ).read_text(encoding="utf-8")
+    consumable_check = extract_gpl_function(
+        consumable_source, ALCHEMIST_CONSUMABLE_VALIDATION
+    )
+    for contract in (
+        "Foreach Threat in Threats do",
+        "If ($NotValid(Threat) == False)",
+        "If (Threat != ThisAgent)",
+        '$HasAttribute ("attacktype", Threat)',
+        '$HasAttribute ("attacktype", Target) == False',
+        "$Alchemist_Base_List_Eval(ThisAgent, Eligible_Threats)",
+    ):
+        if contract not in consumable_check:
+            raise ValueError(
+                f"Alchemist consumable threat boundary lost stock precondition: {contract}"
+            )
+    if "$Alchemist_Base_List_Eval(ThisAgent, Threats)" in consumable_check:
+        raise ValueError(
+            "Alchemist consumable threat evaluator received unfiltered persistent state"
+        )
     compiled = output_root / "Data" / "Alchemist.bcd"
     if compiled.stat().st_size == 0:
         raise ValueError("Compiled Alchemist bytecode is empty")
@@ -5996,14 +6150,20 @@ def validate_output(
     ):
         if symbol not in compiled_symbols:
             raise ValueError(f"Compiled Alchemist bytecode lost Flash Flask symbol {symbol!r}")
+    for symbol in (
+        b"Alchemist_Sync_Kiting_Compatibility",
+        b"Should_Kite",
+        b"KitingTime",
+    ):
+        if symbol not in compiled_symbols:
+            raise ValueError(
+                f"Compiled Alchemist bytecode lost kiting compatibility symbol {symbol!r}"
+            )
     if b"Purchase_Equipment" not in compiled_symbols:
         raise ValueError("Compiled Alchemist bytecode lost its stock-derived economy gate")
     if b"Random_Hero_Type" not in compiled_symbols:
         raise ValueError("Compiled Alchemist bytecode lost Embassy/Outpost support")
-    for symbol in (
-        b"Alchemist_Purchase_Bazaar",
-        b"Alchemist_Bazaar_Item_Check",
-    ):
+    for symbol in (b"Alchemist_Purchase_Bazaar",):
         if symbol not in compiled_symbols:
             raise ValueError(f"Compiled Alchemist bytecode lost Bazaar symbol {symbol!r}")
     for symbol in (
@@ -6014,11 +6174,11 @@ def validate_output(
         b"Alchemist_Regeneration_Elixer_Effect",
         b"Alchemist_Base_List_Eval",
         b"alchemist_combat_consumable_check",
-        b"Shapeshift_Potion_End",
     ):
         if symbol not in compiled_symbols:
             raise ValueError(f"Compiled Alchemist bytecode lost potion symbol {symbol!r}")
     for symbol in (
+        b"Alchemist_Can_Use_Weapon_Oil",
         b"Alchemy_Oil_Check",
         b"Alchemy_Oil_Enchant_Equipment",
         b"Obtain_Alchemy_Oil",

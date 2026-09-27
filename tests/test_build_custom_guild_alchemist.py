@@ -38,6 +38,8 @@ class AlchemistGuildTests(unittest.TestCase):
         )
         identity_fields = {
             "stock.name-generator.v1": "generator_id",
+            "stock.typed-boolean-dispatch.v1": "attribute",
+            "stock.bazaar-potion-policy.v1": "feature_key",
             "stock.ap78-enchantment-row.v1": "overlay_id",
             "stock.ap10-ap69-secondary-panel.v1": "panel_key",
             "stock.ap22-resource-meter.v1": "resource_key",
@@ -45,7 +47,7 @@ class AlchemistGuildTests(unittest.TestCase):
             "stock.ap17-upgrade-research-gate.v1": "parent_building",
             "stock.ap24-timed-rage-action.v1": "action_key",
             "stock.ap24-rage-command-action.v1": "action_key",
-            "stock.ap69-sovereign-target-action.v1": "action_key",
+            "stock.ap69-sovereign-target-action.v2": "action_key",
         }
         self.assertEqual(
             tuple(
@@ -58,6 +60,40 @@ class AlchemistGuildTests(unittest.TestCase):
             definition["runtime_features"][0]["name_tables"],
             ["HN69", "HN70", "HN71", "HN72"],
         )
+        self.assertEqual(
+            definition["runtime_features"][1],
+            {
+                "type": "stock.typed-boolean-dispatch.v1",
+                "feature_key": "weapon_oil_capability_dispatch",
+                "attribute": "HeroCapability",
+                "parameter_types": ["agent", "string"],
+                "dispatch_symbol": "Alchemist_Dispatch_Hero_Capability",
+            },
+        )
+        self.assertEqual(
+            definition["runtime_features"][2]["potions"],
+            {
+                "speed": True,
+                "fire-balm": False,
+                "strength": True,
+                "regeneration": True,
+                "invisibility": True,
+                "shapeshift": True,
+            },
+        )
+        self.assertEqual(
+            set(definition["runtime_features"][2]),
+            {
+                "type",
+                "feature_key",
+                "hero_title",
+                "potions",
+                "shapeshift",
+                "private_actions",
+            },
+        )
+        stone = definition["runtime_features"][-1]
+        self.assertEqual(stone["callback_symbol"], "Philosophers_Stone_Hit")
 
     def test_building_v2_and_ready_overlay_contract_is_frozen(self) -> None:
         self.assertEqual(
@@ -1720,6 +1756,32 @@ class AlchemistGuildTests(unittest.TestCase):
         for cultist_only in ("$Build_Pack", "$Swarm", "$Seed_Resource_Check"):
             self.assertNotIn(cultist_only, source)
 
+    def test_alchemist_installs_misc_enhancements_kiting_contract(self) -> None:
+        source = (builder.GPL_SOURCE_ROOT / "Alchemist_Rogue.gpl").read_text(
+            encoding="utf-8"
+        )
+        compatibility = builder.extract_gpl_function(
+            source, "Alchemist_Sync_Kiting_Compatibility"
+        )
+        self.assertIn('$HasAttribute("Should_Kite", ThisAgent)', compatibility)
+        self.assertIn(
+            '$AddAttribute(ThisAgent, "Should_Kite", "boolean", False)',
+            compatibility,
+        )
+        self.assertIn('ThisAgent\'s "Should_Kite" = False', compatibility)
+        self.assertIn('$HasAttribute("KitingTime", ThisAgent)', compatibility)
+        self.assertIn(
+            '$AddAttribute(ThisAgent, "KitingTime", "integer", 0)',
+            compatibility,
+        )
+        self.assertNotIn('"Should_Kite", "boolean", True', compatibility)
+        for owner in ("Alchemist_birth", "Alchemist_tree"):
+            owner_source = builder.extract_gpl_function(source, owner)
+            self.assertEqual(
+                owner_source.count("$Alchemist_Sync_Kiting_Compatibility"),
+                1,
+            )
+
     def test_alchemist_uses_haunt_proven_speed_and_spell_confidence_paths(self) -> None:
         source = (builder.GPL_SOURCE_ROOT / "Alchemist_Rogue.gpl").read_text(
             encoding="utf-8"
@@ -1777,7 +1839,8 @@ class AlchemistGuildTests(unittest.TestCase):
         source = builder.build_alchemist_magic_bazaar(stock)
         self.assertIn("Function Alchemist_Purchase_Bazaar", source)
         self.assertIn("Function Alchemist_Purchase_Nearby_Bazaar", source)
-        self.assertIn("Function Alchemist_Bazaar_Item_Check", source)
+        self.assertEqual(source.count("$Bazaar_Item_Check"), 2)
+        self.assertNotIn("Function Alchemist_Bazaar_Item_Check", source)
         self.assertNotIn("Function Purchase_Bazaar", source)
         self.assertNotIn("Function Bazaar_Item_Check", source)
         positions = [
@@ -1785,12 +1848,11 @@ class AlchemistGuildTests(unittest.TestCase):
             for name in ("Five", "Six", "Two", "Four", "Three", "One")
         ]
         self.assertEqual(positions, sorted(positions))
-        self.assertIn("thisagent's \"title\" != \"alchemist\"", source)
+        self.assertNotIn('thisagent\'s "title" != "alchemist"', source)
         for stock_owner in (
             "$Researched_Item",
             "$Get_Bazaar_Cost",
             "$Use_Building",
-            "$SetBuyerIntent",
         ):
             self.assertIn(stock_owner, source)
         self.assertIn(
@@ -1916,35 +1978,51 @@ class AlchemistGuildTests(unittest.TestCase):
         self.assertIn("If (Base_Score < 1)", threat)
         self.assertIn("ThisAgent's \"Hostiles\"", threat)
         self.assertIn("function alchemist_combat_consumable_check", threat)
+        validation = builder.extract_gpl_function(
+            threat, "alchemist_combat_consumable_check"
+        )
+        self.assertIn("Foreach Threat in Threats do", validation)
+        self.assertIn("If ($NotValid(Threat) == False)", validation)
+        self.assertIn("If (Threat != ThisAgent)", validation)
+        self.assertIn('$HasAttribute ("attacktype", Threat)', validation)
+        self.assertIn('$HasAttribute ("attacktype", Target) == False', validation)
+        self.assertEqual(validation.count("Eligible_Threats <<"), 2)
+        self.assertIn(
+            "$Alchemist_Base_List_Eval(ThisAgent, Eligible_Threats)", validation
+        )
+        self.assertNotIn(
+            "$Alchemist_Base_List_Eval(ThisAgent, Threats)", validation
+        )
         self.assertIn("function Alchemist_Fire_Balm_Effect", threat)
         self.assertIn("function Alchemist_Regeneration_Elixer_Effect", threat)
         self.assertNotIn('$ForgetSpell ( ThisAgent, "Fire_Balm" )', threat)
         self.assertNotIn('$ForgetSpell ( ThisAgent, "Regeneration_Elixer" )', threat)
 
-    def test_alchemist_shapeshift_clones_stock_with_spider_stat_branch(self) -> None:
+    def test_alchemist_shapeshift_is_literal_private_action_clone(self) -> None:
         stock = Path(
             r"C:\Program Files (x86)\Steam\steamapps\common\Majesty HD\SDK\OriginalQuests"
             r"\GPLMx\TaskModules\Subtasks\mx_Spells.gpl"
         )
         source = builder.build_alchemist_shapeshift(stock)
         self.assertEqual(source.count("function Alchemist_Shapeshift_Potion_Effect"), 1)
-        self.assertEqual(source.count("function Shapeshift_Potion_End"), 1)
+        self.assertNotIn("function Shapeshift_Potion_End", source)
         self.assertIn(builder.ALCHEMIST_SHAPESHIFT_ACTION_NAME, source)
-        self.assertEqual(
-            source.count('$ChangeUnitType ( thisagent, "Giant_Spider" )'), 1
-        )
+        self.assertNotIn("Giant_Spider", source)
         for stock_form in ("Dryad", "Medusa", "Minotaur"):
             self.assertIn(f'$ChangeUnitType ( thisagent, "{stock_form}" )', source)
-        for gain, loss in (
-            ("#ATTRIB_Strength, 18", "#ATTRIB_Strength, -18"),
-            ("#ATTRIB_Vitality, 15", "#ATTRIB_Vitality, -15"),
-            ("#ATTRIB_MaxHP, 30", "#ATTRIB_MaxHP, -30"),
-            ("#ATTRIB_ActionRateModifier, -50", "#ATTRIB_ActionRateModifier, 50"),
-        ):
-            self.assertIn(gain, source)
-            self.assertIn(loss, source)
-        self.assertIn("$RevertUnitType ( thisagent )", source)
         self.assertIn("#ATTRIB_MaxHP, 40", source)
+        stock_effect = builder.extract_gpl_function(
+            stock.read_text(encoding="cp1252"), "Shapeshift_Potion_Effect"
+        )
+        expected = stock_effect.replace(
+            "function Shapeshift_Potion_Effect",
+            "function Alchemist_Shapeshift_Potion_Effect",
+            1,
+        ).replace(
+            '"Shapeshift_Potion"',
+            f'"{builder.ALCHEMIST_SHAPESHIFT_ACTION_NAME}"',
+        ) + "\n"
+        self.assertEqual(source, expected)
 
     def test_alchemist_unit_uses_only_private_alchemist_spells(self) -> None:
         game = Path(r"C:\Program Files (x86)\Steam\steamapps\common\Majesty HD")
@@ -2179,7 +2257,7 @@ end
         self.assertIn("$Alchemy_Oil_Check (ThisAgent,alchemyLabs)", generated)
         self.assertIn("Wants_Poison,Wants_Oil", generated)
         self.assertIn(
-            "ThisAgent's \"Upgrade_Weapon_Chance\" > 0", generated
+            "$Alchemist_Can_Use_Weapon_Oil (ThisAgent) == TRUE", generated
         )
         self.assertIn(
             "If (Wants_Oil && $Alchemy_Oil_Check (ThisAgent,alchemyLabs))",
@@ -2210,6 +2288,49 @@ end
         self.assertLess(
             generated.index("$Alchemy_Oil_Check"), generated.index("$Poison_Check")
         )
+
+    def test_weapon_oil_uses_generic_hero_capability_at_selection_and_saved_visits(self) -> None:
+        source = (builder.GPL_SOURCE_ROOT / "Alchemist_Weapon_Oil.gpl").read_text(
+            encoding="utf-8"
+        )
+        eligibility = builder.extract_gpl_function(
+            source, "Alchemist_Can_Use_Weapon_Oil"
+        )
+        self.assertIn('$HasAttribute ("HeroCapability", ThisAgent)', eligibility)
+        self.assertIn(
+            '$validfunction (ThisAgent\'s "HeroCapability") == True', eligibility
+        )
+        self.assertIn("$Alchemist_Dispatch_Hero_Capability", eligibility)
+        self.assertIn('"weapon_oil"', eligibility)
+        self.assertIn("#ATTRIB_WeaponTypeIndex", eligibility)
+        self.assertIn('ThisAgent\'s "Upgrade_Weapon_Chance" > 0', eligibility)
+        self.assertNotIn("Spellsinger", eligibility)
+
+        check = builder.extract_gpl_function(source, "Alchemy_Oil_Check")
+        self.assertIn("$Alchemist_Can_Use_Weapon_Oil", check)
+        self.assertLess(
+            check.index("$Alchemist_Can_Use_Weapon_Oil"),
+            check.index("$Total_Gold"),
+        )
+
+        entry = builder.extract_gpl_function(
+            source, "Alchemy_Oil_Enchant_Equipment"
+        )
+        self.assertIn("$Alchemist_Can_Use_Weapon_Oil", entry)
+        self.assertIn("$Reset_Tasks (ThisAgent)", entry)
+        self.assertLess(entry.index("$Reset_Tasks"), entry.index("$Enter_Building"))
+
+        transaction = builder.extract_gpl_function(source, "Obtain_Alchemy_Oil")
+        self.assertIn("$Alchemist_Can_Use_Weapon_Oil", transaction)
+        self.assertIn("$Exit_Building (ThisAgent, ThisBuilding)", transaction)
+        self.assertIn("$Reset_Tasks (ThisAgent)", transaction)
+        self.assertLess(transaction.index("$Reset_Tasks"), transaction.index("$Spend_Gold"))
+
+        stock = Path(
+            r"C:\Program Files (x86)\Steam\steamapps\common\Majesty HD\SDK\OriginalQuests\GPLMx\DecisionTrees\Modules\mx_Purchase_Equipment.gpl"
+        )
+        nearby = builder.build_alchemist_nearby_equipment(stock)
+        self.assertEqual(nearby.count("$Alchemist_Can_Use_Weapon_Oil"), 2)
 
     def test_weapon_oil_selects_private_coating_from_stock_greed(self) -> None:
         source = (builder.GPL_SOURCE_ROOT / "Alchemist_Weapon_Oil.gpl").read_text(
@@ -2900,7 +3021,11 @@ end
         ):
             self.assertNotIn(nonstock_inventory_contract, reagent_source)
         self.assertIn(
-            "$spelldamage ( $nullagent(), target, 100000, 100000 )",
+            "function Philosophers_Stone_Hit ( agent Spell, agent SourceBuilding, agent ClickedTarget )",
+            reagent_source,
+        )
+        self.assertIn(
+            "$spelldamage ( $nullagent(), ClickedTarget, 100000, 100000 )",
             reagent_source,
         )
         self.assertIn(
@@ -2908,12 +3033,21 @@ end
             reagent_source,
         )
         self.assertNotIn("Alchemical_Tempest", reagent_source)
-        self.assertIn("$compile_enemies ( thisagent, 45 )", reagent_source)
         stone_source = reagent_source.split(
             "function Philosophers_Stone_Hit", 1
         )[1]
+        self.assertNotIn("$compile_enemies", stone_source)
+        self.assertNotIn("$Pick_Closest", stone_source)
+        self.assertIn(
+            "$Alchemist_Is_Protected_Transmutation_Target ( ClickedTarget ) == TRUE",
+            stone_source,
+        )
+        self.assertIn(
+            "$Alchemist_Consume_Reagent_Stock ( SourceBuilding, 10 ) == FALSE",
+            stone_source,
+        )
         self.assertNotIn(
-            "$player_spell_attack ( target, 100000, 100000 )",
+            "$player_spell_attack ( ClickedTarget, 100000, 100000 )",
             stone_source,
         )
         self.assertNotIn(

@@ -391,55 +391,48 @@ begin
 end
 
 ///////////////////////////////////////////////////////////////////////////////
-function Philosophers_Stone_Hit ( agent thisagent, agent laboratory )
+function Philosophers_Stone_Hit ( agent Spell, agent SourceBuilding, agent ClickedTarget )
 ///////////////////////////////////////////////////////////////////////////////
-// Uses Lightning Storm's sovereign target-placement construction, narrowed to
-// the closest ordinary enemy at the clicked point. Protected quest agents
-// never consume stock. A successful transmutation gives the stock reward to
-// the Laboratory owner and then follows the target's ordinary death path.
+// The Manager's v2 sovereign callback preserves Fervus Vines' exact clicked
+// enemy and Lightning Storm's created spell unit while independently carrying
+// the originating Laboratory. Protected or stale targets never consume stock.
+// A successful transmutation gives the stock reward to the Laboratory owner
+// and then follows the clicked target's ordinary death path.
 declare
-	list nearby, eligible;
-	agent target;
 begin
-	if ( $IsValidGamePiece ( laboratory ) == FALSE )
+	if ( $IsValidGamePiece ( SourceBuilding ) == FALSE )
 		begin
-			$SetSpellUnitTimeout ( thisagent, 1 );
+			$SetSpellUnitTimeout ( Spell, 1 );
 			return;
 		end
-	if ( laboratory's "title" != "AlchemistsLaboratory" ||
-		laboratory's "Level" < 3 )
+	if ( SourceBuilding's "title" != "AlchemistsLaboratory" ||
+		SourceBuilding's "Level" < 3 )
 		begin
-			$SetSpellUnitTimeout ( thisagent, 1 );
+			$SetSpellUnitTimeout ( Spell, 1 );
 			return;
 		end
-
-	nearby = $compile_enemies ( thisagent, 45 );
-	foreach target in nearby do
-		if ( $Alchemist_Is_Protected_Transmutation_Target ( target ) == FALSE )
-			eligible << target;
-	if ( $ListSize ( eligible ) == 0 )
+	if ( $Alchemist_Is_Protected_Transmutation_Target ( ClickedTarget ) == TRUE )
 		begin
-			$SetSpellUnitTimeout ( thisagent, 1 );
+			$SetSpellUnitTimeout ( Spell, 1 );
 			return;
 		end
-	target = $Pick_Closest ( thisagent, eligible );
-	if ( $Alchemist_Consume_Reagent_Stock ( laboratory, 10 ) == FALSE )
+	if ( $Alchemist_Consume_Reagent_Stock ( SourceBuilding, 10 ) == FALSE )
 		begin
-			$SetSpellUnitTimeout ( thisagent, 1 );
+			$SetSpellUnitTimeout ( Spell, 1 );
 			return;
 		end
 
-	$AdjustPlayerData ( laboratory, "gold", 3000 );
+	$AdjustPlayerData ( SourceBuilding, "gold", 3000 );
 	// Stock revenue callbacks grant gold, then create their numeric Got_Gold
 	// effector with the amount as argument 4. The selected monster dies in this
 	// callback, so Lightning Storm's surviving spell unit owns both that stock
 	// presentation and the private stock-29-frame transmutation impact at the target
 	// location.
-	$CreateEffector ( thisagent, "Got_Gold", 0, 3000 );
-	$CreateEffector ( thisagent, "philosophers_stone_hit_effector", 0 );
+	$CreateEffector ( Spell, "Got_Gold", 0, 3000 );
+	$CreateEffector ( Spell, "philosophers_stone_hit_effector", 0 );
 	// Stock player_spell_attack may resist before applying any damage. Stone
 	// already excludes protected targets, so enter the stock spelldamage path
 	// directly to preserve normal HP-zero death callbacks without that roll.
-	$spelldamage ( $nullagent(), target, 100000, 100000 );
-	$SetSpellUnitTimeout ( thisagent, 3500 );
+	$spelldamage ( $nullagent(), ClickedTarget, 100000, 100000 );
+	$SetSpellUnitTimeout ( Spell, 3500 );
 end

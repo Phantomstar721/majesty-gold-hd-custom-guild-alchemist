@@ -17,6 +17,24 @@ expression #Alchemist_Flash_Flask_Confidence 60
 expression #Alchemist_Stun_Serum_Confidence 100
 expression #Alchemist_Miasma_Mist_Confidence 30
 
+// Misc Enhancements extends stock Hero with these exact fields and reads them
+// directly from attackLogic. Install the same typed defaults when that Hero
+// extension is absent, while keeping this Warrior-style dagger fighter opted
+// out of kiting. Without the foreign combat routine the fields remain inert.
+Function Alchemist_Sync_Kiting_Compatibility(agent ThisAgent)
+
+Declare
+
+Begin
+	If ($HasAttribute("Should_Kite", ThisAgent) == False)
+		$AddAttribute(ThisAgent, "Should_Kite", "boolean", False);
+	Else
+		ThisAgent's "Should_Kite" = False;
+
+	If ($HasAttribute("KitingTime", ThisAgent) == False)
+		$AddAttribute(ThisAgent, "KitingTime", "integer", 0);
+End
+
 Function Alchemist_Compat_Phantom_Max_Haunt_Level(agent ThisAgent) is integer
 
 Declare
@@ -84,6 +102,7 @@ Declare
 
 Begin
 	$hero_birth(ThisAgent);
+	$Alchemist_Sync_Kiting_Compatibility(ThisAgent);
 	// Stock hero_birth gives every hero 50-99 StoredGold. Add the fixed
 	// Alchemist employment grant to that same stock-owned purse.
 	$AdjustAttribute(
@@ -235,6 +254,7 @@ function Alchemist_tree (agent thisagent)
 declare
 
 begin
+	$Alchemist_Sync_Kiting_Compatibility(thisagent);
 	$Alchemist_Sync_Speed_Profile(thisagent);
 
 	$createeffector(thisagent,"thought_bubble_think",#think_bubble_time);

@@ -14,6 +14,29 @@ expression #Alchemy_Transmutation_Greed 20
 expression #Alchemy_Weapon_Oil_Task 1
 
 ///////////////////////////////////////////////////////////////////////////////
+// Weapon Oil follows the stock equipment shopping capability gate. Custom hero
+// packages may own the final answer through Majesty Mod Manager's typed
+// HeroCapability provider; heroes without that provider retain the stock-derived
+// weapon type and weapon-upgrade eligibility.
+///////////////////////////////////////////////////////////////////////////////
+Function Alchemist_Can_Use_Weapon_Oil (agent ThisAgent) is boolean
+Declare
+Begin
+	If ($HasAttribute ("HeroCapability", ThisAgent))
+		begin
+			If ($validfunction (ThisAgent's "HeroCapability") == True)
+				return $Alchemist_Dispatch_Hero_Capability (
+					ThisAgent's "HeroCapability",
+					ThisAgent,
+					"weapon_oil"
+				);
+		end
+
+	return (($GetAttribute (ThisAgent, #ATTRIB_WeaponTypeIndex) > 0) &&
+		(ThisAgent's "Upgrade_Weapon_Chance" > 0));
+End
+
+///////////////////////////////////////////////////////////////////////////////
 // Literal stock Obtain_Poison transaction. WeaponPoisoned is the complete
 // native lifecycle; stock poison does not create an Enchantments presenter.
 ///////////////////////////////////////////////////////////////////////////////
@@ -37,6 +60,9 @@ Declare
 	integer Gold_Needed;
 
 Begin
+	If ($Alchemist_Can_Use_Weapon_Oil (ThisAgent) == False)
+		return False;
+
 	If ($HasAttribute ("AlchemyWeaponOilType", ThisAgent))
 		begin
 			If (ThisAgent's "AlchemyWeaponOilType" > 0)
@@ -88,6 +114,14 @@ Function Alchemy_Oil_Enchant_Equipment (agent ThisAgent)
 Declare
 
 Begin
+	// A save may resume an already-selected oil visit after its hero class has
+	// become ineligible. Use the stock task reset before entering the building.
+	If ($Alchemist_Can_Use_Weapon_Oil (ThisAgent) == False)
+		begin
+			$Reset_Tasks (ThisAgent);
+			return;
+		end
+
 	$Enter_Building (ThisAgent, ThisAgent's "Target");
 
 	$SetThreadInterval (ThisAgent's "ActiveScript", #Enchant_Equipment_Visit_Duration);
@@ -110,6 +144,16 @@ Declare
 
 Begin
 	ThisBuilding = ThisAgent's "Target";
+	// Complete the stock exit/reset half of Done_Enhancing_Equipment when a
+	// saved visit resumes from inside the Laboratory, without charging gold or
+	// presenting a weapon upgrade that never occurred.
+	If ($Alchemist_Can_Use_Weapon_Oil (ThisAgent) == False)
+		begin
+			$Exit_Building (ThisAgent, ThisBuilding);
+			ThisAgent's "Task_Number" = 0;
+			$Reset_Tasks (ThisAgent);
+			return;
+		end
 
 	Total_Gold = $Total_Gold (ThisAgent);
 

@@ -66,7 +66,7 @@ $requiredFeatureTypes = @(
     "stock.ap17-upgrade-research-gate.v1",
     "stock.ap24-timed-rage-action.v1",
     "stock.ap24-rage-command-action.v1",
-    "stock.ap69-sovereign-target-action.v1"
+    "stock.ap69-sovereign-target-action.v2"
 )
 if ((@($definition.runtime_features.type) -join "`n") -ne ($requiredFeatureTypes -join "`n")) {
     throw "Workshop package has an incomplete typed runtime feature contract."
@@ -75,6 +75,11 @@ $nameGenerator = @($definition.runtime_features)[0]
 if ($nameGenerator.generator_id -ne "NM18" -or
     (@($nameGenerator.name_tables) -join "`n") -ne (@("HN69", "HN70", "HN71", "HN72") -join "`n")) {
     throw "Workshop package has the wrong private Alchemist name generator."
+}
+$stoneFeature = @($definition.runtime_features)[-1]
+if ($stoneFeature.type -ne "stock.ap69-sovereign-target-action.v2" -or
+    $stoneFeature.callback_symbol -ne "Philosophers_Stone_Hit") {
+    throw "Workshop package has the wrong Philosopher's Stone source-target callback."
 }
 
 if (Test-Path -LiteralPath $target) {

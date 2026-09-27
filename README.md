@@ -76,8 +76,13 @@ stock Go Home check before another reward is accepted.
 
 Alchemists retain normal Marketplace, Blacksmith, Library, and Wizard Guild
 shopping. At a researched Magic Bazaar they prioritize Speed, Strength,
-Regeneration, Fire Balm, Shapeshift, and Invisibility according to combat need;
-their private Shapeshift form is a Giant Spider.
+Regeneration, Shapeshift, and Invisibility according to combat need. They do not
+buy Fire Balm, and their private Shapeshift form is a Giant Spider.
+
+The hero installs the typed `Should_Kite` and `KitingTime` fields expected by
+Misc Enhancements while explicitly remaining a non-kiting melee fighter. These
+fields are inert under stock combat, so the standalone Alchemist package keeps
+its ordinary dagger and spell behavior.
 
 ### Flash Flask — level 3
 
@@ -129,9 +134,12 @@ Weapon Oil research costs 250 gold, and a researched oil costs a visiting hero
 - Transmutation Oil grants its owner five gold on a successful weapon hit.
 
 Heroes with Greed above 20 choose Transmutation Oil; others choose Paralytic
-Oil. The current Alchemist oil appears in the hero Enchantments panel. Stock
-poison remains fully functional but has no Enchantments entry, matching its
-native lifecycle.
+Oil. By default, the stock weapon type and weapon-upgrade fields determine which
+heroes can buy it. Custom hero packages can explicitly opt each hero in or out
+by answering the typed `HeroCapability` key `weapon_oil`; the Alchemist package
+does not contain hero-name exceptions. The current Alchemist oil appears in the
+hero Enchantments panel. Stock poison remains fully functional but has no
+Enchantments entry, matching its native lifecycle.
 
 ### Phoenix Phial
 
@@ -158,11 +166,11 @@ benefit. A long purple enchanting ritual plays over the selected Lab.
 
 ### Philosopher's Stone
 
-Philosopher's Stone costs ten stored Reagents. It can transmute the closest
-ordinary hostile monster or enemy hero within 45 units of the chosen point,
-excluding quest-protected agents. The kingdom receives 3,000 gold, the target
-shows Majesty's Gold Gain presentation and a long transmutation effect, and the
-target then follows its normal death callbacks.
+Philosopher's Stone costs ten stored Reagents. It transmutes the exact selected
+ordinary hostile monster or enemy hero, excluding quest-protected agents. The
+kingdom receives 3,000 gold, the target shows Majesty's Gold Gain presentation
+and a long transmutation effect, and the target then follows its normal death
+callbacks.
 
 ## Guild and quest integration
 
@@ -185,7 +193,7 @@ and assets required for the new guild.
 | Area | Implementation |
 | --- | --- |
 | Package | One `.mmxml` manifest loading private CAM archives, XML descriptions, and compiled GPL |
-| Runtime | Manager v3 typed features declaring the private building, Brewing controller, oil rows, name generator, and stock-derived actions |
+| Runtime | Manager v3 typed features declaring the private building, Brewing controller, oil rows, name generator, per-hero Bazaar potion policy, and stock-derived actions |
 | Building | Marketplace lifecycle topology, original high-resolution indexed art, native TILE-v3 encoding, stock shadow controls, and the Krypta blocking footprint |
 | Interface | Private `CGAL` guild dialog and `CGBR` Brewing dialog cloned from stock controller families |
 | Rules | Stock-derived GPL compiled with Majesty's SDK compiler |

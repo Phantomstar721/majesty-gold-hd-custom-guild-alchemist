@@ -33,6 +33,8 @@ from alchemist_art_package import (
     PHOENIX_LIFECYCLE_ANIMATION_SET,
     PHOENIX_LIFECYCLE_CUSTOM,
     PHOENIX_LIFECYCLE_FRAMES,
+    PHOENIX_ITEM_LIST_ICON_CUSTOM,
+    PHOENIX_ITEM_LIST_ICON_SET,
     PHOENIX_VISIBLE_FRAMES,
     PARALYTIC_OIL_RESTRAINT_CUSTOM,
     PHILOSOPHERS_STONE_HIT_CUSTOM,
@@ -101,6 +103,7 @@ RUNTIME_FEATURE_IDENTITIES = (
     ("stock.name-generator.v1", "NM18"),
     ("stock.typed-boolean-dispatch.v1", "HeroCapability"),
     ("stock.bazaar-potion-policy.v1", "alchemist_bazaar_potions"),
+    ("stock.inventory-item-display.v1", "phoenix-phial-item"),
     ("stock.ap78-enchantment-row.v1", "ALo1"),
     ("stock.ap78-enchantment-row.v1", "ALo2"),
     ("stock.ap10-ap69-secondary-panel.v1", "brewing"),
@@ -220,6 +223,7 @@ PARALYTIC_OIL_STATUS_ID = "ALo1"
 PARALYTIC_OIL_STATUS_NAME = "alchemist_paralytic_weapon_oil_status"
 TRANSMUTATION_OIL_STATUS_ID = "ALo2"
 TRANSMUTATION_OIL_STATUS_NAME = "alchemist_transmutation_weapon_oil_status"
+WEAPON_OIL_STATUS_IMAGE_ID = "ALWI"
 POISONED_WEAPON_STATUS_ID = "ALo3"
 POISONED_WEAPON_STATUS_NAME = "alchemist_poisoned_weapon_status"
 ALCHEMIST_VIGOR_SOUND = "Alchy_Vigor"
@@ -1977,12 +1981,8 @@ def build_units_xml(stock_buildings_xml: Path, stock_characters_xml: Path) -> by
     return ET.tostring(output, encoding="utf-8", xml_declaration=False) + b"\n"
 
 
-def build_brewing_overlays_xml(
-    stock_overlays_xml: Path,
-    stock_mx_overlays_xml: Path,
-) -> bytes:
+def build_brewing_overlays_xml(stock_overlays_xml: Path) -> bytes:
     stock_root = ET.parse(stock_overlays_xml).getroot()
-    stock_mx_root = ET.parse(stock_mx_overlays_xml).getroot()
     source = stock_root.find('.//Description[@Name="Rage_icon"]')
     if source is None:
         raise ValueError("Stock Rage_icon overlay is missing")
@@ -2113,6 +2113,10 @@ def build_brewing_overlays_xml(
     # same non-Static ownership shape is valid for multiple Infinite effectors.
     # ALo3 remains description-only so old saves containing the retired poison
     # presenter can resolve it; no new GPL path creates it or exposes its row.
+    # AP78 owns the visible row icon through its fixed IX93 atlas, and
+    # NotVisibleInISOView suppresses this overlay in the world.  Majesty still
+    # resolves ImageIDBase while restoring the attached unit, so use the
+    # package-owned Weapon Oil IMAG that every Alchemist build already ships.
     status_source = stock_root.find(
         './/Description[@ID="CRB2"][@Name="vines_icon"]'
     )
@@ -2123,11 +2127,6 @@ def build_brewing_overlays_xml(
     )
     if charm_source is None:
         raise ValueError("Stock Charm multi-owner presenter is missing")
-    speed_icon_source = stock_mx_root.find(
-        './/Description[@ID="XR01"][@Name="Speed_Tonic_Icon"]'
-    )
-    if speed_icon_source is None:
-        raise ValueError("Stock Speed Tonic status art is missing")
     status_image = status_source.find("./Engine/ImageIDBase")
     status_menu = status_source.find("./Engine/Menu")
     if (
@@ -2168,7 +2167,9 @@ def build_brewing_overlays_xml(
         status.set("Name", status_name)
         status.set("Description", description)
         status_engine = status.find("./Engine")
-        status_engine.find("./ImageIDBase").set("value", "XR01")
+        status_engine.find("./ImageIDBase").set(
+            "value", WEAPON_OIL_STATUS_IMAGE_ID
+        )
         output.append(status)
     ET.indent(output, space="\t")
     return ET.tostring(output, encoding="utf-8", xml_declaration=False) + b"\n"
@@ -3981,6 +3982,7 @@ def validate_output(
         "stock.name-generator.v1": "generator_id",
         "stock.typed-boolean-dispatch.v1": "attribute",
         "stock.bazaar-potion-policy.v1": "feature_key",
+        "stock.inventory-item-display.v1": "feature_key",
         "stock.ap78-enchantment-row.v1": "overlay_id",
         "stock.ap10-ap69-secondary-panel.v1": "panel_key",
         "stock.ap22-resource-meter.v1": "resource_key",
@@ -4061,6 +4063,17 @@ def validate_output(
         },
     }:
         raise ValueError("Alchemist Bazaar potion policy changed")
+    phoenix_item_display = runtime_features[3]
+    if phoenix_item_display != {
+        "type": "stock.inventory-item-display.v1",
+        "feature_key": "phoenix-phial-item",
+        "item_id": PHOENIX_PHIAL_ITEM_ID,
+        "display_text": "Phoenix Phial",
+        "tooltip_text": "75% chance to revive after death",
+        "image_id": PHOENIX_ITEM_LIST_ICON_CUSTOM[:4].decode("ascii"),
+        "image_set": PHOENIX_ITEM_LIST_ICON_SET,
+    }:
+        raise ValueError("Phoenix Phial Items-list presentation changed")
     stone_feature = runtime_features[-1]
     if stone_feature.get("callback_symbol") != "Philosophers_Stone_Hit":
         raise ValueError("Philosopher's Stone exact source-target callback changed")
@@ -4597,7 +4610,8 @@ def validate_output(
             raise ValueError(f"Private oil status identity changed: {status_name}")
         if (
             status.find("./Engine/Menu").get("value") != "11"
-            or status.find("./Engine/ImageIDBase").get("value") != "XR01"
+            or status.find("./Engine/ImageIDBase").get("value")
+            != WEAPON_OIL_STATUS_IMAGE_ID
             or status.find('./Engine/Info[@value="Static"]') is not None
             or status.find('./Engine/Info[@value="NotVisibleInISOView"]') is None
             or status.find("./Game/StackPriority").get("value") != "0"
@@ -5232,6 +5246,7 @@ def validate_output(
         b"ALINrecipe icons",
         b"ALWIweapon oil icon",
         b"ALPIphial icon",
+        PHOENIX_ITEM_LIST_ICON_CUSTOM,
         b"ALSRalchemy progress",
         TACTICAL_CURSOR_CUSTOM,
     ):
@@ -5318,6 +5333,46 @@ def validate_output(
         raise ValueError("Private CUR1 changed stock Lightning cursor set 1014")
 
     interface_tile_entries = read_cam_entries(interface_art, b"TILE")
+    phoenix_item_icon = read_cam_entry(
+        interface_art, b"IMAG", PHOENIX_ITEM_LIST_ICON_CUSTOM
+    ).data
+    expected_item_icon_set = [1, 0, 0, 256] + [0] * 12 + [
+        68,
+        0,
+        65537,
+        0,
+        0,
+        65536,
+        0,
+        0,
+        0,
+    ]
+    if (
+        phoenix_item_icon[:20] != struct.pack("<5I", 4, 0, 0, 0, 0)
+        or len(phoenix_item_icon) != 132
+        or struct.unpack_from("<III", phoenix_item_icon, 20)
+        != (1, PHOENIX_ITEM_LIST_ICON_SET, 32)
+    ):
+        raise ValueError("Phoenix Items-list icon lost the stock INTn IMAG shape")
+    phoenix_item_icon_values = list(struct.unpack_from("<25I", phoenix_item_icon, 32))
+    phoenix_item_tile_index = phoenix_item_icon_values[-1]
+    phoenix_item_icon_values[-1] = 0
+    if phoenix_item_icon_values != expected_item_icon_set:
+        raise ValueError("Phoenix Items-list icon changed stock frame metadata")
+    if phoenix_item_tile_index >= len(interface_tile_entries):
+        raise ValueError("Phoenix Items-list icon references a missing TILE")
+    phoenix_item_tile_entry = interface_tile_entries[phoenix_item_tile_index]
+    phoenix_item_tile = phoenix_item_tile_entry.data
+    if (
+        not phoenix_item_tile_entry.name.rstrip(b"\x00").startswith(b"ALFI")
+        or len(phoenix_item_tile) != 1058 + 24 * 24
+        or struct.unpack_from("<10H", phoenix_item_tile, 0)[:8]
+        != (1, 24, 24, 24, 0, 0, 0, 0)
+        or struct.unpack_from("<10H", phoenix_item_tile, 0)[8] > 255
+        or struct.unpack_from("<10H", phoenix_item_tile, 0)[9] != 0
+        or not any(phoenix_item_tile[26 : 26 + 24 * 24])
+    ):
+        raise ValueError("Phoenix Items-list icon is not a private 24x24 indexed TILE")
     disabled_plate_names = {
         b"ALBB" + f"{group[2]:05d}".encode("ascii")
         for group in RECIPE_PRIVATE_PLATE_TILE_GROUPS
@@ -5409,6 +5464,7 @@ def validate_output(
         b"ALIN",
         b"ALWI",
         b"ALPI",
+        b"ALFI",
         b"ALSR",
         b"ALCS",
     )
@@ -6265,10 +6321,7 @@ def build(
         build_units_xml(sdk_data / "M_Buildings.xml", sdk_data / "M_Characters.xml")
     )
     (data_dir / "alchemist_brewing_overlays.xml").write_bytes(
-        build_brewing_overlays_xml(
-            sdk_data / "M_Overlays.xml",
-            game_path / "SDK" / "OriginalQuests" / "DataMX" / "MX_Overlays.xml",
-        )
+        build_brewing_overlays_xml(sdk_data / "M_Overlays.xml")
     )
     (data_dir / "alchemist_brewing_sounds.xml").write_bytes(
         build_brewing_sounds_xml(sdk_data / "M_Sounds.xml")

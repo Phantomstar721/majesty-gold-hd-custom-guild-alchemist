@@ -56,6 +56,15 @@
       }
     },
     {
+      "type": "stock.inventory-item-display.v1",
+      "feature_key": "phoenix-phial-item",
+      "item_id": 113,
+      "display_text": "Phoenix Phial",
+      "tooltip_text": "75% chance to revive after death",
+      "image_id": "ALFI",
+      "image_set": 1019
+    },
+    {
       "type": "stock.ap78-enchantment-row.v1",
       "overlay_id": "ALo1",
       "display_text": "Paralytic Oil - brief stun on weapon hit"

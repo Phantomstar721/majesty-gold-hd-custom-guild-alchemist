@@ -82,6 +82,10 @@ TACTICAL_CURSOR_TEMPLATE_TILE_SHA256 = (
 RESEARCH_ICON_SOURCE = b"INCrresearch icon"
 RESEARCH_ICON_CUSTOM = b"ALWIweapon oil icon"
 PHOENIX_RESEARCH_ICON_CUSTOM = b"ALPIphial icon"
+PHOENIX_ITEM_LIST_ICON_SOURCE = b"INTnChar spell icon"
+PHOENIX_ITEM_LIST_ICON_CUSTOM = b"ALFIphial item icon"
+PHOENIX_ITEM_LIST_ICON_SET = 1019
+PHOENIX_ITEM_LIST_ICON_SOURCE_TILE = 361
 INVENTORY_ITEM_SOURCE = b"AVk4Res Item"
 INVENTORY_ITEM_CUSTOM = b"PXF1Phoenix Phial"
 PHOENIX_LIFECYCLE_SOURCE = b"HRC1resurrect_e"
@@ -1228,6 +1232,32 @@ def privateize_interface_imag_tiles(
                     ((encoded & 0xFFFF0000) | private_index).to_bytes(4, "little")
                 )
     return bytes(patched)
+
+
+def single_interface_imag_set(imag: bytes, set_id: int) -> bytes:
+    """Retain one stock interface set with its payload byte-for-byte literal."""
+    if len(imag) < 24:
+        raise ValueError("Interface IMAG is too short for an animation-set table")
+    set_count = int.from_bytes(imag[20:24], "little")
+    table_end = 24 + set_count * 8
+    if set_count <= 0 or table_end > len(imag):
+        raise ValueError("Interface IMAG has an invalid animation-set table")
+    entries = [
+        (
+            int.from_bytes(imag[24 + index * 8 : 28 + index * 8], "little"),
+            int.from_bytes(imag[28 + index * 8 : 32 + index * 8], "little"),
+        )
+        for index in range(set_count)
+    ]
+    matches = [index for index, (candidate, _) in enumerate(entries) if candidate == set_id]
+    if len(matches) != 1:
+        raise ValueError(f"Interface IMAG expected one set {set_id}, found {len(matches)}")
+    index = matches[0]
+    start = entries[index][1]
+    end = entries[index + 1][1] if index + 1 < len(entries) else len(imag)
+    if start < table_end or end <= start or end > len(imag):
+        raise ValueError(f"Interface IMAG set {set_id} has invalid bounds")
+    return imag[:20] + struct.pack("<III", 1, set_id, 32) + imag[start:end]
 
 
 def load_stock_pipeline(repo: Path):
@@ -3275,6 +3305,9 @@ def write_interfacedata(repo: Path, game_data: Path, art_dir: Path, output: Path
     dialog_imag = stock.read_cam_entry(source, b"IMAG", BUILDING_DIALOG_SOURCE).data
     navigation_imag = stock.read_cam_entry(source, b"IMAG", NAVIGATION_SOURCE).data
     research_icon_imag = stock.read_cam_entry(source, b"IMAG", RESEARCH_ICON_SOURCE).data
+    phoenix_item_list_icon_imag = stock.read_cam_entry(
+        source, b"IMAG", PHOENIX_ITEM_LIST_ICON_SOURCE
+    ).data
     progress_imag = stock.read_cam_entry(source, b"IMAG", PROGRESS_SOURCE).data
     expansion_source = game_data.parent / "DataMX" / "mx_interfacedata.cam"
     expansion_tiles = stock.read_cam_entries(expansion_source, b"TILE")
@@ -3391,6 +3424,23 @@ def write_interfacedata(repo: Path, game_data: Path, art_dir: Path, output: Path
             )
         },
     )
+    phoenix_item_list_icon_imag = single_interface_imag_set(
+        phoenix_item_list_icon_imag, PHOENIX_ITEM_LIST_ICON_SET
+    )
+    phoenix_item_list_icon_imag = privateize_interface_imag_tiles(
+        phoenix_item_list_icon_imag,
+        tiles,
+        append,
+        b"ALFI",
+        {
+            PHOENIX_ITEM_LIST_ICON_SOURCE_TILE: stock.tile_v1_embedded_from_rgb(
+                tiles[PHOENIX_ITEM_LIST_ICON_SOURCE_TILE].data,
+                image_rgb(
+                    art_dir / "interface/phoenix-phial-item-100.png", (24, 24)
+                ),
+            )
+        },
+    )
     progress_imag = privateize_progress_imag(
         stock,
         progress_imag,
@@ -3437,6 +3487,10 @@ def write_interfacedata(repo: Path, game_data: Path, art_dir: Path, output: Path
                     stock.CamEntry(
                         stock.pad_name(PHOENIX_RESEARCH_ICON_CUSTOM),
                         phoenix_research_icon_imag,
+                    ),
+                    stock.CamEntry(
+                        stock.pad_name(PHOENIX_ITEM_LIST_ICON_CUSTOM),
+                        phoenix_item_list_icon_imag,
                     ),
                     stock.CamEntry(stock.pad_name(PROGRESS_CUSTOM), progress_imag),
                     stock.CamEntry(

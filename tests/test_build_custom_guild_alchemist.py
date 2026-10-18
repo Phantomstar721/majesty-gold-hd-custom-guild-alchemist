@@ -40,6 +40,7 @@ class AlchemistGuildTests(unittest.TestCase):
             "stock.name-generator.v1": "generator_id",
             "stock.typed-boolean-dispatch.v1": "attribute",
             "stock.bazaar-potion-policy.v1": "feature_key",
+            "stock.inventory-item-display.v1": "feature_key",
             "stock.ap78-enchantment-row.v1": "overlay_id",
             "stock.ap10-ap69-secondary-panel.v1": "panel_key",
             "stock.ap22-resource-meter.v1": "resource_key",
@@ -90,6 +91,20 @@ class AlchemistGuildTests(unittest.TestCase):
                 "potions",
                 "shapeshift",
                 "private_actions",
+            },
+        )
+        self.assertEqual(
+            definition["runtime_features"][3],
+            {
+                "type": "stock.inventory-item-display.v1",
+                "feature_key": "phoenix-phial-item",
+                "item_id": builder.PHOENIX_PHIAL_ITEM_ID,
+                "display_text": "Phoenix Phial",
+                "tooltip_text": "75% chance to revive after death",
+                "image_id": art_package.PHOENIX_ITEM_LIST_ICON_CUSTOM[:4].decode(
+                    "ascii"
+                ),
+                "image_set": art_package.PHOENIX_ITEM_LIST_ICON_SET,
             },
         )
         stone = definition["runtime_features"][-1]
@@ -2606,14 +2621,11 @@ end
             '</Engine><Game><DialogID value="0"/><StackPriority value="0"/>'
             '</Game></Description></Majesty>',
         )
-        mx_stock = '<Majesty><Description type="Unit" subType="Overlay" ID="XR01" Name="Speed_Tonic_Icon" Description="Speed Tonic"><Engine><Info value="Directionless"/><Info value="DontBlock"/><Menu value="11"/><ImageIDBase value="XR01"/><Script type="0" cProc="0" GPLFunction="Speed_Tonic_End"/><DefaultSound value="0"/></Engine><Game><DialogID value="0"/><StackPriority value="1"/></Game></Description><Description type="Unit" subType="Overlay" ID="XR30" Name="Frost_Field_Hit_Effector" Description="Frost Field"><Engine><Info value="Directionless"/><Info value="DontBlock"/><Menu value="11"/><ImageIDBase value="XR30"/><AttachmentPointID value="2"/><DefaultSound value="Frost_Field_hit"/></Engine><Game><DialogID value="0"/><StackPriority value="0"/><Flags value="TransparentToMouse"/></Game></Description></Majesty>'
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "M_Overlays.xml"
-            mx_path = Path(directory) / "MX_Overlays.xml"
             path.write_text(stock, encoding="utf-8")
-            mx_path.write_text(mx_stock, encoding="utf-8")
             output = ET.fromstring(
-                builder.build_brewing_overlays_xml(path, mx_path)
+                builder.build_brewing_overlays_xml(path)
             )
         overlay = output.find("Description")
         self.assertEqual(overlay.get("ID"), "AXE1")
@@ -2709,7 +2721,8 @@ end
         for status in statuses:
             self.assertEqual(status.find("./Engine/Menu").get("value"), "11")
             self.assertEqual(
-                status.find("./Engine/ImageIDBase").get("value"), "XR01"
+                status.find("./Engine/ImageIDBase").get("value"),
+                builder.WEAPON_OIL_STATUS_IMAGE_ID,
             )
             self.assertIsNotNone(
                 status.find('./Engine/Info[@value="NotVisibleInISOView"]')

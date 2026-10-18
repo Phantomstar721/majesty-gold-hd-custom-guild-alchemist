@@ -59,6 +59,7 @@ $requiredFeatureTypes = @(
     "stock.name-generator.v1",
     "stock.typed-boolean-dispatch.v1",
     "stock.bazaar-potion-policy.v1",
+    "stock.inventory-item-display.v1",
     "stock.ap78-enchantment-row.v1",
     "stock.ap78-enchantment-row.v1",
     "stock.ap10-ap69-secondary-panel.v1",
@@ -97,8 +98,24 @@ if (Test-Path -LiteralPath $target) {
 try {
     $contentPath = Join-Path $stage "content"
     New-Item -ItemType Directory -Path $contentPath -Force | Out-Null
-    Get-ChildItem -LiteralPath $package -Force |
-        Copy-Item -Destination $contentPath -Recurse -Force
+    Copy-Item -LiteralPath (Join-Path $package "CustomGuildAlchemist.mmxml") -Destination $contentPath -Force
+    Copy-Item -LiteralPath (Join-Path $package "mod-definition.json") -Destination $contentPath -Force
+    Copy-Item -LiteralPath (Join-Path $package "Data") -Destination $contentPath -Recurse -Force
+    [xml]$manifest = Get-Content -LiteralPath (Join-Path $package "CustomGuildAlchemist.mmxml") -Raw
+    foreach ($sourceNode in @($manifest.SelectNodes("//GPL/Source"))) {
+        $relativeSource = [string]$sourceNode.InnerText
+        $sourcePath = [IO.Path]::GetFullPath((Join-Path $package $relativeSource))
+        if (-not $sourcePath.StartsWith($package + [IO.Path]::DirectorySeparatorChar, [StringComparison]::OrdinalIgnoreCase)) {
+            throw "GPL source escaped the package root: $relativeSource"
+        }
+        if (-not (Test-Path -LiteralPath $sourcePath -PathType Leaf)) {
+            throw "Manifest GPL source is missing: $sourcePath"
+        }
+        $destinationPath = Join-Path $contentPath $relativeSource
+        $destinationDirectory = Split-Path -Parent $destinationPath
+        New-Item -ItemType Directory -Path $destinationDirectory -Force | Out-Null
+        Copy-Item -LiteralPath $sourcePath -Destination $destinationPath -Force
+    }
     Copy-Item -LiteralPath $instructionsSource -Destination (Join-Path $contentPath "START HERE.txt") -Force
     Copy-Item -LiteralPath $previewSource -Destination (Join-Path $stage "workshop-preview.jpg") -Force
 
@@ -150,6 +167,11 @@ try {
     $contentFiles = @(Get-ChildItem -LiteralPath $contentPath -Recurse -File -Force | Sort-Object FullName)
     if ($contentFiles.Count -lt 41) {
         throw "Workshop content is unexpectedly incomplete: $($contentFiles.Count) files"
+    }
+    foreach ($sourceNode in @($manifest.SelectNodes("//GPL/Source"))) {
+        if (-not (Test-Path -LiteralPath (Join-Path $contentPath ([string]$sourceNode.InnerText)) -PathType Leaf)) {
+            throw "Workshop content is missing a declared GPL source: $($sourceNode.InnerText)"
+        }
     }
     $manifestLines = foreach ($file in $contentFiles) {
         $relative = $file.FullName.Substring($contentPath.Length).TrimStart('\').Replace('\', '/')

@@ -165,6 +165,13 @@
       "price_control_id": 3402
     },
     {
+      "type": "stock.typed-boolean-provider.v1",
+      "feature_key": "kingdom_plague_cleanse_provider",
+      "attribute": "KingdomPlagueCleanse",
+      "parameter_types": ["agent", "integer", "boolean"],
+      "callback_symbol": "Alchemist_Request_Kingdom_Plague_Cleanse"
+    },
+    {
       "type": "stock.ap69-sovereign-target-action.v2",
       "panel_key": "brewing",
       "action_key": "philosophers-stone",

@@ -69,6 +69,7 @@ $requiredFeatureTypes = @(
     "stock.ap17-upgrade-research-gate.v1",
     "stock.ap24-timed-rage-action.v1",
     "stock.ap24-rage-command-action.v1",
+    "stock.typed-boolean-provider.v1",
     "stock.ap69-sovereign-target-action.v2"
 )
 if ((@($definition.runtime_features.type) -join "`n") -ne ($requiredFeatureTypes -join "`n")) {
@@ -83,6 +84,14 @@ $stoneFeature = @($definition.runtime_features)[-1]
 if ($stoneFeature.type -ne "stock.ap69-sovereign-target-action.v2" -or
     $stoneFeature.callback_symbol -ne "Philosophers_Stone_Hit") {
     throw "Workshop package has the wrong Philosopher's Stone source-target callback."
+}
+$plagueProvider = @($definition.runtime_features)[-2]
+if ($plagueProvider.type -ne "stock.typed-boolean-provider.v1" -or
+    $plagueProvider.feature_key -ne "kingdom_plague_cleanse_provider" -or
+    $plagueProvider.attribute -ne "KingdomPlagueCleanse" -or
+    (@($plagueProvider.parameter_types) -join "`n") -ne (@("agent", "integer", "boolean") -join "`n") -or
+    $plagueProvider.callback_symbol -ne "Alchemist_Request_Kingdom_Plague_Cleanse") {
+    throw "Workshop package has the wrong optional kingdom plague-cleanse provider."
 }
 
 if (Test-Path -LiteralPath $target) {

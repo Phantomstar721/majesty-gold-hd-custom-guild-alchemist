@@ -39,6 +39,7 @@ class AlchemistGuildTests(unittest.TestCase):
         identity_fields = {
             "stock.name-generator.v1": "generator_id",
             "stock.typed-boolean-dispatch.v1": "attribute",
+            "stock.typed-boolean-provider.v1": "attribute",
             "stock.bazaar-potion-policy.v1": "feature_key",
             "stock.inventory-item-display.v1": "feature_key",
             "stock.ap78-enchantment-row.v1": "overlay_id",
@@ -105,6 +106,16 @@ class AlchemistGuildTests(unittest.TestCase):
                     "ascii"
                 ),
                 "image_set": art_package.PHOENIX_ITEM_LIST_ICON_SET,
+            },
+        )
+        self.assertEqual(
+            definition["runtime_features"][-2],
+            {
+                "type": "stock.typed-boolean-provider.v1",
+                "feature_key": "kingdom_plague_cleanse_provider",
+                "attribute": "KingdomPlagueCleanse",
+                "parameter_types": ["agent", "integer", "boolean"],
+                "callback_symbol": "Alchemist_Request_Kingdom_Plague_Cleanse",
             },
         )
         stone = definition["runtime_features"][-1]
@@ -1425,6 +1436,21 @@ class AlchemistGuildTests(unittest.TestCase):
             self.assertIn(private_path, ignored)
         self.assertTrue((repo / "README.md").is_file())
         self.assertTrue((repo / "WORKSHOP.md").is_file())
+        self.assertTrue((repo / "docs" / "integration-contracts.md").is_file())
+
+    def test_workshop_staging_requires_exact_plague_provider(self) -> None:
+        repo = Path(__file__).resolve().parents[1]
+        staging = (repo / "scripts" / "Stage-Workshop.ps1").read_text(
+            encoding="utf-8"
+        )
+        for provider_contract in (
+            '"stock.typed-boolean-provider.v1"',
+            '"kingdom_plague_cleanse_provider"',
+            '"KingdomPlagueCleanse"',
+            '@("agent", "integer", "boolean")',
+            '"Alchemist_Request_Kingdom_Plague_Cleanse"',
+        ):
+            self.assertIn(provider_contract, staging)
 
     def test_append_bdep_is_idempotent(self) -> None:
         stock = b"AB01 : ABJ1\r\n"
@@ -2974,8 +3000,36 @@ end
             'laboratory\'s "num_resources" >= 10',
             '"alchemist_reagent_ready_effector"',
             '"Infinite"',
+            "function Alchemist_Request_Kingdom_Plague_Cleanse",
+            '$ListCompletedTitles ( Palace, "building", "AlchemistsLaboratory", -1 )',
+            "$building_level_complete ( Candidate ) == TRUE",
+            "$Alchemist_Consume_Reagent_Stock ( Laboratory, Amount ) == FALSE",
+            '$AdjustPlayerData ( Palace, "gold", -5000 );',
         ):
             self.assertIn(stock_resource_contract, reagent_source)
+        plague_provider = reagent_source.split(
+            "function Alchemist_Request_Kingdom_Plague_Cleanse", 1
+        )[1].split(
+            "function Alchemist_Is_Protected_Transmutation_Target", 1
+        )[0]
+        self.assertIn("Amount != 5", plague_provider)
+        self.assertIn("if ( Commit == FALSE )", plague_provider)
+        self.assertLess(
+            plague_provider.index("if ( Commit == FALSE )"),
+            plague_provider.index("$Alchemist_Consume_Reagent_Stock"),
+        )
+        self.assertLess(
+            plague_provider.index("$Alchemist_Consume_Reagent_Stock"),
+            plague_provider.index('$AdjustPlayerData ( Palace, "gold", -5000 );'),
+        )
+        for forbidden_async_or_consumer_reference in (
+            "$SetThreadInterval",
+            "$RunThread",
+            "$NewThread",
+            "Witch",
+            "Crucible",
+        ):
+            self.assertNotIn(forbidden_async_or_consumer_reference, plague_provider)
         infusion_source = reagent_source.split(
             "function Alchemist_Arcane_Infusion", 1
         )[1].split(

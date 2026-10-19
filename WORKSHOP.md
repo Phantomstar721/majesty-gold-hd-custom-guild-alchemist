@@ -44,6 +44,8 @@ raw Workshop packages together without the manager.
   for all current and future Alchemists
 - Philosopher's Stone, which converts ten Reagents and one ordinary enemy into
   3,000 kingdom gold
+- Optional support for a compatible Argent Crucible Plague Cleanse command,
+  paid by an Arcane-Infused level-3 Lab with five Reagents and 5,000 gold
 - Stock-shaped Visitors, Embassy, Outpost, research, upgrade, shopping,
   resurrection, progress, and cleanup behavior
 - Support for Original Majesty and Northern Expansion content
@@ -64,3 +66,8 @@ world art, interface art, spell effects, audio, text, and GPL behavior without
 replacing a retail guild. The Lab uses private Mod Manager building and Brewing
 controllers, a native CAM art package, stock palette-control shadows, and the
 larger stock Temple to Krypta blocking footprint.
+
+Argent Crucible is optional. Without it, the Alchemist Lab behaves normally.
+When a compatible Argent Crucible package is selected in the Mod Manager, it
+can use the Lab's Plague Cleanse provider. Older Alchemist packages simply leave
+that optional command unavailable and must never be charged for it.

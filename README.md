@@ -185,6 +185,26 @@ callbacks.
 - The package uses dataset `Any` for Original Majesty and Northern Expansion
   quests.
 
+### Optional kingdom Plague Cleanse provider
+
+The Alchemist package exposes the optional typed provider
+`KingdomPlagueCleanse(agent, integer, boolean)` for compatible mods such as
+Argent Crucible. It does not add a Cleanse command by itself and does not
+require Argent Crucible or a Witch Hunter guild.
+
+A compatible consumer can first request a side-effect-free quote, then commit
+the same request. The provider accepts only the five-Reagent recipe. It requires
+Arcane Infusion to be complete, at least one owned and fully completed level-3
+Alchemy Lab holding five Reagents, and 5,000 kingdom gold. A successful commit
+revalidates every condition, consumes five Reagents from one eligible Lab, and
+charges 5,000 gold without yielding between the two debits. The consumer owns
+the actual plague-cure lifecycle.
+
+The integration is optional in both directions. Without a compatible consumer,
+the provider is unused and the Alchemist mod behaves normally. A consumer used
+with an older Alchemist package that lacks this provider must leave its Cleanse
+command unavailable and must not charge gold or Reagents.
+
 ## Technical architecture
 
 The package follows Majesty's stock systems and privatizes only the identifiers
@@ -200,6 +220,9 @@ and assets required for the new guild.
 | Text | Private names, actions, help, interface strings, and live resource count |
 | Audio | Mono PCM game WAVs routed through stock-shaped sound descriptors |
 | Compatibility | Full stock building-dependency table plus one Palace-level Lab rule; private CAM and resource identifiers |
+
+The public cross-package contract is documented in
+[`docs/integration-contracts.md`](docs/integration-contracts.md).
 
 World art is stored in private IMAG records and appended TILE/SPLT slots rather
 than overwriting retail building art. The building family preserves native

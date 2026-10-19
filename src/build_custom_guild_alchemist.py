@@ -113,6 +113,7 @@ RUNTIME_FEATURE_IDENTITIES = (
     ("stock.ap17-upgrade-research-gate.v1", "AlchemistsLaboratory"),
     ("stock.ap24-timed-rage-action.v1", "vigor-elixir"),
     ("stock.ap24-rage-command-action.v1", "arcane-infusion"),
+    ("stock.typed-boolean-provider.v1", "KingdomPlagueCleanse"),
     ("stock.ap69-sovereign-target-action.v2", "philosophers-stone"),
 )
 DIALOG_ID = b"CGAL"
@@ -3981,6 +3982,7 @@ def validate_output(
     identity_fields = {
         "stock.name-generator.v1": "generator_id",
         "stock.typed-boolean-dispatch.v1": "attribute",
+        "stock.typed-boolean-provider.v1": "attribute",
         "stock.bazaar-potion-policy.v1": "feature_key",
         "stock.inventory-item-display.v1": "feature_key",
         "stock.ap78-enchantment-row.v1": "overlay_id",
@@ -4074,6 +4076,15 @@ def validate_output(
         "image_set": PHOENIX_ITEM_LIST_ICON_SET,
     }:
         raise ValueError("Phoenix Phial Items-list presentation changed")
+    plague_cleanse_provider = runtime_features[-2]
+    if plague_cleanse_provider != {
+        "type": "stock.typed-boolean-provider.v1",
+        "feature_key": "kingdom_plague_cleanse_provider",
+        "attribute": "KingdomPlagueCleanse",
+        "parameter_types": ["agent", "integer", "boolean"],
+        "callback_symbol": "Alchemist_Request_Kingdom_Plague_Cleanse",
+    }:
+        raise ValueError("Kingdom plague-cleanse provider contract changed")
     stone_feature = runtime_features[-1]
     if stone_feature.get("callback_symbol") != "Philosophers_Stone_Hit":
         raise ValueError("Philosopher's Stone exact source-target callback changed")
@@ -6018,6 +6029,60 @@ def validate_output(
             raise ValueError(
                 "Monster Reagents lost their stock carried-goodies lifecycle"
             )
+    plague_cleanse_function = extract_gpl_function(
+        reagent_source,
+        "Alchemist_Request_Kingdom_Plague_Cleanse",
+    )
+    for plague_cleanse_contract in (
+        "function Alchemist_Request_Kingdom_Plague_Cleanse ( agent Requester, integer Amount, boolean Commit ) is boolean",
+        "Amount != 5",
+        'Requester\'s "type" != "building"',
+        "$GetTruePalace ( Requester )",
+        "$UnitsAreSamePlayer ( Requester, Palace ) == FALSE",
+        "#ATTRIB_ResearchArrows",
+        '$ListCompletedTitles ( Palace, "building", "AlchemistsLaboratory", -1 )',
+        "$building_level_complete ( Candidate ) == TRUE",
+        'Candidate\'s "Level" == 3',
+        'Candidate\'s "num_resources" >= Amount',
+        '$GetPlayerData ( Palace, "gold" ) < 5000',
+        "if ( Commit == FALSE )",
+        "$Alchemist_Consume_Reagent_Stock ( Laboratory, Amount ) == FALSE",
+        '$AdjustPlayerData ( Palace, "gold", -5000 );',
+    ):
+        if plague_cleanse_contract not in plague_cleanse_function:
+            raise ValueError(
+                "Kingdom plague cleanse lost its provider-owned transaction: "
+                f"{plague_cleanse_contract}"
+            )
+    if any(
+        forbidden in plague_cleanse_function
+        for forbidden in (
+            "$SetThreadInterval",
+            "$RunThread",
+            "$NewThread",
+            "$PerformAction",
+            "Witch",
+            "Crucible",
+        )
+    ):
+        raise ValueError(
+            "Kingdom plague cleanse must remain a synchronous Alchemist-only provider"
+        )
+    plague_quote_offset = plague_cleanse_function.find("if ( Commit == FALSE )")
+    plague_reagent_offset = plague_cleanse_function.find(
+        "$Alchemist_Consume_Reagent_Stock ( Laboratory, Amount ) == FALSE"
+    )
+    plague_gold_offset = plague_cleanse_function.find(
+        '$AdjustPlayerData ( Palace, "gold", -5000 );'
+    )
+    if not (
+        plague_quote_offset >= 0
+        and plague_reagent_offset > plague_quote_offset
+        and plague_gold_offset > plague_reagent_offset
+    ):
+        raise ValueError(
+            "Kingdom plague cleanse quote or atomic debit order changed"
+        )
     ready_function = extract_gpl_function(
         reagent_source,
         "Alchemist_Update_Reagent_Ready_Effector",
@@ -6188,6 +6253,8 @@ def validate_output(
         raise ValueError("Compiled Alchemist bytecode lost its private Vigor symbol")
     if b"Alchemist_Arcane_Infusion" not in compiled_symbols:
         raise ValueError("Compiled Alchemist bytecode lost Arcane Infusion")
+    if b"Alchemist_Request_Kingdom_Plague_Cleanse" not in compiled_symbols:
+        raise ValueError("Compiled Alchemist bytecode lost plague-cleanse provider")
     for symbol in (
         b"Alchemist_Update_Reagent_Ready_Effector",
         b"Alchemist_Laboratory_Birth_Or_Upgrade",

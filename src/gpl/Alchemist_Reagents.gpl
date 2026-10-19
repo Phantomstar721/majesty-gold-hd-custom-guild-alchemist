@@ -306,6 +306,61 @@ begin
 end
 
 ///////////////////////////////////////////////////////////////////////////////
+function Alchemist_Request_Kingdom_Plague_Cleanse ( agent Requester, integer Amount, boolean Commit ) is boolean
+///////////////////////////////////////////////////////////////////////////////
+// Optional cross-package transaction provider.  A quote is side-effect free.
+// A commit repeats every eligibility check, then performs both debits without
+// yielding.  It intentionally has no consumer-package symbol reference, so a
+// selected Alchemist package remains independently loadable.
+declare
+	agent Palace;
+	agent Laboratory;
+	agent Candidate;
+	list Laboratories;
+begin
+	if ( Amount != 5 )
+		return FALSE;
+	if ( $IsValidGamePiece ( Requester ) == FALSE )
+		return FALSE;
+	if ( Requester's "type" != "building" || $IsDead ( Requester ) )
+		return FALSE;
+
+	Palace = $GetTruePalace ( Requester );
+	if ( $IsValidGamePiece ( Palace ) == FALSE )
+		return FALSE;
+	if ( Palace's "title" != "Palace" )
+		return FALSE;
+	if ( $UnitsAreSamePlayer ( Requester, Palace ) == FALSE )
+		return FALSE;
+	if ( $GetAttribute ( Palace, #ATTRIB_ResearchArrows ) == 0 )
+		return FALSE;
+	if ( $GetPlayerData ( Palace, "gold" ) < 5000 )
+		return FALSE;
+
+	Laboratories = $ListCompletedTitles ( Palace, "building", "AlchemistsLaboratory", -1 );
+	foreach Candidate in Laboratories do
+		begin
+			if ( $IsValidGamePiece ( Candidate ) &&
+				$IsDead ( Candidate ) == FALSE &&
+				$UnitsAreSamePlayer ( Candidate, Palace ) &&
+				$building_level_complete ( Candidate ) == TRUE &&
+				Candidate's "Level" == 3 &&
+				Candidate's "num_resources" >= Amount )
+				Laboratory = Candidate;
+		end
+
+	if ( $IsValidGamePiece ( Laboratory ) == FALSE )
+		return FALSE;
+	if ( Commit == FALSE )
+		return TRUE;
+
+	if ( $Alchemist_Consume_Reagent_Stock ( Laboratory, Amount ) == FALSE )
+		return FALSE;
+	$AdjustPlayerData ( Palace, "gold", -5000 );
+	return TRUE;
+end
+
+///////////////////////////////////////////////////////////////////////////////
 function Alchemist_Is_Protected_Transmutation_Target ( agent target ) is boolean
 declare
 begin

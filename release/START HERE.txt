@@ -16,3 +16,8 @@ prepared Alchemist game with the ordinary Steam executable.
 To play with Custom Guild: Phantoms Haunt, select both mods in Majesty Mod
 Manager and let it create one compatible profile. Do not enable both raw
 Workshop packages together.
+
+Argent Crucible is optional. When selected with a compatible release, its
+Plague Cleanse command can use an Arcane-Infused level-3 Alchemy Lab. An older
+Alchemist package without that provider leaves Cleanse unavailable and is not
+charged.
